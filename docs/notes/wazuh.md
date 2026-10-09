@@ -34,7 +34,31 @@ That is safe, but it costs savings. Planned improvement, in the guardrails and f
   A rule that requires `EventID` cannot fire on DNS logs.
 - For Wazuh, follow `<if_sid>` chains, so a child inherits its parent's scope.
 
-## Verification
+## Verification with `logtest` (crates/sluice-wazuh)
 
-These requirements only feed the guardrails. Exact Wazuh verification uses the `PUT /logtest`
-API against a real manager (PLAN M1). It is not wired up yet. Ward's Wazuh can be used for it.
+`sluice analyze --wazuh-api https://manager:55000 --wazuh-user <user> [--wazuh-insecure]` (password
+in `WAZUH_API_PASSWORD`) spot-checks the selected recipes against the manager's real decoders and
+rules:
+
+- For every template with an enforced recipe, up to 5 forwarded and 5 summarized events are sent
+  to `PUT /logtest` as JSON (`log_format: json`, `location: sluice`).
+- A forwarded event must fire the same alerting rule as its original. A summarized event must
+  fire none.
+- Any difference rolls back that template's recipe (`Reason::StatelessRulesChanged`, contract
+  rule 5), and the Sigma proof is re-run.
+
+**API facts** (from the Wazuh 4.12 OpenAPI spec, verified 2026-10-09):
+
+- **Authentication:** `POST /security/user/authenticate` with basic auth returns `data.token` (a
+  JWT, valid 900 s).
+- **Request:** `PUT /logtest` with body `{event, log_format, location, token?}`.
+- **Response:** `data.{token, output.rule.{id, level}, alert, codemsg, messages}`. Only
+  `alert: true` counts. `rule.id` is a number in the spec example and a string in live
+  responses, and both are handled.
+- **Ending a session:** `DELETE /logtest/sessions/{token}`.
+- **Wazuh 5:** the `main` branch spec no longer contains `/logtest`, so this targets 4.x.
+- **State:** `logtest` keeps no frequency state, so stateful rules aren't exercised.
+
+**Not yet run live.** No API credentials or SSH keys are available on the development machine.
+Ward's Wazuh (192.168.1.9) uses `wazuh-logtest` over SSH; the API password is in the homelab sops
+file.

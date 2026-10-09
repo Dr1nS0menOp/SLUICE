@@ -42,6 +42,18 @@ pub struct FieldTest {
     pub case_sensitive: bool,
 }
 
+/// A free-text test: some value anywhere in the event contains one of `values`.
+///
+/// "Value" means every string, and every number as its decimal text, at any depth, including
+/// array members. Booleans and nulls never match. That is Sigma keyword semantics.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct KeywordTest {
+    /// Substrings to look for. The test passes if any value contains any of them.
+    pub values: Vec<String>,
+    /// Whether comparison is case-sensitive. Sigma keywords are case-insensitive.
+    pub case_sensitive: bool,
+}
+
 /// A boolean expression over field tests.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -54,6 +66,8 @@ pub enum Predicate {
     All(Vec<Predicate>),
     /// A test on one field.
     Field(FieldTest),
+    /// A free-text test over every value of the event.
+    Keywords(KeywordTest),
 }
 
 impl Predicate {

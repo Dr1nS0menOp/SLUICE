@@ -29,8 +29,10 @@ pub struct RuleRequirements {
     /// The rule matches on free text (Sigma keywords, Wazuh `<match>`/`<regex>` on the log), so
     /// the raw text of every applicable template must reach it unchanged.
     pub matches_raw_text: bool,
-    /// The rule counts or correlates events (Sigma correlations, Wazuh `frequency`). Removing
-    /// *any* event of an applicable type could change its result, so it protects the whole type.
+    /// The rule counts or correlates events (Sigma correlations, Wazuh `frequency`). Its result
+    /// depends on how many matching events arrive and in what order, so a reduction that removes,
+    /// merges or reorders events its pre-filter matches would change it. Rule-guided routing
+    /// forwards all of those unchanged (ADR 0004); a future de-duplication must not touch them.
     pub stateful: bool,
     /// Superset of the events this rule could match on its own.
     pub prefilter: Predicate,

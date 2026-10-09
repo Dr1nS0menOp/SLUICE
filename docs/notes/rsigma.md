@@ -70,3 +70,17 @@ including the fields inside `not filter` selections, which the safety contract r
 ## Licensing
 
 rsigma is MIT. SigmaHQ rule content is DRL and must not be vendored.
+
+## Differential test against pySigma
+
+`scripts/sigma-differential.sh` compares the requirements Sluice derives (`sluice rules
+requirements`) with pySigma 2.0.0 and fails only in the unsafe direction: a detection field
+Sluice does not require, keywords not marked as raw-text matching, a correlation's base rule not
+stateful or missing group-by fields, or a rule Sluice does not know at all. Alerts cannot be
+compared, because pySigma converts rules to queries and does not evaluate them.
+
+Result on 2026-10-09: the full SigmaHQ `rules/` tree (3152 rules, cloned at runtime because of
+the DRL license) shows no unsafe difference; Sluice requires more fields than pySigma for 4
+rules, which is the safe direction. A deliberately broken requirements file is caught.
+Locally, without root: `uv venv ~/.cache/sluice-pysigma && uv pip install pysigma` and
+`PYTHON=~/.cache/sluice-pysigma/bin/python`.

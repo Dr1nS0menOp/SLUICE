@@ -1,0 +1,12 @@
+id: microsoft/windows/sysmon/process-access
+description: Sysmon process access (event 10)
+match:
+  logsource: { product: windows, service: sysmon }
+  discriminators: { EventID: "10" }
+reductions:
+  - op: forward_matching
+    summary_keys: [SourceImage, TargetImage, GrantedAccess]
+rationale: >-
+  Most process access is routine handle activity between system processes. Access a rule could
+  match (for example LSASS reads) is forwarded in full; the rest is counted per source, target
+  and access mask.

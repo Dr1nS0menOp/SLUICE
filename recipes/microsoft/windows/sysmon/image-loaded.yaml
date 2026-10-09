@@ -1,0 +1,11 @@
+id: microsoft/windows/sysmon/image-loaded
+description: Sysmon image loaded (event 7)
+match:
+  logsource: { product: windows, service: sysmon }
+  discriminators: { EventID: "7" }
+reductions:
+  - op: forward_matching
+    summary_keys: [Image, ImageLoaded, Signed]
+rationale: >-
+  Image loads are Sysmon's noisiest event: every process loads the same system DLLs. Loads a rule
+  could match are forwarded in full; the rest are counted per process and module.

@@ -1,5 +1,5 @@
 use rsigma_parser::parse_sigma_yaml;
-use sluice_core::predicate::{FieldTest, MatchOp, Predicate};
+use sluice_core::predicate::{FieldTest, KeywordTest, MatchOp, Predicate};
 
 use super::{glob_match, rule_prefilter};
 
@@ -67,9 +67,16 @@ fn inner_wildcards_and_unsupported_modifiers_widen() {
 }
 
 #[test]
-fn keywords_are_unbounded() {
+fn keywords_become_free_text_tests() {
     assert_eq!(
-        prefilter("    keywords:\n        - 'evil'\n    condition: keywords\n"),
+        prefilter("    keywords:\n        - 'evil'\n        - '*bad*'\n    condition: keywords\n"),
+        Predicate::Keywords(KeywordTest {
+            values: vec!["evil".into(), "bad".into()],
+            case_sensitive: false,
+        })
+    );
+    assert_eq!(
+        prefilter("    keywords:\n        - 'a*b'\n    condition: keywords\n"),
         Predicate::Always
     );
 }

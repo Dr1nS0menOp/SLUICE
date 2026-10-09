@@ -1,0 +1,11 @@
+id: linux/auth/cron-session
+description: PAM session open/close for cron jobs
+match:
+  logsource: { product: linux, service: auth }
+  pattern: "CRON pam_unix(cron:session): session"
+reductions:
+  - op: summarize
+    summary_keys: [host.name]
+rationale: >-
+  Every scheduled job opens and closes a PAM session as root; the lines say nothing beyond "cron
+  ran". They are counted per host. If any rule could match one, it is forwarded in full.

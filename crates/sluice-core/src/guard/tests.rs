@@ -7,7 +7,7 @@ use crate::logsource::LogSource;
 use crate::predicate::{FieldTest, MatchOp};
 use crate::recipe::Provenance;
 use crate::rules::RequiredFields;
-use crate::template::TemplateStats;
+use crate::template::{TemplateShape, TemplateStats};
 
 fn windows_security() -> LogSource {
     LogSource {
@@ -23,6 +23,10 @@ fn template() -> Template {
         source: "windows-security".into(),
         logsource: windows_security(),
         pattern: "4625 failed logon".into(),
+        shape: TemplateShape::Keyset {
+            discriminators: vec![("EventID".into(), "4625".into())],
+            paths: BTreeSet::new(),
+        },
         fields: [
             "EventID",
             "TargetUserName",
@@ -180,7 +184,7 @@ fn c3_rule_guided_forwards_union_of_rule_prefilters() {
 }
 
 #[test]
-fn c3_stateful_rule_protects_the_whole_type() {
+fn c3_stateful_rule_keeps_every_event_it_could_count() {
     let mut burst = rule("burst", &["TargetUserName"], eq("EventID", "4625"));
     burst.stateful = true;
     let effective = guard(
@@ -188,11 +192,26 @@ fn c3_stateful_rule_protects_the_whole_type() {
         Some(&recipe(vec![forward_matching()])),
         ctx(&[burst]),
     );
+    // Every event the correlation could count is forwarded; the rest may be summarized (ADR 0004).
+    assert_eq!(
+        effective.route,
+        Route::ForwardMatching {
+            prefilter: eq("EventID", "4625"),
+            summary_keys: vec!["TargetUserName".into(), "IpAddress".into()],
+        }
+    );
+}
+
+#[test]
+fn c3_unbounded_stateful_rule_forwards_everything() {
+    let mut frequency = rule("frequency", &["srcip"], Predicate::Always);
+    frequency.stateful = true;
+    let effective = guard(
+        &template(),
+        Some(&recipe(vec![forward_matching()])),
+        ctx(&[frequency]),
+    );
     assert_eq!(effective.route, Route::ForwardAll);
-    assert!(matches!(
-        effective.adjustments[0].reason,
-        Reason::StatefulRule { .. }
-    ));
 }
 
 #[test]

@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 /// Event schemas are case-sensitive, and treating `user` and `User` as equal would hide a
 /// guardrail miss.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct FieldPath(String);
 

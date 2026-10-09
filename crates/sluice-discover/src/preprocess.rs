@@ -15,19 +15,39 @@ const MONTHS: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
-/// Tokens Drain clusters on: the program name (if a syslog header was found) followed by the
-/// masked content.
-pub(crate) fn content_tokens(line: &str) -> Vec<String> {
-    let tokens: Vec<&str> = line.split_whitespace().collect();
+/// A line prepared for clustering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Line {
+    /// The program name (unmasked, if a syslog header was found) followed by the masked content.
+    pub(crate) tokens: Vec<String>,
+    /// Whether a syslog header was found.
+    pub(crate) syslog: bool,
+}
+
+/// Splits off a syslog header, if any, and masks the content.
+pub(crate) fn line(text: &str) -> Line {
+    let tokens: Vec<&str> = text.split_whitespace().collect();
     match syslog_header_len(&tokens) {
         Some(header) => {
             let program = program_name(tokens[header - 1]);
-            std::iter::once(program.to_owned())
-                .chain(tokens[header..].iter().map(|t| mask::mask(t)))
-                .collect()
+            Line {
+                tokens: std::iter::once(program.to_owned())
+                    .chain(tokens[header..].iter().map(|t| mask::mask(t)))
+                    .collect(),
+                syslog: true,
+            }
         }
-        None => tokens.iter().map(|t| mask::mask(t)).collect(),
+        None => Line {
+            tokens: tokens.iter().map(|t| mask::mask(t)).collect(),
+            syslog: false,
+        },
     }
+}
+
+/// Just the tokens of [`line`].
+#[cfg(test)]
+pub(crate) fn content_tokens(text: &str) -> Vec<String> {
+    line(text).tokens
 }
 
 /// Number of header tokens (timestamp, host, `program[pid]:`), if the line has a syslog header.

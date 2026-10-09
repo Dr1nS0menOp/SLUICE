@@ -1,0 +1,11 @@
+id: microsoft/windows/sysmon/network-connection
+description: Sysmon network connection (event 3)
+match:
+  logsource: { product: windows, service: sysmon }
+  discriminators: { EventID: "3" }
+reductions:
+  - op: forward_matching
+    summary_keys: [Image, DestinationIp, DestinationPort]
+rationale: >-
+  Connections a rule could match are forwarded in full; the rest are counted per process and
+  destination.

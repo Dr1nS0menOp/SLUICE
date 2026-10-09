@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 /// Rules use it to say which data they apply to, and templates use it to say what they are. A
 /// missing attribute means "unknown" on a template and "any" on a rule.
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct LogSource {
     /// For example `windows` or `linux`.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -7,7 +7,7 @@ use sluice_core::event::{Event, encoded_size};
 use sluice_core::field::FieldPath;
 use sluice_core::ids::{SourceId, TemplateId};
 use sluice_core::logsource::LogSource;
-use sluice_core::template::{Template, TemplateStats};
+use sluice_core::template::{LineHeader, Template, TemplateShape, TemplateStats};
 
 use crate::DiscoverConfig;
 use crate::flatten::{for_each_leaf, get};
@@ -55,6 +55,17 @@ impl Keyset {
                 .chain(self.paths.iter().map(String::as_str)),
         );
         template_id(&self.source, &label, hash)
+    }
+
+    pub(crate) fn shape(&self) -> TemplateShape {
+        TemplateShape::Keyset {
+            discriminators: self.discriminators.clone(),
+            paths: self
+                .paths
+                .iter()
+                .map(|p| FieldPath::new(p.as_str()))
+                .collect(),
+        }
     }
 
     pub(crate) fn pattern(&self) -> String {
@@ -112,6 +123,7 @@ pub(crate) struct Group {
     strings: BTreeMap<String, StringStats>,
     events: u64,
     bytes: u64,
+    header: Option<LineHeader>,
 }
 
 impl Group {
@@ -122,7 +134,26 @@ impl Group {
             strings: BTreeMap::new(),
             events: 0,
             bytes: 0,
+            header: None,
         }
+    }
+
+    /// Records whether a text line of this group had a syslog header.
+    pub(crate) fn note_header(&mut self, syslog: bool) {
+        let seen = if syslog {
+            LineHeader::Syslog
+        } else {
+            LineHeader::None
+        };
+        self.header = Some(match self.header {
+            None => seen,
+            Some(previous) if previous == seen => seen,
+            Some(_) => LineHeader::Mixed,
+        });
+    }
+
+    pub(crate) fn header(&self) -> LineHeader {
+        self.header.unwrap_or(LineHeader::None)
     }
 
     pub(crate) fn source(&self) -> &SourceId {
@@ -149,6 +180,7 @@ impl Group {
         self,
         id: TemplateId,
         pattern: String,
+        shape: TemplateShape,
         config: &DiscoverConfig,
     ) -> Template {
         let text_fields = self
@@ -166,6 +198,7 @@ impl Group {
             source: self.source,
             logsource: LogSource::default(),
             pattern,
+            shape,
             fields: self.fields,
             text_fields,
             stats: TemplateStats {
@@ -177,8 +210,15 @@ impl Group {
     }
 }
 
-/// Folds `other` into `existing` (both describe the same final template).
+/// Folds `other` into `existing` (both describe the same final template). Clusters that
+/// converged from lines with and without a syslog header get a `Mixed` header.
 pub(crate) fn merge(existing: &mut Template, other: &Template) {
+    if let (TemplateShape::Text { header: mine, .. }, TemplateShape::Text { header: theirs, .. }) =
+        (&mut existing.shape, &other.shape)
+        && mine != theirs
+    {
+        *mine = LineHeader::Mixed;
+    }
     existing.fields.extend(other.fields.iter().cloned());
     existing
         .text_fields

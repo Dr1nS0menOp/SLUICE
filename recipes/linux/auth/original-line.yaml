@@ -1,0 +1,9 @@
+id: linux/auth/original-line
+description: Linux auth log lines shipped with event.original
+match:
+  logsource: { product: linux, service: auth }
+reductions:
+  - op: drop_fields
+    fields: [event.original]
+rationale: >-
+  The shipper copies the raw line into both message and event.original; one copy is enough.

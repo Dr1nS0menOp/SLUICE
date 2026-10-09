@@ -11,7 +11,29 @@ name = "sluice"
 path = "src/main.rs"
 
 [dependencies]
+anyhow.workspace = true
+chrono.workspace = true
 clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+sluice-ai.workspace = true
+sluice-archive.workspace = true
+sluice-autopilot.workspace = true
+sluice-core.workspace = true
+sluice-mcp.workspace = true
+sluice-rules.workspace = true
+sluice-server.workspace = true
+sluice-synth.workspace = true
+sluice-vector.workspace = true
+sluice-wazuh.workspace = true
+tokio.workspace = true
+tracing-subscriber.workspace = true
+ureq.workspace = true
+
+[dev-dependencies]
+flate2.workspace = true
+rmcp = { workspace = true, features = ["client", "transport-child-process"] }
 
 [lints]
 workspace = true

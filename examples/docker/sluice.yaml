@@ -1,0 +1,52 @@
+# `sluice up` in a container (see compose.yaml): the demo's six HTTP sources, one file "SIEM".
+# The same as examples/up/sluice-up.yaml, with container paths and addresses reachable from
+# outside the container.
+
+listen: 0.0.0.0:8686
+vector_binary: /usr/local/bin/vector   # where the timberio/vector image installs it
+vector_config: /var/lib/sluice/vector.yaml
+archive_dir: /var/lib/sluice/archive
+data_dir: /var/lib/sluice/vector-data
+tap_rate: 1            # demo: tap every event; in production 1 in 10 or fewer
+cycle_secs: 30
+
+promotion:             # demo: enforce after one minute; production defaults are 24 h and 3
+  shadow_secs: 60
+  min_proofs: 2
+
+sources:
+  - id: windows-security
+    logsource: { product: windows, service: security }
+    format: { kind: json }
+    vector: &http
+      type: http_server
+      address: 0.0.0.0:9101
+      decoding: { codec: json }
+      framing: { method: newline_delimited }
+  - id: sysmon
+    logsource: { product: windows, service: sysmon }
+    format: { kind: json }
+    vector: { <<: *http, address: 0.0.0.0:9102 }
+  - id: linux-auth
+    logsource: { product: linux, service: auth }
+    format: { kind: text, field: message }
+    vector: { <<: *http, address: 0.0.0.0:9103 }
+  - id: firewall
+    logsource: { product: opnsense, service: filterlog, category: firewall }
+    format: { kind: json }
+    vector: { <<: *http, address: 0.0.0.0:9104 }
+  - id: dns
+    logsource: { product: unbound, category: dns }
+    format: { kind: json }
+    vector: { <<: *http, address: 0.0.0.0:9105 }
+  - id: nginx
+    logsource: { product: nginx, service: access }
+    format: { kind: text, field: message }
+    vector: { <<: *http, address: 0.0.0.0:9106 }
+
+# Replace with your SIEM: `sluice connect splunk` (or elastic, sentinel, chronicle, wazuh, http).
+destinations:
+  siem:
+    type: file
+    path: /var/lib/sluice/siem/%Y-%m-%d-%H.ndjson
+    encoding: { codec: json }

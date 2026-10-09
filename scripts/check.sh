@@ -24,4 +24,11 @@ else
     printf '\n==> deny: skipped (cargo-deny not installed)\n'
 fi
 
+if command -v vector >/dev/null 2>&1; then
+    step "vector (validate + unit tests against the real binary)"
+    bash "$(dirname "$0")/vector-check.sh"
+else
+    printf '\n==> vector: skipped (run scripts/install-vector.sh)\n'
+fi
+
 printf '\nAll gates passed.\n'

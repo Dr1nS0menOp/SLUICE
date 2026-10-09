@@ -1,0 +1,11 @@
+id: microsoft/windows/sysmon/rendered-message
+description: Sysmon events, every type
+match:
+  logsource: { product: windows, service: sysmon }
+reductions:
+  - op: drop_fields
+    fields: [Message]
+  - op: drop_empty_fields
+rationale: >-
+  Sysmon's rendered Message repeats every data field of the event verbatim, so it doubles the
+  event size without adding information.

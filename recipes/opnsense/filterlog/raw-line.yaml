@@ -1,0 +1,10 @@
+id: opnsense/filterlog/raw-line
+description: OPNsense filterlog events, every type
+match:
+  logsource: { product: opnsense, service: filterlog }
+reductions:
+  - op: drop_fields
+    fields: [event.original]
+  - op: drop_empty_fields
+rationale: >-
+  The raw CSV line is kept twice (message and event.original) next to the parsed fields.

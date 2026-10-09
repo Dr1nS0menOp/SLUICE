@@ -32,6 +32,58 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  vector:
+    name: Generated config against the real Vector
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: bash scripts/install-vector.sh
+      - run: PATH="$HOME/.local/bin:$PATH" bash scripts/vector-check.sh
+      - name: Live smoke test (sluice up + Vector, ~4 minutes)
+        run: PATH="$HOME/.local/bin:$PATH" bash scripts/live-smoke.sh 200
+
+  sigma-differential:
+    name: Rule requirements against pySigma (examples and SigmaHQ)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pysigma==2.0.0
+      - run: bash scripts/sigma-differential.sh
+      - run: bash scripts/sigma-differential.sh --sigmahq
+
+  package:
+    name: Static binaries and container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: bash scripts/install-zig.sh
+      - run: PATH="$HOME/.local/bin:$PATH" bash scripts/build-release.sh
+      - name: The static binary runs the demo
+        run: ./dist/sluice-*-x86_64-unknown-linux-musl demo --scale 2 --out /tmp/demo
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Image builds for both architectures
+        run: docker buildx build --platform linux/amd64,linux/arm64 .
+      - name: Image runs Sluice and its Vector
+        run: |
+          docker buildx build --platform linux/amd64 --load -t sluice:ci .
+          docker run --rm sluice:ci --version
+          docker run --rm --entrypoint /usr/local/bin/vector sluice:ci --version
+          docker run --rm sluice:ci demo --scale 2 --out /tmp/demo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sluice-linux-musl
+          path: dist/sluice-*
+
   deny:
     name: Supply chain (cargo-deny)
     runs-on: ubuntu-latest

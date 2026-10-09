@@ -1,0 +1,33 @@
+# Sluice with demo traffic in a container. From the repository root:
+#
+#   scripts/build-release.sh
+#   docker compose -f examples/docker/compose.yaml up --build
+#   sluice status                     # or: curl localhost:8686/status
+#
+# Secrets for real destinations (`sluice connect`) go in `environment`, never in sluice.yaml.
+
+services:
+  sluice:
+    build:
+      context: ../..
+    image: sluice:0.1.0
+    command:
+      - up
+      - --config
+      - /etc/sluice/sluice.yaml
+      - --rules
+      - /etc/sluice/rules/sigma
+      - --demo-traffic
+    volumes:
+      - ./sluice.yaml:/etc/sluice/sluice.yaml:ro
+      - ../rules:/etc/sluice/rules:ro
+      - sluice-data:/var/lib/sluice
+    ports:
+      - "127.0.0.1:8686:8686"
+      - "127.0.0.1:9101-9106:9101-9106"
+    # Sluice stops Vector gracefully on SIGTERM and waits up to 60 s for it to flush.
+    stop_grace_period: 75s
+    restart: unless-stopped
+
+volumes:
+  sluice-data:

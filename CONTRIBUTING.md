@@ -18,7 +18,7 @@ features. Read this before opening a pull request.
 Every gate must pass:
 
 ```sh
-./scripts/check.sh
+bash scripts/check.sh
 ```
 
 This runs `cargo fmt`, `cargo clippy` (pedantic, warnings are errors), the tests, `cargo doc` and

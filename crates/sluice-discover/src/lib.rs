@@ -24,7 +24,7 @@ use sluice_core::event::Event;
 use sluice_core::field::FieldPath;
 use sluice_core::ids::{EventId, SourceId, TemplateId};
 use sluice_core::source::{Source, SourceFormat};
-use sluice_core::template::Template;
+use sluice_core::template::{Template, TemplateShape};
 
 pub use crate::drain::DrainConfig;
 use crate::drain::{ClusterIndex, Drain};
@@ -101,36 +101,47 @@ impl Discoverer {
 
     /// Assigns one event to a template, creating or generalizing templates as needed.
     pub fn observe(&mut self, event: &Event) {
-        let key = self.group_key(event);
-        self.groups
+        let (key, header) = self.group_key(event);
+        let group = self
+            .groups
             .entry(key.clone())
-            .or_insert_with(|| Group::new(event.source.clone()))
-            .add(event);
+            .or_insert_with(|| Group::new(event.source.clone()));
+        group.add(event);
+        if let Some(syslog) = header {
+            group.note_header(syslog);
+        }
         *self.source_events.entry(event.source.clone()).or_default() += 1;
         self.assignments.push((event.id, key));
     }
 
-    fn group_key(&mut self, event: &Event) -> GroupKey {
-        let text_field = match self.sources.get(&event.source).map(|s| &s.format) {
-            Some(SourceFormat::Text { field }) => Some(field),
-            _ => None,
-        };
-        let line = text_field
+    /// The event's group, and for text lines whether they had a syslog header.
+    fn group_key(&mut self, event: &Event) -> (GroupKey, Option<bool>) {
+        let line = self
+            .text_field(&event.source)
             .and_then(|field| flatten::get(&event.fields, field))
             .and_then(serde_json::Value::as_str);
         match line {
-            Some(line) => {
+            Some(text) => {
+                let line = preprocess::line(text);
                 let drain = self
                     .drains
                     .entry(event.source.clone())
                     .or_insert_with(|| Drain::new(self.config.drain));
-                GroupKey::Cluster(
-                    event.source.clone(),
-                    drain.add(preprocess::content_tokens(line)),
-                )
+                let key = GroupKey::Cluster(event.source.clone(), drain.add(line.tokens));
+                (key, Some(line.syslog))
             }
             // JSON sources, and text events that lack their line: group by shape.
-            None => GroupKey::Keyset(Keyset::of(event, &self.config.discriminators)),
+            None => (
+                GroupKey::Keyset(Keyset::of(event, &self.config.discriminators)),
+                None,
+            ),
+        }
+    }
+
+    fn text_field(&self, source: &SourceId) -> Option<&FieldPath> {
+        match self.sources.get(source).map(|s| &s.format) {
+            Some(SourceFormat::Text { field }) => Some(field),
+            _ => None,
         }
     }
 
@@ -140,24 +151,38 @@ impl Discoverer {
         clippy::missing_panics_doc,
         reason = "the expects guard internal invariants that no caller input can break"
     )]
-    pub fn finish(self) -> Discovery {
+    pub fn finish(mut self) -> Discovery {
         let mut resolved: BTreeMap<GroupKey, TemplateId> = BTreeMap::new();
         let mut templates: BTreeMap<TemplateId, Template> = BTreeMap::new();
 
-        for (key, group) in self.groups {
-            let (id, pattern) = match &key {
-                GroupKey::Keyset(keyset) => (keyset.template_id(), keyset.pattern()),
+        let groups = std::mem::take(&mut self.groups);
+        for (key, group) in groups {
+            let (id, pattern, shape) = match &key {
+                GroupKey::Keyset(keyset) => {
+                    (keyset.template_id(), keyset.pattern(), keyset.shape())
+                }
                 GroupKey::Cluster(source, index) => {
                     let drain = self
                         .drains
                         .get(source)
                         .expect("a cluster key is only created by its source's drain");
-                    shape::cluster_identity(source, drain.template(*index))
+                    let field = self
+                        .text_field(source)
+                        .expect("a cluster key is only created for a text source")
+                        .clone();
+                    let tokens = drain.template(*index);
+                    let (id, pattern) = shape::cluster_identity(source, tokens);
+                    let shape = TemplateShape::Text {
+                        field,
+                        header: group.header(),
+                        tokens: tokens.to_vec(),
+                    };
+                    (id, pattern, shape)
                 }
             };
             let source = group.source().clone();
             let source_info = self.sources.get(&source);
-            let mut template = group.into_template(id.clone(), pattern, &self.config);
+            let mut template = group.into_template(id.clone(), pattern, shape, &self.config);
             template.logsource = source_info.map(|s| s.logsource.clone()).unwrap_or_default();
             if let Some(SourceFormat::Text { field }) = source_info.map(|s| &s.format) {
                 template.text_fields.insert(field.clone());

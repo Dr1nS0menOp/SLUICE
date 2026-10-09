@@ -1,5 +1,8 @@
 /target/
 
+# Release binaries from scripts/build-release.sh
+/dist/
+
 # Outputs written by `sluice demo` / `sluice analyze` when run from the repo root
 /out/
 

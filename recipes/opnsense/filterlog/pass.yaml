@@ -1,0 +1,11 @@
+id: opnsense/filterlog/pass
+description: OPNsense permitted packets
+match:
+  logsource: { product: opnsense, service: filterlog }
+  discriminators: { action: pass }
+reductions:
+  - op: forward_matching
+    summary_keys: [src_ip, dst_ip, dst_port, proto]
+rationale: >-
+  Permitted traffic is the bulk of firewall logs. Packets a rule could match are forwarded in
+  full; the rest are counted per flow tuple.
