@@ -1,5 +1,6 @@
 //! Field paths inside an event.
 
+use std::borrow::Borrow;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -42,6 +43,14 @@ impl FieldPath {
                 .0
                 .strip_prefix(&self.0)
                 .is_some_and(|rest| rest.starts_with('.'))
+    }
+}
+
+/// Lets sets and maps keyed by `FieldPath` be queried with a `&str`. Sound because ordering,
+/// equality and hashing all derive from the inner string.
+impl Borrow<str> for FieldPath {
+    fn borrow(&self) -> &str {
+        &self.0
     }
 }
 

@@ -1,0 +1,25 @@
+<!-- Example Wazuh rules for the Sluice demo. Written for this project. -->
+<group name="sluice,examples,">
+  <rule id="100100" level="5">
+    <field name="EventID">4625</field>
+    <description>Windows: an account failed to log on.</description>
+    <group>authentication_failed,</group>
+  </rule>
+
+  <rule id="100101" level="10" frequency="8" timeframe="120">
+    <if_matched_sid>100100</if_matched_sid>
+    <same_field>TargetUserName</same_field>
+    <description>Windows: multiple logon failures for one account.</description>
+  </rule>
+
+  <rule id="100110" level="5">
+    <match>Failed password for invalid user</match>
+    <description>sshd: login attempt for a non-existent user.</description>
+  </rule>
+
+  <rule id="100111" level="10" frequency="20" timeframe="120">
+    <if_matched_sid>100110</if_matched_sid>
+    <same_source_ip />
+    <description>sshd: brute force from one source.</description>
+  </rule>
+</group>

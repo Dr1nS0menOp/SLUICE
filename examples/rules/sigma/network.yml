@@ -1,0 +1,28 @@
+# Example Sigma rules for the Sluice demo. Written for this project; not derived from SigmaHQ.
+title: Lookup Of Known Malicious Domain
+id: 5c0f3b1e-8f0a-4d7e-9a61-2d4b8c1e7f21
+status: experimental
+description: A client resolved a domain on the demo block list.
+author: Sluice
+logsource:
+    category: dns
+detection:
+    selection:
+        query.name|endswith: '.badcdn.example'
+    condition: selection
+level: high
+---
+title: Web Path Traversal Attempt
+id: 5c0f3b1e-8f0a-4d7e-9a61-2d4b8c1e7f22
+status: experimental
+description: A request tried to escape the web root.
+author: Sluice
+logsource:
+    product: nginx
+detection:
+    keywords:
+        - '../'
+        - '..%2f'
+        - '%2e%2e/'
+    condition: keywords
+level: medium

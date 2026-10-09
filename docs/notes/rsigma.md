@@ -21,6 +21,27 @@ let n = res.iter().filter(|r| r.is_correlation()).count();
 - Verified: an `event_count` correlation (`gte: 3`, `group-by`, `timespan: 60s`) fires once on the
   third matching event.
 
+## Behaviour that matters for Sluice
+
+These were verified on 2026-10-09 against 0.24.0.
+
+- **Keywords scan every string value** of the event (`Event::any_string_value`), not one message
+  field. A keyword rule can therefore depend on any field: its requirements are
+  `RequiredFields::Unknown`.
+- **`generate` defaults to false.** Rules referenced by a correlation no longer alert on their
+  own; only the correlation alerts. This follows the Sigma spec. The proof compares whatever the
+  engine emits, so it stays correct, but don't expect base-rule alerts in tests.
+- **Logsource pruning is opt-in and conflict-based** (`set_logsource_extractor`). Absent
+  dimensions fail open, the same semantics as `LogSource::may_apply_to`. Sluice feeds the source's
+  log source through reserved fields (`__sluice.logsource.*`) via a wrapper `Event`, so the
+  engine scopes exactly like the guardrails.
+- **Unparseable documents** do not fail `parse_sigma_yaml`. They land in
+  `SigmaCollection::errors` and are silently absent from evaluation. Sluice turns each one into
+  an opaque requirement.
+- **Values:** `0x1010` unquoted in YAML is the integer 4112. Quote hex strings in rules.
+- **API changes since the spike:** names are `&str` in quick-xml 0.42, which is not rsigma, but
+  is noted here for the rules crate. The rsigma API itself was unchanged.
+
 ## AST (public, in `rsigma_parser::ast`)
 
 - `SigmaCollection { rules: Vec<SigmaRule>, .. }`. Correlations and filters are separate document

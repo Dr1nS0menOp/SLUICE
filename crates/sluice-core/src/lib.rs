@@ -10,6 +10,7 @@
 //! 2. Rule adapters describe each rule as [`rules::RuleRequirements`].
 //! 3. [`guard::guard`] applies the safety contract and yields a [`guard::EffectiveRecipe`].
 
+pub mod alert;
 pub mod event;
 pub mod field;
 pub mod guard;
@@ -18,4 +19,5 @@ pub mod logsource;
 pub mod predicate;
 pub mod recipe;
 pub mod rules;
+pub mod source;
 pub mod template;
