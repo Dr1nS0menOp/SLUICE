@@ -1,0 +1,2 @@
+# Sources are edited on Windows and built on Linux: normalize to LF everywhere.
+* text=auto eol=lf

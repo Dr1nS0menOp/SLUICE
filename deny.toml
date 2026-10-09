@@ -1,0 +1,42 @@
+# cargo-deny: supply-chain gate (licenses, advisories, bans, sources).
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+# The allow-list anticipates upcoming dependencies (vrl, rsigma, …); unused entries are fine.
+unused-allowed-license = "allow"
+# Permissive and weak-copyleft licenses that are compatible with either candidate project
+# license (Apache-2.0 or AGPL-3.0). Adding to this list needs a reason in the PR.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",       # vrl
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[licenses.private]
+# Our own crates are `publish = false` until the project license is decided.
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
