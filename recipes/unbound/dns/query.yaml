@@ -1,0 +1,11 @@
+id: unbound/dns/query
+description: Unbound resolver queries
+match:
+  logsource: { product: unbound, category: dns }
+reductions:
+  - op: drop_fields
+    fields: [dns.question, dns.response_code, dns.resolved_ip]
+  - op: drop_empty_fields
+rationale: >-
+  The ECS-style dns object repeats query, response_code and the answer data that the event
+  already carries at the top level.

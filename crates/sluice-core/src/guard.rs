@@ -93,11 +93,6 @@ pub enum Reason {
         /// One rule that needs it.
         rule: RuleId,
     },
-    /// A rule counts or correlates events of this type, so no event may be removed.
-    StatefulRule {
-        /// The rule.
-        rule: RuleId,
-    },
     /// A rule's pre-filter cannot be bounded, so every event could match.
     UnboundedRule {
         /// The rule.
@@ -105,6 +100,16 @@ pub enum Reason {
     },
     /// Rules apply to the template, so L3 summarizing is narrowed to rule-guided forwarding.
     SemanticOnCoveredTemplate,
+    /// A spot check with the SIEM's own rules (such as Wazuh `logtest`) found a different result
+    /// on a reduced event, so the recipe was rolled back.
+    StatelessRulesChanged,
+    /// The shadow proof found different alerts on forwarded data, so the recipe was rolled back.
+    DetectionChanged {
+        /// Alerts raised on full data but not on forwarded data.
+        missing: usize,
+        /// Alerts raised only on forwarded data.
+        extra: usize,
+    },
 }
 
 /// One refusal or narrowing of a proposal.
@@ -406,29 +411,24 @@ impl Protection {
 /// Route for L2 and L3: forward the union of what applicable rules could match.
 ///
 /// With no applicable rule, the union is empty and every event goes to summaries. That is
-/// exactly L3. Any stateful or unbounded rule forces `ForwardAll`.
+/// exactly L3. Any unbounded rule forces `ForwardAll`.
+///
+/// Stateful rules need no special case here (ADR 0004): a correlation or frequency rule counts
+/// only events its own conditions match, every such event is inside its pre-filter, and the
+/// route forwards all of them unchanged and in order.
 fn rule_guided_route(
     applicable: &[&RuleRequirements],
     summary_keys: &[FieldPath],
     level: Level,
     adjustments: &mut Vec<Adjustment>,
 ) -> Route {
-    for rule in applicable {
-        let reason = if rule.stateful {
-            Reason::StatefulRule {
-                rule: rule.rule.clone(),
-            }
-        } else if rule.prefilter.is_always() {
-            Reason::UnboundedRule {
-                rule: rule.rule.clone(),
-            }
-        } else {
-            continue;
-        };
+    if let Some(rule) = applicable.iter().find(|rule| rule.prefilter.is_always()) {
         adjustments.push(Adjustment {
             contract: ContractRule::RuleMatchesForwarded,
             level: Some(level),
-            reason,
+            reason: Reason::UnboundedRule {
+                rule: rule.rule.clone(),
+            },
         });
         return Route::ForwardAll;
     }

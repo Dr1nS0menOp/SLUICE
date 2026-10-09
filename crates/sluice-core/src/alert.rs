@@ -25,6 +25,22 @@ pub struct Alert {
 #[error("rule engine failed: {0}")]
 pub struct EngineError(pub String);
 
+/// Evaluates rules on one event at a time, without state (for example Wazuh `logtest`).
+///
+/// Used for spot checks where a full [`RuleEngine`] is not available: the rules an original
+/// event fires are compared with those its reduced form fires.
+pub trait EventRules {
+    /// The rules that alert on this event body.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError`] if the rules cannot be evaluated; the check then fails closed.
+    fn fired(
+        &self,
+        fields: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<BTreeSet<RuleId>, EngineError>;
+}
+
 /// Evaluates detection rules over a sequence of events.
 ///
 /// Implementations must be deterministic: the same events give the same alerts. Events arrive in

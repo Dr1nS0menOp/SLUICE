@@ -33,10 +33,86 @@ These rules are enforced in code, and AI output can never override them:
 4. Rare is never cut.
 5. Every cut is proven before it is enforced, and is re-verified continuously afterwards.
 
+## Try it
+
+```sh
+cargo build --release
+./target/release/sluice demo --scale 100
+```
+
+The demo generates an hour of synthetic traffic from a small company network (Windows Security,
+Sysmon, Linux auth, a firewall, DNS and nginx) with six planted attacks, and runs the autopilot
+with example Sigma rules:
+
+```
+80,536 events from 6 sources, 29 templates
+  ingest  121.0 MB → 29.8 MB  (75.3% saved, 44,562 events summarized)
+  proof   41 alerts on full data, 41 on forwarded data  ✓ no detection changed
+```
+
+It writes `out/report.html` (what is cut, why, and the proof) and `out/vector.yaml`. Run that
+config with [Vector](https://vector.dev) 0.59 (`scripts/install-vector.sh`), and Vector archives all
+80,536 events, forwards exactly the 35,974 the proof forwarded, and turns the other 44,562 into 460
+summary records.
+
+On your own data:
+
+```sh
+sluice analyze --input samples/ --sources sluice.yaml --rules sigma-rules/ [--wazuh-rules dir]
+```
+
+## Run it live
+
+`sluice up` runs Vector with a generated pipeline and a control plane next to it. Vector archives
+every event and sends a sample to Sluice. Sluice discovers templates, proves recipes on that
+sample, keeps each new recipe in shadow until it has held long enough, then enforces it and
+reloads Vector. A recipe that later fails a proof is rolled back on the next cycle.
+
+```sh
+scripts/install-vector.sh
+sluice up --config examples/up/sluice-up.yaml --rules examples/rules/sigma --demo-traffic
+sluice status        # in another shell: lifecycle per template, last cycle
+```
+
+`--demo-traffic` posts synthetic traffic to the example's six local `http_server` sources. With
+your own sources, list them in the config (any Vector source that emits JSON objects) and point
+the destinations at your SIEM: `sluice connect splunk` (or `elastic`, `sentinel`, `chronicle`,
+`wazuh`, `http`) prints a destination to add, with secrets left to environment variables.
+`scripts/live-smoke.sh` runs this end to end and checks the result.
+
+Every event is in the archive as it arrived, so what was cut can always be found and sent on:
+
+```sh
+sluice search --archive out/up/archive --source windows-security --where EventID=4624 --from 2026-10-09
+sluice replay --archive out/up/archive --source sysmon --where Image~powershell --url http://siem-ingest:9000
+```
+
+## Ask your assistant
+
+`sluice mcp` is an MCP server, so an AI assistant can answer "what did Sluice cut, and does it
+still hold?" from the live status and look up original events in the archive:
+
+```sh
+claude mcp add sluice -- sluice mcp --archive /var/lib/sluice/archive
+```
+
+Replay is only offered with `--allow-replay`. For a remote assistant, `sluice mcp --http
+127.0.0.1:8687` serves MCP over HTTP; every request needs `Authorization: Bearer
+$SLUICE_MCP_TOKEN` (at least 32 characters).
+
 ## Platform
 
 Sluice runs on Linux (x86_64 and aarch64), including WSL2. Windows and macOS aren't supported. On
 those systems, run Sluice in WSL2, a VM or a container.
+
+## Installing
+
+Release binaries are static (musl) and run on any Linux distribution, on x86_64 and aarch64. A
+container image bundles Sluice with the Vector release it is verified against:
+
+```sh
+docker compose -f examples/docker/compose.yaml up --build    # Sluice + Vector with demo traffic
+```
 
 ## Building
 
@@ -44,7 +120,8 @@ Sluice is a Rust workspace. The toolchain is pinned in `rust-toolchain.toml`.
 
 ```sh
 cargo build --release
-./scripts/check.sh        # every quality gate: fmt, clippy, tests, docs, cargo-deny
+bash scripts/check.sh        # every quality gate: fmt, clippy, tests, docs, cargo-deny
+scripts/install-zig.sh && scripts/build-release.sh   # static binaries for both architectures
 ```
 
 ## Documentation

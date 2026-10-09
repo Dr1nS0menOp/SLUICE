@@ -45,8 +45,14 @@ and contribute to.
 
 ## Quality gates (must pass before anything counts as done)
 
-`scripts/check.sh` runs all of them: fmt, clippy `-D warnings`, tests, `cargo doc -D warnings`
-and cargo-deny. CI (`.github/workflows/ci.yml`) runs the same gates.
+`scripts/check.sh` runs all of them: fmt, clippy `-D warnings`, tests, `cargo doc -D warnings`,
+cargo-deny and, when `vector` is installed (`scripts/install-vector.sh`), `scripts/vector-check.sh`.
+That last step runs `vector validate` and `vector test` on a generated config, so the real Vector
+binary must reproduce what the `vrl` crate computed. CI (`.github/workflows/ci.yml`) runs the same
+gates.
+
+- Generated VRL must compile **without warnings** in Vector's environment (event and metadata
+  typed as objects). `CompiledProgram::compile` enforces this.
 
 **On the author's Windows machine, never run cargo natively.** Smart App Control blocks
 freshly built binaries. Run everything in WSL:

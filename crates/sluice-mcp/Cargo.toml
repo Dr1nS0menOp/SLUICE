@@ -1,0 +1,26 @@
+[package]
+name = "sluice-mcp"
+description = "MCP server for Sluice: status, templates and the archive for AI assistants"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum.workspace = true
+chrono.workspace = true
+rmcp = { workspace = true, features = ["transport-streamable-http-server"] }
+serde.workspace = true
+serde_json.workspace = true
+sluice-archive.workspace = true
+sluice-core.workspace = true
+sluice-server.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+ureq.workspace = true
+
+[dev-dependencies]
+tower.workspace = true
+
+[lints]
+workspace = true

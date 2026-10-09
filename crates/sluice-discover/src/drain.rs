@@ -8,8 +8,7 @@
 
 use std::collections::BTreeMap;
 
-/// Token that matches anything in a template.
-pub(crate) const WILDCARD: &str = "<*>";
+use sluice_core::template::token::WILDCARD;
 
 /// Drain parameters. The defaults are Drain3's, except `depth`. Drain3 uses 4, which routes on
 /// the first two tokens. Our first token is already the program name split off the syslog header

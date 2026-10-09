@@ -36,6 +36,7 @@ impl fmt::Display for Level {
 
 /// One proposed reduction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Reduction {
     /// L1: drop fields that duplicate other fields or carry boilerplate.

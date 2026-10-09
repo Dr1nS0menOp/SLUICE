@@ -1,0 +1,12 @@
+id: microsoft/windows/security/rendered-message
+description: Windows Security events, every type
+match:
+  logsource: { product: windows, service: security }
+reductions:
+  - op: drop_fields
+    fields: [Message]
+  - op: drop_empty_fields
+rationale: >-
+  Message is the localized rendering of the event's own EventData fields plus fixed explanatory
+  text, so it adds no information. Null and empty-string fields carry none either. Rules that
+  match on Message, or on an empty value, keep these fields through the guardrails.

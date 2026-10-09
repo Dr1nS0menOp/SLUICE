@@ -1,0 +1,188 @@
+//! `vector.yaml` for live operation (`sluice up`, ADR 0005).
+//!
+//! Per source:
+//!
+//! ```text
+//! <operator's Vector source> ─┬─▶ archive (gzip NDJSON, before any reduction)
+//!                             ├─▶ sample ─▶ http ─▶ control plane /tap/<source>
+//!                             └─▶ sluice_<src> (proven VRL) ─▶ route ─┬─ forward ──┐
+//!                                       │ errors              └─ summarize ─▶ reduce ─┤
+//!                                       └──────────────────────────────────────────────┴─▶ destinations
+//! ```
+//!
+//! A source without a program (nothing discovered yet) goes straight to the destinations.
+
+use serde_json::{Map, Value, json};
+use sluice_core::source::Source;
+
+use crate::config::{Components, Pipeline};
+use crate::error::VectorError;
+use crate::program::{FORWARD, Plan};
+use crate::runtime::VrlReducer;
+
+/// A source and the Vector source that receives it (any Vector source producing JSON objects).
+#[derive(Debug, Clone, Copy)]
+pub struct LiveSource<'a> {
+    /// Sluice's view of the source.
+    pub source: &'a Source,
+    /// The Vector source configuration, used verbatim.
+    pub vector: &'a Value,
+}
+
+/// Deployment settings.
+#[derive(Debug, Clone, Copy)]
+pub struct LiveSettings<'a> {
+    /// Base URL of the control plane, such as `http://127.0.0.1:8686`.
+    pub control_plane: &'a str,
+    /// Keep one in `tap_rate` events for the control plane.
+    pub tap_rate: u64,
+    /// Directory of the full-fidelity archive.
+    pub archive_dir: &'a str,
+    /// Vector's data directory.
+    pub data_dir: &'a str,
+    /// Destination sinks, used verbatim except for `inputs`, which Sluice sets.
+    pub destinations: &'a Map<String, Value>,
+}
+
+/// Renders the live configuration.
+///
+/// # Errors
+///
+/// Returns [`VectorError::Config`] if the configuration cannot be serialized.
+pub fn live_config(
+    sources: &[LiveSource<'_>],
+    plans: &[Plan<'_>],
+    data_plane: &VrlReducer,
+    settings: &LiveSettings<'_>,
+) -> Result<String, VectorError> {
+    let mut pipeline = Pipeline::default();
+    let mut to_destinations: Vec<String> = Vec::new();
+    for live in sources {
+        let c = Components::for_source(&live.source.id);
+        pipeline
+            .sources
+            .insert(c.input.clone(), live.vector.clone());
+
+        let sample = format!("sluice_{}_tap_sample", c.stem);
+        pipeline.transforms.insert(
+            sample.clone(),
+            // No `sample_rate` field: the control plane must see events exactly as the
+            // pipeline does, or its templates (key sets) would never match live traffic.
+            json!({
+                "type": "sample",
+                "inputs": [c.input],
+                "rate": settings.tap_rate,
+                "sample_rate_key": "",
+            }),
+        );
+        pipeline.sinks.insert(
+            format!("sluice_{}_tap", c.stem),
+            json!({
+                "type": "http",
+                "inputs": [sample],
+                "uri": format!("{}/tap/{}", settings.control_plane.trim_end_matches('/'), live.source.id),
+                "method": "post",
+                "encoding": { "codec": "json" },
+                "framing": { "method": "newline_delimited" },
+                "batch": { "max_events": 500, "timeout_secs": 1 },
+            }),
+        );
+        pipeline.sinks.insert(
+            c.archive_sink(),
+            json!({
+                "type": "file",
+                "inputs": [c.input],
+                "path": format!("{}/{}/%Y-%m-%d/%H.ndjson.gz", settings.archive_dir, live.source.id),
+                "encoding": { "codec": "json" },
+                "compression": "gzip",
+                // `sluice search` and `sluice replay` read the hour from the path: pin it to UTC
+                // whatever the operator's global `timezone` is.
+                "timezone": "UTC",
+            }),
+        );
+
+        match data_plane.program(&live.source.id) {
+            Some(program) => {
+                pipeline.add_transforms(&c, &c.input, &live.source.id, program.source(), plans);
+                to_destinations.extend([
+                    format!("{}.{FORWARD}", c.split),
+                    format!("{}._unmatched", c.split),
+                    format!("{}.dropped", c.program),
+                    c.summaries.clone(),
+                ]);
+            }
+            None => to_destinations.push(c.input.clone()),
+        }
+    }
+    for (name, sink) in settings.destinations {
+        let mut sink = sink.clone();
+        sink["inputs"] = json!(to_destinations);
+        pipeline.sinks.insert(name.clone(), sink);
+    }
+
+    let config = json!({
+        "data_dir": settings.data_dir,
+        "sources": pipeline.sources,
+        "transforms": pipeline.transforms,
+        "sinks": pipeline.sinks,
+    });
+    let yaml = serde_yaml_ng::to_string(&config).map_err(|e| VectorError::Config(e.to_string()))?;
+    Ok(format!(
+        "# Generated by `sluice up`. Do not edit: Sluice rewrites this file as recipes are\n\
+         # promoted or rolled back, and Vector reloads it.\n{yaml}"
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Map, Value, json};
+    use sluice_core::logsource::LogSource;
+    use sluice_core::source::{Source, SourceFormat};
+
+    use super::*;
+
+    #[test]
+    fn tap_events_are_unchanged_and_destinations_get_every_output() {
+        let source = Source {
+            id: "fw".into(),
+            logsource: LogSource::default(),
+            format: SourceFormat::Json,
+        };
+        let vector = json!({"type": "http_server", "address": "127.0.0.1:9000"});
+        let mut destinations = Map::new();
+        destinations.insert("siem".into(), json!({"type": "blackhole"}));
+        let settings = LiveSettings {
+            control_plane: "http://127.0.0.1:8686",
+            tap_rate: 10,
+            archive_dir: "/archive",
+            data_dir: "/data",
+            destinations: &destinations,
+        };
+        let yaml = live_config(
+            &[LiveSource {
+                source: &source,
+                vector: &vector,
+            }],
+            &[],
+            &VrlReducer::default(),
+            &settings,
+        )
+        .unwrap();
+        let config: Value = serde_yaml_ng::from_str(&yaml).unwrap();
+        assert_eq!(
+            config["transforms"]["sluice_fw_tap_sample"]["sample_rate_key"],
+            ""
+        );
+        assert_eq!(
+            config["sinks"]["sluice_fw_tap"]["uri"],
+            "http://127.0.0.1:8686/tap/fw"
+        );
+        assert_eq!(config["sinks"]["sluice_fw_archive"]["compression"], "gzip");
+        assert_eq!(config["sinks"]["sluice_fw_archive"]["timezone"], "UTC");
+        // Without a program, the source goes straight to the destinations.
+        assert_eq!(
+            config["sinks"]["siem"]["inputs"],
+            json!(["sluice_fw_input"])
+        );
+    }
+}

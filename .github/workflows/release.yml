@@ -1,0 +1,25 @@
+name: Release
+
+# Pushing a tag such as v0.1.0 builds the static binaries and attaches them, with their SHA-256
+# sums, to a draft GitHub release. A maintainer reviews the draft and publishes it.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain || rustup toolchain install
+      - run: bash scripts/install-zig.sh
+      - run: PATH="$HOME/.local/bin:$PATH" bash scripts/build-release.sh
+      - name: Tag matches the crate version
+        run: test -f "dist/sluice-${GITHUB_REF_NAME#v}-x86_64-unknown-linux-musl"
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes dist/sluice-*

@@ -1,0 +1,26 @@
+[package]
+name = "sluice-autopilot"
+description = "The Sluice autopilot: discover, resolve recipes, guard, prove, and emit the data plane"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[dependencies]
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+sluice-core = { workspace = true, features = ["schema"] }
+sluice-discover.workspace = true
+sluice-rules.workspace = true
+sluice-vector.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+sluice-synth.workspace = true
+
+[lints]
+workspace = true

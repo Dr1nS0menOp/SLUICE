@@ -3,8 +3,9 @@
 use serde_json::{Map, Value};
 use sluice_core::field::FieldPath;
 
-/// Calls `visit` for every leaf of `object` with its dotted path. Arrays and empty objects are
-/// leaves: their inner structure is not part of an event's shape.
+/// Calls `visit` for every leaf of `object` with its dotted path. Arrays are leaves; empty
+/// objects contribute nothing. This is exactly what VRL's `flatten` produces, so the data
+/// plane's classifier sees the same key set as discovery.
 pub(crate) fn for_each_leaf(object: &Map<String, Value>, visit: &mut impl FnMut(&str, &Value)) {
     let mut path = String::new();
     walk(object, &mut path, visit);
@@ -18,7 +19,7 @@ fn walk(object: &Map<String, Value>, path: &mut String, visit: &mut impl FnMut(&
         }
         path.push_str(key);
         match value {
-            Value::Object(inner) if !inner.is_empty() => walk(inner, path, visit),
+            Value::Object(inner) => walk(inner, path, visit),
             leaf => visit(path, leaf),
         }
         path.truncate(restore);
@@ -54,7 +55,7 @@ mod tests {
             object(json!({"a": 1, "b": {"c": "x", "d": {"e": null}}, "f": [1, 2], "g": {}}));
         let mut seen = Vec::new();
         for_each_leaf(&event, &mut |path, _| seen.push(path.to_owned()));
-        assert_eq!(seen, ["a", "b.c", "b.d.e", "f", "g"]);
+        assert_eq!(seen, ["a", "b.c", "b.d.e", "f"]);
     }
 
     #[test]

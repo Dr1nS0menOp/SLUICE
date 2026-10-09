@@ -1,0 +1,12 @@
+id: microsoft/windows/security/filtering-platform-connection
+description: Windows Filtering Platform permitted a connection (5156)
+match:
+  logsource: { product: windows, service: security }
+  discriminators: { EventID: "5156" }
+reductions:
+  - op: forward_matching
+    summary_keys: [Application, DestAddress, DestPort, Protocol]
+rationale: >-
+  5156 is usually the highest-volume Security event and records every permitted connection.
+  Connections a rule could match are forwarded in full; the rest are counted per application and
+  destination, which is what hunting on this event typically aggregates to anyway.

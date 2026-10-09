@@ -27,7 +27,9 @@ Standalone project at `C:\Users\ward\SLUICE`. It has nothing to do with the home
   SOC-centric.
 - **Still open:**
   - License: Apache-2.0 vs AGPL-3.0. Decide before the first public push.
-  - Install method for the Vector binary, needed for M2.
+  - ~~Install method for the Vector binary~~. Decided 2026-10-09: `scripts/install-vector.sh`
+    installs the pinned release (0.59.0, which embeds `vrl` 0.36.0) into `~/.local` with SHA-256
+    verification.
 - **Style:** concise replies in chat (Dutch). Code and docs in English.
 
 ## Context
@@ -107,8 +109,11 @@ WFP 5156, firewall allows and CloudTrail read-only calls.
 - Events that could match a rule are forwarded in full. The rest are archived and sent to the SIEM
   as **summaries**: counts per window per key (for example src/dst/port/action, or
   SourceImage/TargetImage/GrantedAccess), with an archive pointer for replay.
-- Any **aggregation or correlation** rule on the type protects the whole type: Sigma correlations,
-  Wazuh `frequency`/`timeframe`, Splunk `stats` thresholds.
+- **Aggregation and correlation** rules (Sigma correlations, Wazuh `frequency`/`timeframe`, Splunk
+  `stats` thresholds) only count events their own conditions match. All of those are inside the
+  pre-filter and are forwarded unchanged and in order, so they need no extra protection
+  ([ADR 0004](docs/adr/0004-stateful-rules-and-routing.md)). Unbounded ones still forward
+  everything.
 
 **L3 AI-judged (semantic fat).** This covers templates no rule covers and that statistics plus AI
 judge low-value, such as health checks, debug chatter and probes.
@@ -215,7 +220,9 @@ the same events.
 - Self-written example Sigma rules (including one correlation rule) and Wazuh rules (including one
   frequency rule).
 
-**M1 build order.** Each step ends green on all quality gates.
+**M1 build order.** Each step ends green on all quality gates. Status 2026-10-09: all nine steps
+done (AI: see `docs/notes/ai.md`).
+Demo: 75.3% ingest saved, 41 = 41 alerts, reproduced exactly by Vector 0.59.
 
 1. Workspace scaffold: lints, toolchain, `deny.toml`, CI, README, LICENSE placeholder.
 2. `sluice-core` domain model and the safety-contract guardrails, with tests named after each
@@ -232,7 +239,11 @@ the same events.
 8. `sluice-cli`: `analyze` and `demo`, plus `report.html`.
 9. AI provider (L3) behind a trait, with `--llm none` as the default.
 
-**M2 — Live.**
+**M2 — Live.** Status 2026-10-09: the live control loop is done (ADR 0005): `sluice up`,
+`sluice status`, shadow → promote → SIGHUP reload, continuous verification with rollback, and
+`scripts/live-smoke.sh` against Vector 0.59. `sluice search` and `sluice replay` are done with a
+streaming scan instead of DuckDB (ADR 0006). `sluice connect splunk|elastic|sentinel|chronicle|wazuh|http`
+prints a destination whose sink `vector validate` checks in every gate run. M2 is complete.
 
 - `sluice up`: generates the Vector config (sources, tap, archive, recipes, destinations), runs
   Vector (binary path), and starts the control plane (axum: tap ingest, config provider, status
@@ -245,7 +256,15 @@ the same events.
   (archive → Vector `http_server` replay source → sink).
 - `sluice connect wazuh|splunk|sentinel|elastic|...` writes destination and rule-import config.
 
-**M3 — Interfaces and ecosystem.**
+**M3 — Interfaces and ecosystem.** Status 2026-10-09: `sluice mcp` serves `status`, `templates`,
+`explain`, `what_breaks`, `coverage_gaps`, `source_health`, `search_archive` and gated `replay`
+over stdio (rmcp 3.5.1, `docs/notes/mcp.md`). The recipe
+spec is `recipes/recipe.schema.json`, generated from the parser's types (`sluice recipes schema`,
+`sluice recipes export`). Packaging (ADR 0007): static
+musl binaries for x86_64 and aarch64 via cargo-zigbuild, a Dockerfile on Vector's
+distroless-static image, compose example, CI image build, draft releases on tags. MCP also runs over
+streamable HTTP behind a mandatory bearer token (`--http`). The differential test against pySigma
+covers all 3152 SigmaHQ rules. Open: the license decision.
 
 - MCP server (`rmcp`, the official Rust SDK; stdio and HTTP) with these tools: `status`, `savings`, `sources`,
   `templates`, `explain`, `what_breaks`, `coverage_gaps`, `source_health`, `search_archive`
@@ -290,8 +309,13 @@ sluice/
     sluice-discover/    # Drain (text) and keyset (JSON) template discovery, frequency stats
     sluice-rules/       # Sigma adapter (rsigma), Wazuh rules.xml, requirements, superset pre-filter
     sluice-vector/      # reductions → VRL, VRL execution (vrl crate), vector.yaml + vector tests
-    sluice-cli/         # `sluice` binary: analyze, demo, report.html
-    # later: sluice-ai (M1 step 9), sluice-server + sluice-archive (M2), sluice-mcp (M3)
+    sluice-autopilot/   # analysis pipeline, recipe book, lifecycle, live cycle, report
+    sluice-ai/          # L3 advisor: redaction, prompt, Anthropic and OpenAI-compatible models
+    sluice-wazuh/       # Wazuh logtest client (spot check)
+    sluice-server/      # control plane for `sluice up` (axum): tap, status, Vector supervision
+    sluice-cli/         # `sluice` binary: demo, analyze, recipes, up, status
+    sluice-archive/     # streaming search over the gzip NDJSON archive (search, replay)
+    sluice-mcp/         # MCP server (rmcp, stdio): status, templates, archive search, replay
   recipes/<vendor>/<product>/<event>.yaml + samples/   # community recipes (YAML)
   examples/{rules/, sluice.example.yaml}
   docs/{adr/, notes/, compatibility.md}
@@ -324,11 +348,13 @@ sluice/
 - **Property test (proptest):** for every effective recipe on the synthetic data, the Sigma alert
   set over the full data equals the alert set over the forwarded data, in **both directions**.
 - **Fail-closed tests** cover correlation/frequency rules, unparseable rules and rare templates.
-- **Differential test (CI only):** rsigma vs pySigma on the same rules and events.
+- **Differential test (CI):** Sluice's rule requirements vs pySigma on the example rules and
+  the full SigmaHQ set (`scripts/sigma-differential.sh`; alerts cannot be compared, as pySigma
+  does not evaluate rules).
 - `sluice demo` prints the reduction %, **0 detection regressions** and the coverage gaps, and
   writes `report.html` and `vector.yaml`.
 - If Vector is installed, run `vector validate` and `vector test` on the generated config.
-- Live smoke test (M2): `sluice up --demo-traffic --shadow 5m`.
+- Live smoke test (M2): `scripts/live-smoke.sh` (`sluice up --demo-traffic`, also in CI).
   - Recipes move from shadow to enforced in `sluice status`.
   - A test hook breaks a recipe, and auto-rollback plus an event are observed.
   - `sluice replay` restores archived events.

@@ -25,7 +25,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 $linuxHome = (wsl.exe -d $distro --exec sh -c 'printf %s "$HOME"').Trim()
 
 $envArgs = @(
-    "PATH=$linuxHome/.cargo/bin:/usr/local/bin:/usr/bin:/bin",
+    "PATH=$linuxHome/.cargo/bin:$linuxHome/.local/bin:/usr/local/bin:/usr/bin:/bin",
     "CARGO_TARGET_DIR=$linuxHome/.cache/sluice-target",
     'CARGO_TERM_COLOR=never'
 )

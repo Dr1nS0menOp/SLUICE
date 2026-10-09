@@ -4,8 +4,9 @@
 //! express exactly is widened, never narrowed:
 //!
 //! - `not …` → [`Predicate::Always`] (exclusions only ever remove matches);
-//! - keywords, array blocks, unsupported modifiers, `?` wildcards, non-string/integer values
-//!   → `Always`;
+//! - array blocks, unsupported modifiers, `?` wildcards, non-string/integer values → `Always`;
+//! - keywords become a free-text [`KeywordTest`] (substring of any value), exactly as rsigma
+//!   matches them;
 //! - `all of …` uses only selections every reading of the spec includes (fewer conjuncts is
 //!   wider), `1 of …` uses every candidate (more disjuncts is wider).
 
@@ -16,7 +17,7 @@ use rsigma_parser::ast::{
 };
 use rsigma_parser::value::{SigmaString, SigmaValue, SpecialChar, StringPart};
 use sluice_core::field::FieldPath;
-use sluice_core::predicate::{FieldTest, MatchOp, Predicate};
+use sluice_core::predicate::{FieldTest, KeywordTest, MatchOp, Predicate};
 
 /// The superset pre-filter of one rule: any of its conditions.
 pub(crate) fn rule_prefilter(detections: &Detections) -> Predicate {
@@ -95,10 +96,36 @@ fn detection(detection_: &Detection) -> Predicate {
         Detection::AllOf(items) => Predicate::all(items.iter().map(item)),
         Detection::AnyOf(parts) => Predicate::any(parts.iter().map(detection)),
         Detection::And(parts) => Predicate::all(parts.iter().map(detection)),
-        Detection::Keywords(_) | Detection::ArrayMatch { .. } | Detection::Conditional { .. } => {
-            Predicate::Always
-        }
+        Detection::Keywords(values) => keywords(values),
+        Detection::ArrayMatch { .. } | Detection::Conditional { .. } => Predicate::Always,
     }
+}
+
+/// Sigma keywords match a substring of any value, case-insensitively. Edge `*` wildcards fold
+/// away (contains already allows anything around); inner wildcards and non-text values widen.
+fn keywords(values: &[SigmaValue]) -> Predicate {
+    let mut texts = Vec::new();
+    for value in values {
+        let text = match value {
+            SigmaValue::String(s) => match string_test(Base::Contains, s) {
+                Some((MatchOp::Contains, literal)) => literal,
+                _ => return Predicate::Always,
+            },
+            SigmaValue::Integer(n) => n.to_string(),
+            _ => return Predicate::Always,
+        };
+        if text.is_empty() {
+            return Predicate::Always;
+        }
+        texts.push(text);
+    }
+    if texts.is_empty() {
+        return Predicate::Always;
+    }
+    Predicate::Keywords(KeywordTest {
+        values: texts,
+        case_sensitive: false,
+    })
 }
 
 /// How an item's values are compared, from its modifiers; `None` if not expressible.

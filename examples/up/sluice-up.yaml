@@ -1,0 +1,58 @@
+# `sluice up` example: six HTTP sources (the demo's sources), one file "SIEM".
+#
+#   sluice up --config examples/up/sluice-up.yaml --rules examples/rules/sigma --demo-traffic
+#   sluice status
+#
+# The promotion settings below are for trying it out: recipes are enforced after one minute and
+# two proofs. The production defaults are 24 hours and three proofs.
+
+listen: 127.0.0.1:8686
+vector_config: out/up/vector.yaml
+archive_dir: out/up/archive
+data_dir: out/up/vector-data
+tap_rate: 1            # demo: tap every event; in production 1 in 10 or fewer
+cycle_secs: 30
+
+window:
+  max_events_per_source: 20000
+  max_age_secs: 3600
+
+promotion:
+  shadow_secs: 60
+  min_proofs: 2
+
+sources:
+  - id: windows-security
+    logsource: { product: windows, service: security }
+    format: { kind: json }
+    vector: &http
+      type: http_server
+      address: 127.0.0.1:9101
+      decoding: { codec: json }
+      framing: { method: newline_delimited }
+  - id: sysmon
+    logsource: { product: windows, service: sysmon }
+    format: { kind: json }
+    vector: { <<: *http, address: 127.0.0.1:9102 }
+  - id: linux-auth
+    logsource: { product: linux, service: auth }
+    format: { kind: text, field: message }
+    vector: { <<: *http, address: 127.0.0.1:9103 }
+  - id: firewall
+    logsource: { product: opnsense, service: filterlog, category: firewall }
+    format: { kind: json }
+    vector: { <<: *http, address: 127.0.0.1:9104 }
+  - id: dns
+    logsource: { product: unbound, category: dns }
+    format: { kind: json }
+    vector: { <<: *http, address: 127.0.0.1:9105 }
+  - id: nginx
+    logsource: { product: nginx, service: access }
+    format: { kind: text, field: message }
+    vector: { <<: *http, address: 127.0.0.1:9106 }
+
+destinations:
+  siem:
+    type: file
+    path: out/up/siem/%Y-%m-%d-%H.ndjson
+    encoding: { codec: json }

@@ -1,0 +1,28 @@
+[package]
+name = "sluice-server"
+description = "The Sluice control plane: tap ingest, the live control loop, status API, Vector supervision"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum.workspace = true
+chrono.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sluice-autopilot.workspace = true
+sluice-core.workspace = true
+sluice-rules.workspace = true
+sluice-vector.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+sluice-synth.workspace = true
+tower.workspace = true
+
+[lints]
+workspace = true

@@ -4,10 +4,7 @@
 //! Drain clusters lines by their constant text. It is purely an aid: Drain still turns any token
 //! that differs between lines into a wildcard.
 
-/// Placeholder for a run of decimal digits.
-pub(crate) const NUM: &str = "<NUM>";
-/// Placeholder for a hex identifier (hashes, GUID parts, `0x` values).
-pub(crate) const HEX: &str = "<HEX>";
+use sluice_core::template::token::{HEX, NUM};
 
 /// Masks one token. Surrounding punctuation (quotes, brackets, colons) is kept, so `[1234]:`
 /// becomes `[<NUM>]:`.

@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sluice recipe",
+  "description": "A Sluice recipe: proposed reductions for one kind of log event. Proposals are never trusted: the guardrails\nnarrow them to what the loaded rules allow, and the shadow proof rolls back anything that\nchanges an alert. See `recipes/README.md`.",
+  "type": "object",
+  "properties": {
+    "description": {
+      "description": "One line on what the recipe targets.",
+      "type": "string"
+    },
+    "id": {
+      "description": "Unique id, mirroring the file path: `<vendor>/<product>/<event>`.",
+      "type": "string"
+    },
+    "match": {
+      "description": "Which templates the recipe applies to.",
+      "$ref": "#/$defs/Matcher"
+    },
+    "rationale": {
+      "description": "Why the reductions are safe and worthwhile, stating only facts that hold for every\ndeployment of the source.",
+      "type": "string"
+    },
+    "reductions": {
+      "description": "The proposed reductions. Without `discriminators` or `pattern`, only lossless ones\n(`drop_fields`, `drop_empty_fields`) are allowed.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Reduction"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "description",
+    "match",
+    "reductions",
+    "rationale"
+  ],
+  "$defs": {
+    "FieldPath": {
+      "description": "A dotted path to a field in an event, such as `TargetUserName` or `process.parent.name`.\n\nSigma and Wazuh rules refer to fields by these names, so the same type is used for the fields a\nrule needs and the fields a reduction touches. Comparisons are exact and case-sensitive.\nEvent schemas are case-sensitive, and treating `user` and `User` as equal would hide a\nguardrail miss.",
+      "type": "string"
+    },
+    "LogSource": {
+      "description": "Sigma-style log source descriptor (`product`, `service`, `category`).\n\nRules use it to say which data they apply to, and templates use it to say what they are. A\nmissing attribute means \"unknown\" on a template and \"any\" on a rule.",
+      "type": "object",
+      "properties": {
+        "category": {
+          "description": "For example `process_creation`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "product": {
+          "description": "For example `windows` or `linux`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "service": {
+          "description": "For example `security` or `sysmon`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "Matcher": {
+      "description": "Which templates a recipe applies to. Every given condition must hold.",
+      "type": "object",
+      "properties": {
+        "discriminators": {
+          "description": "JSON templates: discriminator values, such as `EventID: \"4624\"`.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "logsource": {
+          "description": "The Sigma-style log source; every attribute given must equal the template's.",
+          "$ref": "#/$defs/LogSource"
+        },
+        "pattern": {
+          "description": "Text templates: a substring of the template pattern.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "logsource"
+      ]
+    },
+    "Reduction": {
+      "description": "One proposed reduction.",
+      "oneOf": [
+        {
+          "description": "L1: drop fields that duplicate other fields or carry boilerplate.",
+          "type": "object",
+          "properties": {
+            "fields": {
+              "description": "Fields to drop.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/FieldPath"
+              },
+              "uniqueItems": true
+            },
+            "op": {
+              "type": "string",
+              "const": "drop_fields"
+            }
+          },
+          "required": [
+            "op",
+            "fields"
+          ]
+        },
+        {
+          "description": "L1: drop fields whose value is `null` or an empty string.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "drop_empty_fields"
+            }
+          },
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "L2: forward events a rule could match. The rest go to summaries keyed by `summary_keys`.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "forward_matching"
+            },
+            "summary_keys": {
+              "description": "Fields that key the summaries of events that are not forwarded.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/FieldPath"
+              }
+            }
+          },
+          "required": [
+            "op",
+            "summary_keys"
+          ]
+        },
+        {
+          "description": "L3: send only summaries keyed by `summary_keys`. Full events stay in the archive.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "summarize"
+            },
+            "summary_keys": {
+              "description": "Fields that key the summaries.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/FieldPath"
+              }
+            }
+          },
+          "required": [
+            "op",
+            "summary_keys"
+          ]
+        }
+      ]
+    }
+  }
+}
