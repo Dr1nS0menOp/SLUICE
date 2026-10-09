@@ -18,9 +18,8 @@ mod world;
 use std::collections::BTreeMap;
 
 use sluice_core::event::{Event, Timestamp};
-use sluice_core::field::FieldPath;
 use sluice_core::ids::{EventId, SourceId};
-use sluice_core::logsource::LogSource;
+use sluice_core::source::Source;
 
 use crate::rng::Rng;
 use crate::sources::{Ctx, Draft};
@@ -49,29 +48,6 @@ impl Default for SynthConfig {
     }
 }
 
-/// How a source's events are encoded.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Format {
-    /// Structured JSON fields.
-    Json,
-    /// A raw text line, held in `field`, plus envelope fields.
-    Text {
-        /// Field that holds the raw line.
-        field: FieldPath,
-    },
-}
-
-/// A source in the sample and what it is.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceInfo {
-    /// Source id, as set on every event of the source.
-    pub id: SourceId,
-    /// What the source is, for rule scoping.
-    pub logsource: LogSource,
-    /// How events are encoded.
-    pub format: Format,
-}
-
 /// A planted attack and the events that make it up.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Scenario {
@@ -89,7 +65,7 @@ pub struct Sample {
     /// Every event, sorted by time, with ids `0..n` in that order.
     pub events: Vec<Event>,
     /// The sources present in `events`.
-    pub sources: Vec<SourceInfo>,
+    pub sources: Vec<Source>,
     /// The planted attacks.
     pub scenarios: Vec<Scenario>,
 }
@@ -108,7 +84,7 @@ pub fn generate(config: &SynthConfig) -> Sample {
         (spec.generate)(&mut ctx);
         let id = SourceId::new(spec.id);
         tagged.extend(ctx.into_drafts().into_iter().map(|d| (id.clone(), d)));
-        sources.push(SourceInfo {
+        sources.push(Source {
             id,
             logsource: (spec.logsource)(),
             format: (spec.format)(),

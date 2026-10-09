@@ -1,0 +1,21 @@
+[package]
+name = "sluice-rules"
+description = "Rule awareness for Sluice: Sigma and Wazuh rules as engine-neutral requirements"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+quick-xml.workspace = true
+rsigma-eval.workspace = true
+rsigma-parser.workspace = true
+serde_json.workspace = true
+sluice-core.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+sluice-synth.workspace = true
+
+[lints]
+workspace = true

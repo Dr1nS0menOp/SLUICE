@@ -3,7 +3,8 @@
 use std::collections::BTreeSet;
 
 use sluice_core::event::Timestamp;
-use sluice_synth::{Format, SynthConfig, generate};
+use sluice_core::source::SourceFormat;
+use sluice_synth::{SynthConfig, generate};
 
 fn small() -> SynthConfig {
     SynthConfig {
@@ -52,7 +53,7 @@ fn every_event_belongs_to_a_declared_source() {
 fn text_sources_carry_their_raw_line() {
     let sample = generate(&small());
     for source in &sample.sources {
-        let Format::Text { field } = &source.format else {
+        let SourceFormat::Text { field } = &source.format else {
             continue;
         };
         let events = sample.events.iter().filter(|e| e.source == source.id);

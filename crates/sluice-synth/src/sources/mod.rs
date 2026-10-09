@@ -10,8 +10,8 @@ mod winlog;
 
 use serde_json::{Map, Value};
 use sluice_core::logsource::LogSource;
+use sluice_core::source::SourceFormat;
 
-use crate::Format;
 use crate::fields::Fields;
 use crate::rng::Rng;
 
@@ -20,7 +20,7 @@ pub(crate) struct Spec {
     pub(crate) id: &'static str,
     pub(crate) generate: fn(&mut Ctx),
     pub(crate) logsource: fn() -> LogSource,
-    pub(crate) format: fn() -> Format,
+    pub(crate) format: fn() -> SourceFormat,
 }
 
 /// Every source, in a fixed order. The order affects only tie-breaking between equal timestamps.
@@ -69,14 +69,14 @@ pub(crate) fn logsource(product: &str, service: Option<&str>) -> LogSource {
     }
 }
 
-pub(crate) fn text_format() -> Format {
-    Format::Text {
+pub(crate) fn text_format() -> SourceFormat {
+    SourceFormat::Text {
         field: "message".into(),
     }
 }
 
-pub(crate) fn json_format() -> Format {
-    Format::Json
+pub(crate) fn json_format() -> SourceFormat {
+    SourceFormat::Json
 }
 
 /// An event before it gets its id: ids are assigned after all sources are merged and sorted.

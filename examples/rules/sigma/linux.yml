@@ -1,0 +1,14 @@
+# Example Sigma rules for the Sluice demo. Written for this project; not derived from SigmaHQ.
+title: SSH Login Attempt For Unknown User
+id: 5c0f3b1e-8f0a-4d7e-9a61-2d4b8c1e7f11
+status: experimental
+description: sshd rejected a password for an account that does not exist.
+author: Sluice
+logsource:
+    product: linux
+    service: auth
+detection:
+    keywords:
+        - 'Failed password for invalid user'
+    condition: keywords
+level: low

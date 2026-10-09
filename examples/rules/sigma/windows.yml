@@ -1,0 +1,86 @@
+# Example Sigma rules for the Sluice demo. Written for this project; not derived from SigmaHQ.
+title: Failed Logon
+id: 5c0f3b1e-8f0a-4d7e-9a61-2d4b8c1e7f01
+name: failed-logon
+status: experimental
+description: An account failed to log on.
+author: Sluice
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4625
+    filter_machine_accounts:
+        TargetUserName|endswith: '$'
+    condition: selection and not filter_machine_accounts
+level: low
+---
+title: Failed Logon Burst
+id: 5c0f3b1e-8f0a-4d7e-9a61-2d4b8c1e7f02
+status: experimental
+description: Ten or more failed logons for one account within a minute.
+author: Sluice
+correlation:
+    type: event_count
+    rules:
+        - failed-logon
+    group-by:
+        - TargetUserName
+    timespan: 60s
+    condition:
+        gte: 10
+level: high
+---
+title: LSASS Read Access
+id: 5c0f3b1e-8f0a-4d7e-9a61-2d4b8c1e7f03
+status: experimental
+description: A process opens LSASS with access rights typical of credential dumping.
+author: Sluice
+logsource:
+    product: windows
+    category: process_access
+detection:
+    selection:
+        TargetImage|endswith: '\lsass.exe'
+        GrantedAccess:
+            - '0x1010'
+            - '0x1410'
+            - '0x147a'
+            - '0x1438'
+    filter_defender:
+        SourceImage|endswith: '\MsMpEng.exe'
+    condition: selection and not filter_defender
+level: high
+---
+title: Whoami Execution
+id: 5c0f3b1e-8f0a-4d7e-9a61-2d4b8c1e7f04
+status: experimental
+description: whoami is a common first step of discovery after compromise.
+author: Sluice
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection:
+        Image|endswith: '\whoami.exe'
+    condition: selection
+level: medium
+---
+title: Encoded PowerShell Command
+id: 5c0f3b1e-8f0a-4d7e-9a61-2d4b8c1e7f05
+status: experimental
+description: PowerShell started with an encoded command.
+author: Sluice
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection_image:
+        Image|endswith: '\powershell.exe'
+    selection_flag:
+        CommandLine|contains:
+            - ' -enc '
+            - ' -EncodedCommand '
+    condition: all of selection_*
+level: high
