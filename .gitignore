@@ -1,0 +1,10 @@
+/target/
+
+# Outputs written by `sluice demo` / `sluice analyze` when run from the repo root
+/out/
+
+# Editors / OS
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
