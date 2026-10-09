@@ -9,6 +9,8 @@ and contribute to.
 
 ## Language and layout
 
+- **Linux only** ([ADR 0003](docs/adr/0003-linux-only.md)), WSL2 included. Code may assume Linux.
+  Don't add Windows or macOS code paths or `cfg` fallbacks.
 - Rust (edition 2024), in a Cargo workspace under `crates/`. Community recipes are YAML under
   `recipes/`.
 - `rust-toolchain.toml` pins the toolchain. Everything else follows from it.

@@ -24,11 +24,14 @@ Every gate must pass:
 This runs `cargo fmt`, `cargo clippy` (pedantic, warnings are errors), the tests, `cargo doc` and
 `cargo deny`.
 
-On Windows with Smart App Control enabled, native builds are blocked. Run the gates inside WSL:
+Sluice supports only Linux ([ADR 0003](docs/adr/0003-linux-only.md)). On Windows, develop in
+WSL2. You can keep the sources on the Windows filesystem and run every cargo command inside WSL:
 
 ```powershell
 ./scripts/wsl.ps1 bash scripts/check.sh
 ```
+
+On macOS, use a Linux container or VM.
 
 ## Structure
 

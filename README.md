@@ -33,6 +33,11 @@ These rules are enforced in code, and AI output can never override them:
 4. Rare is never cut.
 5. Every cut is proven before it is enforced, and is re-verified continuously afterwards.
 
+## Platform
+
+Sluice runs on Linux (x86_64 and aarch64), including WSL2. Windows and macOS aren't supported. On
+those systems, run Sluice in WSL2, a VM or a container.
+
 ## Building
 
 Sluice is a Rust workspace. The toolchain is pinned in `rust-toolchain.toml`.
