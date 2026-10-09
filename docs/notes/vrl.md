@@ -28,8 +28,8 @@ Runtime::default().resolve(&mut target, &compiled.program, &TimeZone::default())
 
 - Use `default-features = false, features = ["compiler", "stdlib-base"]`. The defaults also pull in
   the `cli` (clap, rustyline) and network functions (reqwest), which we don't need.
-- `stdlib-base` turns on `datadog`, which compiles `onig` (C). That needs a C compiler: gcc on
-  Linux, MSVC on Windows.
+- `stdlib-base` turns on `datadog`, which compiles `onig` (C), so the build needs a C compiler
+  (gcc).
 
 ## Verified behaviour
 

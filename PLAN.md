@@ -8,6 +8,8 @@ Standalone project at `C:\Users\ward\SLUICE`. It has nothing to do with the home
 - **Rust, not Python** ([ADR 0001](docs/adr/0001-rust-core.md)). The shadow proof runs the exact
   VRL that Vector enforces, through the `vrl` crate. Sigma runs at runtime through `rsigma`.
   pySigma is only a CI test oracle.
+- **Linux only, WSL2 included** ([ADR 0003](docs/adr/0003-linux-only.md)). There are no Windows or
+  macOS builds.
 - **Dev environment.** Sources stay on Windows. Every cargo command runs in WSL through
   `scripts/wsl.ps1`, because Smart App Control blocks native builds.
 
@@ -252,7 +254,7 @@ the same events.
 - Community recipes for the top sources, plus a recipe spec and JSON Schema, plus
   `sluice recipes export`.
 - Packaging:
-  - Release binaries for Linux, macOS and Windows (signed where possible).
+  - Static Linux release binaries (musl, x86_64 and aarch64).
   - `cargo install sluice`.
   - Dockerfile and compose (Sluice plus Vector).
   - Docs.

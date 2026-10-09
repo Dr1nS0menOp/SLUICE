@@ -32,19 +32,6 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
-  test-platforms:
-    name: Test (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --all-features --locked
-
   deny:
     name: Supply chain (cargo-deny)
     runs-on: ubuntu-latest
