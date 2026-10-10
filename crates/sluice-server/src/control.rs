@@ -164,7 +164,7 @@ impl Shared {
             &self.rules.sigma,
             self.rules.wazuh.as_ref(),
         );
-        status.record(now, &result, &lifecycle, &report, &self.sources);
+        status.record(now, &result, &lifecycle, &report, &self.sources, &events);
         status.window = lock(&self.windows)
             .sizes()
             .into_iter()

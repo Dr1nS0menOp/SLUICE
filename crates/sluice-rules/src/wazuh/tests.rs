@@ -87,6 +87,23 @@ fn raw_log_matching_needs_raw_text() {
 }
 
 #[test]
+fn c3_a_raw_text_rule_reads_the_whole_json_line() {
+    // `<match>` sees keys too: dropping an empty `ErrorCode` field silences rule 1002.
+    let rules = parse(r#"<rule id="1002" level="2"><match>error|failure</match></rule>"#);
+    assert_eq!(only(&rules).fields, RequiredFields::Unknown);
+
+    // Under a syslog decoder the rule never sees JSON; on a text line it reads the line only.
+    let rules = WazuhRules::parse_with_decoders([CHAIN], [DECODERS]).unwrap();
+    let failed = rules
+        .requirements()
+        .iter()
+        .find(|r| r.rule.as_str() == "wazuh:5716")
+        .unwrap();
+    assert!(failed.text_lines_only && failed.matches_raw_text);
+    assert_eq!(failed.fields, RequiredFields::known([]));
+}
+
+#[test]
 fn unknown_tags_fail_closed_and_are_reported() {
     let rules = parse(r#"<rule id="4" level="5"><brand_new_option>x</brand_new_option></rule>"#);
     let rule = only(&rules);
@@ -246,21 +263,23 @@ fn decoders_bound_only_when_every_definition_does() {
 fn first_time_seen_reads_the_decoders_fts_names() {
     let decoders = r#"
         <decoder name="su"><program_name>^su$</program_name><fts>name, srcuser, location</fts></decoder>
-        <decoder name="ids"><program_name>^snort</program_name><fts>name, id, srcip, hostname</fts></decoder>
+        <decoder name="ids"><program_name>^snort</program_name><fts>name, id, srcip</fts></decoder>
     "#;
     let rule = r#"<rule id="10100" level="4"><if_group>authentication_success</if_group><if_fts /></rule>"#;
     let rules = WazuhRules::parse_with_decoders([rule], [decoders]).unwrap();
-    let rule = only(&rules);
-    assert!(rule.stateful);
-    assert!(
-        rule.matches_raw_text,
-        "hostname comes from the syslog header"
-    );
+    let first = only(&rules);
+    assert!(first.stateful && !first.matches_raw_text);
     assert_eq!(
-        rule.fields,
+        first.fields,
         RequiredFields::known(["id".into(), "srcip".into(), "srcuser".into()])
     );
     assert!(rules.problems().is_empty(), "{:?}", rules.problems());
+
+    // `hostname` comes from the syslog header: raw text, so on JSON every field is kept.
+    let with_host = decoders.replace("srcip</fts>", "srcip, hostname</fts>");
+    let rules = WazuhRules::parse_with_decoders([rule], [with_host.as_str()]).unwrap();
+    assert!(only(&rules).matches_raw_text);
+    assert_eq!(only(&rules).fields, RequiredFields::Unknown);
 }
 
 #[test]

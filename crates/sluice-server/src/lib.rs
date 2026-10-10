@@ -29,7 +29,8 @@ pub use crate::control::Rules;
 use crate::control::Shared;
 pub use crate::error::ServerError;
 pub use crate::status::{
-    CycleStatus, RuleInfo, SourceHealth, Status, TemplateDetail, TemplateStatus, TransitionRecord,
+    CycleStatus, Example, RuleInfo, SourceHealth, Status, TemplateDetail, TemplateStatus,
+    TransitionRecord,
 };
 
 /// The environment variable from which `sluice` reads the control plane's bearer token. Vector

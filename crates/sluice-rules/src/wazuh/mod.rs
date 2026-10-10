@@ -121,7 +121,10 @@ impl WazuhRules {
                 }
             }
         }
-        let requirements = chains::inherit(parsed);
+        let mut requirements = chains::inherit(parsed);
+        for rule in &mut requirements {
+            whole_json_line(rule);
+        }
         Ok(Self {
             requirements,
             problems,
@@ -138,6 +141,17 @@ impl WazuhRules {
     #[must_use]
     pub fn problems(&self) -> &[String] {
         &self.problems
+    }
+}
+
+/// On a JSON event, Wazuh matches `<match>` and `<regex>` against the whole JSON line: keys,
+/// values and punctuation. Removing any field, even an empty one, changes that line, so a
+/// `"ErrorCode":""` key alone makes rule 1002 (`$BAD_WORDS`) fire (verified with `logtest`,
+/// Wazuh 4.14.8). Such a rule reads every field of a JSON event. A rule that only sees text lines
+/// keeps its field list: on a text template the line is all Wazuh receives.
+fn whole_json_line(rule: &mut RuleRequirements) {
+    if rule.matches_raw_text && !rule.text_lines_only {
+        rule.fields = RequiredFields::Unknown;
     }
 }
 

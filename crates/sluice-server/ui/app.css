@@ -146,6 +146,8 @@ textarea { font-family: var(--mono); min-height: 88px; resize: vertical; }
 details.event summary { cursor: pointer; font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
 pre.json { margin: 8px 0 0; padding: 14px; background: var(--code-bg); color: var(--code-ink); border-radius: 6px; font-family: var(--mono); font-size: 12px; line-height: 1.55; overflow-x: auto; max-height: 420px; }
 
+.pane { flex: 1 1 360px; min-width: 0; }
+.pane h3 { margin: 12px 0 0; font-size: 13px; font-weight: 500; color: var(--muted); }
 .token { max-width: 520px; }
 .noscript { margin: 24px; }
 

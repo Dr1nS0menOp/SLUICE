@@ -164,6 +164,15 @@ async fn cycles_shadow_then_enforce_and_rewrite_the_config() {
         .find(|d| d.pattern.contains("4624") && d.stage == "enforced")
         .expect("the logon template is enforced");
     assert!(!logon.actions.is_empty(), "{logon:?}");
+    // One real event, before and after: the recipe's work made visible.
+    let example = logon.example.as_ref().expect("an example event");
+    assert!(example.before.contains_key("Message"));
+    let after = example.after.as_ref().expect("logons are forwarded");
+    assert!(
+        !after.contains_key("Message"),
+        "the rendered message is dropped"
+    );
+    assert_eq!(after.get("EventID"), example.before.get("EventID"));
     let health = status
         .sources
         .iter()

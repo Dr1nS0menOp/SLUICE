@@ -352,7 +352,7 @@ function templateView(id) {
       badges),
     h("section", { class: "kpis", "aria-label": "Volume in the last window" },
       kpi("Events", num(v.events)),
-      kpi("Forwarded in full", num(v.forwarded), "a rule could match them, or no recipe applies", null, "forward"),
+      kpi("Forwarded", num(v.forwarded), "each event sent on, shaped by the recipe", null, "forward"),
       kpi("Summarized", num(v.summarized), "into count records; originals in the archive", null, "cut"),
       kpi("Bytes", `${mb(v.bytes_in)} → ${mb(v.bytes_out)}`, saved(v) + " less", "cut")),
     h("div", { class: "row" },
@@ -368,6 +368,7 @@ function templateView(id) {
           ? [h("p", { class: "sub" }, "What the safety contract changed in the proposal, and why:"),
              h("ul", { class: "plain small" }, d.adjustments.map((a) => h("li", {}, a)))]
           : h("p", { class: "sub" }, "No guardrail had to change this recipe."))),
+    d.example ? exampleCard(d.example) : null,
     h("section", { class: "card", "aria-labelledby": "life-h" },
       h("h2", { id: "life-h" }, "Lifecycle"),
       history.length
@@ -378,6 +379,33 @@ function templateView(id) {
       h("p", { class: "hint" }, "Originals of every event, including summarized ones, are in the ",
         h("a", { href: "#/archive" }, "archive"), ".")),
   ];
+}
+
+/** Dotted leaf paths of an event, as the guardrails name fields. */
+function leaves(value, prefix, out) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    for (const [key, child] of Object.entries(value)) leaves(child, prefix ? prefix + "." + key : key, out);
+  } else {
+    out.add(prefix);
+  }
+  return out;
+}
+
+function exampleCard(example) {
+  const before = leaves(example.before, "", new Set());
+  const after = example.after ? leaves(example.after, "", new Set()) : new Set();
+  const removed = [...before].filter((f) => !after.has(f)).sort();
+  const json = (v) => JSON.stringify(v, null, 2);
+  const beforeBytes = json(example.before).length;
+  return h("section", { class: "card", "aria-labelledby": "example-h" },
+    h("h2", { id: "example-h" }, "One event, before and after"),
+    h("p", { class: "sub" }, example.after
+      ? `${removed.length} of ${before.size} fields removed: ${removed.join(", ") || "none"}.`
+      : "This event is counted into a summary record; the SIEM does not receive it. The original stays in the archive."),
+    h("div", { class: "row" },
+      h("div", { class: "pane" }, h("h3", {}, `As it arrived · ${mb(beforeBytes)}`), h("pre", { class: "json" }, json(example.before))),
+      h("div", { class: "pane" }, h("h3", {}, example.after ? `What the SIEM receives · ${mb(json(example.after).length)}` : "What the SIEM receives"),
+        example.after ? h("pre", { class: "json" }, json(example.after)) : h("p", { class: "notice" }, "Nothing for this event: it is part of a summary."))));
 }
 
 // ---------- archive ----------
