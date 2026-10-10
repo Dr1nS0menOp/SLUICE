@@ -3,10 +3,13 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use sluice_autopilot::{Cycle, Lifecycle, Report, Stage, Transition};
+use sluice_core::event::Event;
 use sluice_core::ids::TemplateId;
 use sluice_core::logsource::LogSource;
 use sluice_core::proof::Volume;
+use sluice_core::reduce::{Outcome, Reducer};
 use sluice_core::rules::{RequiredFields, RuleRequirements};
 use sluice_core::source::Source;
 
@@ -61,7 +64,23 @@ pub struct TemplateDetail {
     pub adjustments: Vec<String>,
     /// Where the proposal came from, if there was one.
     pub provenance: Option<String>,
+    /// One event of the window as it arrived and as the proven recipe forwards it.
+    #[serde(default)]
+    pub example: Option<Example>,
 }
+
+/// One event before and after its template's recipe, run through the same data plane the proof
+/// ran. It shows what a recipe does better than a list of actions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Example {
+    /// The event as it arrived (and as the archive keeps it).
+    pub before: Map<String, Value>,
+    /// What the SIEM receives; `None` when the event is counted into a summary instead.
+    pub after: Option<Map<String, Value>>,
+}
+
+/// Larger examples are left out of the status (a script block can run to megabytes).
+const MAX_EXAMPLE_BYTES: usize = 64 * 1024;
 
 /// One source in the last window, through the deployed data plane.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,6 +183,7 @@ impl Status {
         lifecycle: &Lifecycle,
         report: &Report,
         sources: &[Source],
+        events: &[Event],
     ) {
         self.cycles += 1;
         let proof = &cycle.deployed.proof;
@@ -211,7 +231,7 @@ impl Status {
         let excess = self.history.len().saturating_sub(HISTORY);
         self.history.drain(..excess);
         self.last_error = None;
-        self.details = details(report, lifecycle);
+        self.details = details(report, lifecycle, &examples(cycle, events));
         self.sources = health(cycle, sources);
         self.coverage_gaps.clone_from(&report.coverage_gaps);
         self.problems.clone_from(&report.problems);
@@ -219,13 +239,51 @@ impl Status {
     }
 }
 
-fn details(report: &Report, lifecycle: &Lifecycle) -> Vec<TemplateDetail> {
+/// The first event of each template that fits [`MAX_EXAMPLE_BYTES`], reduced by the analysis's
+/// data plane: the proven recipes, shadowed ones included, so a viewer sees what a recipe in
+/// shadow would do once enforced.
+fn examples(cycle: &Cycle, events: &[Event]) -> BTreeMap<TemplateId, Example> {
+    let assignments = &cycle.analysis.discovery.assignments;
+    let mut found = BTreeMap::new();
+    for event in events {
+        let Some(template) = assignments.get(&event.id) else {
+            continue;
+        };
+        if found.contains_key(template)
+            || serde_json::to_vec(&event.fields).map_or(true, |b| b.len() > MAX_EXAMPLE_BYTES)
+        {
+            continue;
+        }
+        let Ok(reduced) = cycle.analysis.data_plane.reduce(event) else {
+            continue;
+        };
+        let after = match reduced.outcome {
+            Outcome::Forwarded(body) => Some(body),
+            Outcome::Summarized => None,
+        };
+        found.insert(
+            template.clone(),
+            Example {
+                before: event.fields.clone(),
+                after,
+            },
+        );
+    }
+    found
+}
+
+fn details(
+    report: &Report,
+    lifecycle: &Lifecycle,
+    examples: &BTreeMap<TemplateId, Example>,
+) -> Vec<TemplateDetail> {
     let stages = lifecycle.stages();
     report
         .templates
         .iter()
         .map(|row| {
-            let stage = match stages.get(&TemplateId::new(row.id.as_str())) {
+            let id = TemplateId::new(row.id.as_str());
+            let stage = match stages.get(&id) {
                 Some(Stage::Enforced { .. }) => "enforced",
                 Some(Stage::Shadow { .. }) => "shadow",
                 None => "none",
@@ -239,6 +297,7 @@ fn details(report: &Report, lifecycle: &Lifecycle) -> Vec<TemplateDetail> {
                 actions: row.actions.clone(),
                 adjustments: row.adjustments.clone(),
                 provenance: row.provenance.clone(),
+                example: examples.get(&id).cloned(),
             }
         })
         .collect()

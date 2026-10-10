@@ -15,7 +15,7 @@ added. That mapping isn't built yet.
 | Tag | Requirement |
 |---|---|
 | `<field name>`, static fields | Field is read. A plain literal value becomes a case-insensitive "contains" test; anything else widens to `Always`. |
-| `<match>`, `<regex>`, `<program_name>`, `<hostname>` | Raw text is read; `Always`. |
+| `<match>`, `<regex>`, `<program_name>`, `<hostname>` | Raw text is read; `Always`. Unless the rule only sees text lines, every field is read too (see "Raw text on a JSON event"). |
 | `frequency`/`timeframe`, `<if_matched_*>`, `<same_*>`/`<different_*>` | The rule is stateful. Compared body fields are read. |
 | `<if_sid>`, `<decoded_as>`, `<group>`, `<description>`, … | Neutral. Ignoring a scope only widens. |
 | Any other tag | Every field is read, raw text is read, the condition is `Always`, and a problem is reported. |
@@ -69,8 +69,30 @@ recognise headers Sluice's discovery does not. Stock ruleset: 427+ rules. Raw-te
 without such a decoder (1002 "bad words" fired on a JSON line in the same probe) still protect
 the whole line.
 
-**Result:** real Windows plus Linux data, SigmaHQ plus the stock Wazuh ruleset: 1.3% saved,
-206 = 206 alerts. The rest is held by raw-text rules without a decoder bound and the cost cap.
+## Raw text on a JSON event is the whole line
+
+On a JSON event, `<match>` and `<regex>` run against the whole JSON line: keys, values and
+punctuation. Verified with `logtest` (Wazuh 4.14.8, 2026-10-10): `{"EventID":7036,
+"Channel":"System","ErrorCode":"","Message":"The Print Spooler service entered the running
+state."}` fires rule 1002 ("Unknown problem", `$BAD_WORDS` contains `error`) on the key name
+alone; the same event without the empty `ErrorCode` field fires nothing. So removing any field,
+even an empty one, can change a Wazuh alert. A raw-text rule that may see JSON therefore reads
+every field (`RequiredFields::Unknown`); one that only sees text lines keeps its field list.
+Before this, Sluice dropped empty fields under such rules, which could silence an alert.
+
+**Result:** real Windows plus Linux data, SigmaHQ plus the stock Wazuh ruleset: 0% saved,
+206 = 206 alerts. That is the correct answer, not a gap to close by guessing:
+
+- 308 raw-text rules that may see JSON have no bound at all, among them generic ones such as
+  1002. 104 of them have no literal `<match>`, so no keyword test could bound them. The other
+  204 have literals, but those appear in 65% of the real Windows JSON bytes, so bounding them
+  would save little.
+- Ignoring rules below Wazuh's `log_alert_level` (3) is not sound: level-0 rules suppress their
+  siblings, and a level-0 rule that stops matching lets a higher sibling fire, which adds an
+  alert.
+- Generic rules such as 1002 also apply to text lines, so text sources gain nothing either with
+  the full stock ruleset loaded. Load Wazuh rules only when Wazuh is the SIEM that receives the
+  data: with SigmaHQ as the reference (another SIEM), the same data saves 24-29%.
 
 ## Lenient rule files
 

@@ -281,33 +281,108 @@ log sources (ADR 0009). Real Linux logs of the Wazuh server (177,008 lines): 28.
   - Dockerfile and compose (Sluice plus Vector).
   - Docs.
 
-**v0.2+.**
+**Also shipped in v0.1** (beyond the original milestones):
 
-- Web UI: a read-only console shipped in v0.1 (ADR 0011). Still open: live before/after preview
-  of single events, and toggles (pausing or forcing a recipe), which need write routes.
-- SPL/KQL/EQL/YARA-L/AQL parsers.
-- OCSF canonical schema plus ECS/CIM/ASIM/UDM output mappers.
-- PII masking.
-- Wazuh decoder generation.
-- Recipe-hub PR bot.
-- OpenTelemetry Collector runtime.
-- Parquet archive.
-- Helm chart. Done: `deploy/helm/sluice` (one replica, volume, token and SIEM secrets from
-  Kubernetes Secrets), checked by `scripts/helm-check.sh`.
-- Throughput benchmarks (EPS per vCPU). Done: `scripts/bench.sh`, about 16k events/s per vCPU,
-  near-linear to four threads (docs/notes/benchmarks.md).
-- **Native SIEM transformations.** Besides Vector, emit the proven reductions in each
-  platform's own ingest-time language: Azure Monitor DCR `transformKql` for Sentinel, Splunk
-  ingest actions / props+transforms, Elastic ingest pipelines, Google SecOps parser extensions,
-  Wazuh decoders. Needs the matching rule parser (KQL, SPL, EQL, YARA-L) first, so the proof
-  covers the platform's own detections.
-- **Windows data for Wazuh.** Wazuh's Windows rules only match the agent's eventchannel
-  (docs/notes/wazuh.md), so Windows events cannot be reduced in Vector for Wazuh; reduce them
-  on the agent side instead (ingest-agent builder below). JSON and text sources are done:
-  `sluice connect wazuh` writes a JSON file and a raw-line file (`sluice_formats`).
-- **Ingest-agent builder.** Help operators build the collection side too: generate agent
-  configs (Azure Monitor Agent DCR XPath filters, Splunk UF inputs, Elastic Agent, Wazuh
-  `localfile`) from the sources and rules, so only data a detection or recipe needs is collected.
+- Read-only web console at the control plane's address, with a before/after example per
+  template and archive search (ADR 0011).
+- Helm chart (`deploy/helm/sluice`), checked by `scripts/helm-check.sh`.
+- Throughput benchmark: `scripts/bench.sh`, about 16k events/s per vCPU, near-linear to four
+  threads (docs/notes/benchmarks.md).
+- Wazuh: lenient rule files, decoders, `<if_sid>` chains, `<if_fts/>`, syslog-only rules skipped
+  on JSON, and raw-text rules reading the whole JSON line, each verified with `logtest`
+  (docs/notes/wazuh.md).
+
+## Roadmap after v0.1 (added 2026-10-10)
+
+The vision stays the same: an autopilot that cuts SIEM bills with zero work, for every SIEM, with
+data and detections that stay portable. v0.1 proved the core on real data: 24% (Windows) and 29%
+(Linux) less ingest against all of SigmaHQ, with an identical alert set. It also showed where the
+model must grow:
+
+- **Rules belong to the SIEM that runs them.** v0.1 applies every loaded rule to every
+  destination. With the stock Wazuh ruleset loaded, nothing on a JSON event can be cut (generic
+  rules such as 1002 read the whole line), so a Sentinel destination that never runs Wazuh rules
+  also saves nothing. Each destination must be proven against its own rules.
+- **Each platform has its own matching semantics.** Wazuh `<match>` sees keys and punctuation;
+  Sigma keywords see values. A proof is only as good as the model of the engine, so every new
+  engine needs a verified model and, where it exists, a differential test against the real one.
+- **Reductions should run where the bill is.** Today Vector must sit in the path. Many teams
+  cannot add a hop, but every SIEM has an ingest-time transformation language of its own.
+
+The milestones below follow from that, in order. Each keeps the safety contract unchanged, and
+each ends with the same release bar as v0.1: gates green, a real-data run, docs and an ADR.
+
+**M4 — Per-destination proofs.** Each destination names the rule sets its SIEM runs
+(`rules: [sigma, wazuh]`, default: all loaded). The guardrails and the proof run per
+destination, and Vector gets one route and one effective recipe per destination, all fed from
+the same archive. Dual-shipping to an old and a new SIEM then saves on each side independently.
+Done when: a Wazuh plus Sentinel run saves on the Sentinel route while the Wazuh route stays
+proven, and the console and MCP show savings per destination.
+
+**M5 — Native transformations, proven like VRL.** Sluice emits the proven reductions in each
+platform's own ingest language, so the cut can run without Vector in the path:
+
+- A small, closed reduction IR (drop fields, drop empty fields, keep where predicate, summarize)
+  that the guardrails already speak. Each backend compiles only that IR, never free-form code.
+- Backends, in order: Azure Monitor DCR `transformKql` (Sentinel), Elastic ingest pipelines,
+  Splunk ingest actions / `props`+`transforms`, Google SecOps parser extensions, and for Wazuh
+  generated decoders for sources that have none.
+- The same rule as for VRL: the proof runs the semantics the platform runs. Each backend gets a
+  differential test against the real engine in CI where one can run offline: the Kusto emulator
+  container for KQL, Elasticsearch's `_ingest/pipeline/_simulate`, Splunk in a container. A
+  backend without such a test ships as "advisory" (generated, not applied).
+- Archive-first still holds: native transforms only run where a full copy is kept, through
+  Vector, a DCR with a second destination, or the platform's own cheap tier, and Sluice checks
+  that before it emits a cut.
+- Done when: a Sentinel deployment without Vector receives a generated DCR whose KQL passes the
+  emulator differential test, and a real-data run shows the same savings as the Vector path.
+
+**M6 — Rule awareness for native detections.** Native transforms are only safe if Sluice knows
+the platform's own detections, not just Sigma. Read Sentinel analytics rules (KQL), Splunk
+saved searches (SPL), Elastic detection rules (EQL/KQL/ES|QL), Chronicle YARA-L and QRadar AQL
+into the same `RuleRequirements` (fields read, pre-filter, raw text, stateful), with the same
+fail-closed rule: anything not understood reads every field everywhere. Order by user demand,
+starting with KQL, which M5 needs anyway. Differential tests against each vendor's own parser
+where it is available offline (Kusto.Language for KQL).
+
+**M7 — Ingest-agent builder.** Help operators build the collection side, with Sluice as the
+author of the config rather than another hop:
+
+- Generate agent configs from sources, recipes and rules: Azure Monitor Agent DCRs (XPath
+  filters plus the M5 transform), Splunk UF `inputs.conf`, Elastic Agent integrations,
+  OpenTelemetry Collector pipelines, Wazuh agent `localfile` blocks.
+- Agent-side filtering may only drop what no rule and no recipe needs *and* what the archive
+  still receives through a second output. Where an agent cannot dual-ship, it forwards
+  everything and the cut happens downstream: archive-first is not negotiable.
+- Windows data for Wazuh lands here: Wazuh's Windows rules only match the agent's eventchannel
+  format, so those events can only be shaped on the agent side.
+- An `agents` view in the console: which hosts send what, which collected data no detection
+  uses, and the config that fixes it.
+
+**M8 — Operate without the CLI.** Write actions in the console and MCP, behind the token and an
+audit log: pause or force a recipe, keep-list a field or template per destination, approve
+recipes in `conservative` mode, and acknowledge a rollback. Every action is an event in the
+history, and none can override the safety contract. Then multi-user access (OIDC), since a team
+console needs to know who acted.
+
+**M9 — Scale out.** Several Vector data-plane nodes pulling config from the control plane
+(Vector's HTTP config provider), a sharded tap, the archive on S3/Blob/GCS with Parquet for
+search, and a load test that publishes events per second per node next to the savings. A Helm
+chart with an HPA for the data plane.
+
+**M10 — Community and ecosystem.** The flywheel that makes recipes "Sigma for pipelines":
+
+- A recipe hub repository with CI that runs every recipe against its samples and SigmaHQ.
+- `sluice recipes contribute`: export a locally proven, AI-written recipe (values stripped) as a
+  pull request.
+- Signed recipe releases that `sluice up` can follow, with the same shadow and proof before
+  anything enforces.
+- Normalization for teams that want it (OCSF, ECS, CIM, ASIM, UDM mappings), proven against
+  the rules that read the mapped names, and PII masking with the same proof.
+
+**Out of scope, on purpose:** a hosted service and paid tiers (AGPL, adoption over revenue);
+agent-side cuts without a full copy; any reduction the proof cannot run with the platform's
+own semantics.
 
 ## Project layout (Rust Cargo workspace)
 
@@ -356,7 +431,8 @@ sluice/
 - **Build environment.**
   - Rust 1.99, in WSL2 Ubuntu 24.04 through `scripts/wsl.ps1`.
   - Native Windows builds are blocked by Smart App Control.
-  - Docker, Vector, Go and Node are missing. M2 needs the Vector binary, which is easiest in WSL.
+  - Vector 0.59 (`scripts/install-vector.sh`), zig and helm live in `~/.local` in WSL. Docker
+    works in WSL since 2026-10-10 (the user is in the `docker` group).
 - `git init`, no commits; the user commits. Write a ready commit message at the end.
 
 ## Verification
@@ -387,7 +463,11 @@ sluice/
   Archive, replay, summaries, the keep-list and a per-destination "no reduction" switch mitigate
   this.
 - Savings shown are estimates from samples; check them against the SIEM's license usage.
-- Throughput targets are unmeasured until the v0.2 benchmarks.
+- Throughput is measured on one machine (about 16k events/s per vCPU); multi-node numbers wait
+  for M9.
+- With the stock Wazuh ruleset loaded, JSON events are not reduced at all, by design (generic
+  raw-text rules read the whole line). Until M4, load Wazuh rules only when Wazuh receives the
+  data.
 
 ## Sources
 

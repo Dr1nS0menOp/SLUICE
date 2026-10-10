@@ -40,6 +40,9 @@ security team's browser. The control plane may listen beyond loopback with a tok
 - `sluice up` (and the container) has a console at `http://<listen>/` with no extra setup.
 - Anyone who can reach the control plane can load the empty page, which reveals that Sluice runs
   there; it reveals nothing else without the token.
+- `/status` now carries one example event per template, before and after its proven recipe
+  (at most 64 KB each), so the console can show what a recipe does. That is raw event content
+  behind the same token as the archive; the MCP `explain` tool does not pass it on.
 - The console cannot shape decisions: it reads status and the archive and changes nothing.
   Actions such as pausing a recipe would need write routes and their own review.
 - Archive search runs on a blocking thread and is bounded by the line budget, but a narrow time

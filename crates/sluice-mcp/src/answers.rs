@@ -228,6 +228,7 @@ mod tests {
                 actions: vec!["drop Message".into()],
                 adjustments: vec![],
                 provenance: Some("community".into()),
+                example: None,
             }],
             ..Status::default()
         }
