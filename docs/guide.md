@@ -97,6 +97,19 @@ vector_secrets:                 # Vector secret backends for destination credent
 - A destination may carry `sluice_formats: [json]` or `[text]` to take only events of those
   source formats; Sluice removes the key before Vector sees it. `sluice connect wazuh` uses this
   to write JSON sources to one file and raw text lines to another.
+- A destination may carry `sluice_rules: [sigma]`, `[wazuh]` or both: the rules its SIEM runs.
+  Without it, every loaded rule set applies. Each distinct set is a *rule profile* with its own
+  proof, recipes and pipeline, so a Sentinel destination is not held back by Wazuh rules that
+  only the Wazuh destination runs. The archive and the tap stay one per source.
+  `sluice status --profile sigma+wazuh`, the console's profile picker and the MCP `status`
+  tool's `profile` parameter show each one (`GET /status?profile=sigma%2Bwazuh`;
+  [ADR 0012](adr/0012-per-destination-proofs.md)).
+
+  ```yaml
+  destinations:
+    sentinel: { type: azure_logs_ingestion, …, sluice_rules: [sigma] }
+    wazuh:    { type: file, path: /var/log/sluice/wazuh.ndjson, encoding: { codec: json }, sluice_rules: [wazuh] }
+  ```
 - Credentials go in secret files, referenced as `SECRET[backend.key]` through `vector_secrets`
   ([ADR 0010](adr/0010-secrets-and-control-plane-access.md)). Vector 0.59 does not expand
   `${VAR}` in its configuration, so environment references do not work.

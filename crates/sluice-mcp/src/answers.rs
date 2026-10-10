@@ -34,6 +34,8 @@ pub(crate) fn status(status: &Status) -> Value {
         })
     });
     json!({
+        "rule_profile": status.profile,
+        "all_rule_profiles": status.profiles,
         "cycles": status.cycles,
         "last_cycle": last,
         "enforced": count("enforced"),

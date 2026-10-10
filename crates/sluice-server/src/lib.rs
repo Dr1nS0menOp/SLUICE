@@ -64,7 +64,7 @@ pub async fn up(
         std::fs::create_dir_all(dir)
             .map_err(|e| ServerError::Io(format!("{}: {e}", dir.display())))?;
     }
-    let shared = Arc::new(Shared::new(config, rules, book, control_token));
+    let shared = Arc::new(Shared::new(config, rules, book, control_token)?);
     shared.write_secrets()?;
     shared.write_initial_config()?;
     let mut vector = spawn_vector(&shared.config)?;
@@ -97,7 +97,7 @@ pub fn check(
     control_token: Option<String>,
 ) -> Result<String, ServerError> {
     check_config(&config, control_token.as_deref())?;
-    Shared::new(config, rules, book, control_token).initial_config()
+    Shared::new(config, rules, book, control_token)?.initial_config()
 }
 
 fn check_config(config: &ServerConfig, control_token: Option<&str>) -> Result<(), ServerError> {
@@ -214,11 +214,13 @@ async fn control_loop(shared: Arc<Shared>, vector_pid: Option<u32>) {
             }
             Ok(Err(error)) => {
                 tracing::warn!(%error, "cycle failed; previous configuration stays in force");
-                let mut status = shared
-                    .status
-                    .write()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                status.last_error = Some(error.to_string());
+                for profile in &shared.profiles {
+                    let mut status = profile
+                        .status
+                        .write()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    status.last_error = Some(error.to_string());
+                }
             }
             Err(error) => {
                 tracing::error!(%error, "cycle panicked; previous configuration stays in force");
@@ -243,16 +245,20 @@ fn reload_vector(pid: Option<u32>) {
     }
 }
 
-fn log_transitions(transitions: &[Transition]) {
-    for transition in transitions {
+fn log_transitions(transitions: &[(String, Transition)]) {
+    for (profile, transition) in transitions {
         match transition {
-            Transition::Shadowing(t) => tracing::info!(template = %t, "recipe proven, in shadow"),
-            Transition::Promoted(t) => tracing::info!(template = %t, "recipe promoted: enforced"),
+            Transition::Shadowing(t) => {
+                tracing::info!(%profile, template = %t, "recipe proven, in shadow");
+            }
+            Transition::Promoted(t) => {
+                tracing::info!(%profile, template = %t, "recipe promoted: enforced");
+            }
             Transition::Demoted(t) => {
-                tracing::warn!(template = %t, "recipe in shadow failed a proof");
+                tracing::warn!(%profile, template = %t, "recipe in shadow failed a proof");
             }
             Transition::RolledBack(t) => {
-                tracing::warn!(template = %t, "enforced recipe ROLLED BACK");
+                tracing::warn!(%profile, template = %t, "enforced recipe ROLLED BACK");
             }
         }
     }

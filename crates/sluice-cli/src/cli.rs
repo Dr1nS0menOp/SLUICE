@@ -198,6 +198,9 @@ pub(crate) struct StatusArgs {
     /// Address of the control plane.
     #[arg(long, default_value = "127.0.0.1:8686")]
     pub(crate) listen: String,
+    /// The rule profile to show, such as `sigma` or `sigma+wazuh` (default: the first).
+    #[arg(long)]
+    pub(crate) profile: Option<String>,
 }
 
 #[derive(Debug, Args)]

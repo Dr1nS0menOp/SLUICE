@@ -1,5 +1,6 @@
 //! The control plane's state and one control cycle.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError, RwLock};
@@ -11,7 +12,9 @@ use sluice_autopilot::{
 use sluice_core::event::Timestamp;
 use sluice_core::source::Source;
 use sluice_rules::{SigmaRules, WazuhRules};
-use sluice_vector::{LiveSettings, LiveSource, Plan, VrlReducer, live_config};
+use sluice_vector::{
+    LiveProfile, LiveSettings, LiveSource, Plan, destination_profile, live_config,
+};
 
 use crate::config::ServerConfig;
 
@@ -34,10 +37,21 @@ pub struct Rules {
 /// What one control cycle did.
 #[derive(Debug, Default)]
 pub(crate) struct CycleReport {
-    /// Lifecycle transitions.
-    pub(crate) transitions: Vec<Transition>,
+    /// Lifecycle transitions, with the rule profile they happened in.
+    pub(crate) transitions: Vec<(String, Transition)>,
     /// Whether the Vector configuration was rewritten (Vector must reload).
     pub(crate) config_changed: bool,
+}
+
+/// The rules one group of destinations' SIEMs run, and what Sluice proved against them. Each
+/// profile has its own lifecycle: a recipe enforced for a Sentinel destination proven against
+/// Sigma says nothing about a Wazuh destination.
+pub(crate) struct Profile {
+    pub(crate) name: String,
+    sigma: bool,
+    wazuh: bool,
+    lifecycle: Mutex<Lifecycle>,
+    pub(crate) status: RwLock<Status>,
 }
 
 /// Everything the HTTP handlers and the control loop share.
@@ -45,10 +59,12 @@ pub(crate) struct Shared {
     pub(crate) config: ServerConfig,
     pub(crate) sources: Vec<Source>,
     rules: Rules,
+    /// Stands in for Sigma in profiles that do not run it.
+    no_sigma: SigmaRules,
     book: RecipeBook,
     pub(crate) windows: Mutex<Windows>,
-    lifecycle: Mutex<Lifecycle>,
-    pub(crate) status: RwLock<Status>,
+    /// One per rule profile any destination uses, sorted by name.
+    pub(crate) profiles: Vec<Profile>,
     /// What every loaded rule needs; fixed for the process lifetime.
     pub(crate) rule_info: Vec<RuleInfo>,
     /// The bearer token every route but `/healthz` requires, if set.
@@ -57,12 +73,38 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
+    /// # Errors
+    ///
+    /// Returns [`ServerError::Config`] if a destination names rules that are not loaded.
     pub(crate) fn new(
         config: ServerConfig,
         rules: Rules,
         book: RecipeBook,
         control_token: Option<String>,
-    ) -> Self {
+    ) -> Result<Self, ServerError> {
+        let loaded = loaded(&rules);
+        let mut names = std::collections::BTreeSet::new();
+        for (name, sink) in &config.destinations {
+            names.insert(
+                destination_profile(name, sink, &loaded)
+                    .map_err(|e| ServerError::Config(e.to_string()))?,
+            );
+        }
+        let listed: Vec<String> = names.iter().cloned().collect();
+        let profiles = names
+            .into_iter()
+            .map(|name| Profile {
+                sigma: name.split('+').any(|r| r == "sigma"),
+                wazuh: name.split('+').any(|r| r == "wazuh"),
+                lifecycle: Mutex::new(Lifecycle::new(config.promotion.into())),
+                status: RwLock::new(Status {
+                    profile: name.clone(),
+                    profiles: listed.clone(),
+                    ..Status::default()
+                }),
+                name,
+            })
+            .collect();
         let sources = config.sources.iter().map(|s| s.source.clone()).collect();
         let mut rule_info: Vec<RuleInfo> = rules
             .sigma
@@ -78,17 +120,26 @@ impl Shared {
                     .map(|r| RuleInfo::new("wazuh", r)),
             );
         }
-        Self {
+        Ok(Self {
             rule_info,
             control_token,
             windows: Mutex::new(Windows::new(config.window)),
-            lifecycle: Mutex::new(Lifecycle::new(config.promotion.into())),
+            profiles,
             config,
             sources,
             rules,
+            no_sigma: SigmaRules::parse(std::iter::empty::<&str>())
+                .map_err(|e| ServerError::Config(e.to_string()))?,
             book,
-            status: RwLock::new(Status::default()),
             last_config: Mutex::new(String::new()),
+        })
+    }
+
+    /// The profile named `name`, or the first one (with a single profile, the only one).
+    pub(crate) fn profile(&self, name: Option<&str>) -> Option<&Profile> {
+        match name {
+            Some(name) => self.profiles.iter().find(|p| p.name == name),
+            None => self.profiles.first(),
         }
     }
 
@@ -124,7 +175,7 @@ impl Shared {
 
     /// The configuration with nothing enforced: every source passes through.
     pub(crate) fn initial_config(&self) -> Result<String, ServerError> {
-        self.render(&[], &VrlReducer::default())
+        self.render(&[])
     }
 
     /// Writes the configuration with nothing enforced: every source passes through.
@@ -133,50 +184,91 @@ impl Shared {
         self.write_if_changed(&yaml).map(|_| ())
     }
 
-    /// Runs one cycle on the current window.
+    /// Runs one cycle on the current window, for every rule profile: each is analyzed, proven
+    /// and advanced against its own rules only. The configuration is written once, with every
+    /// profile's pipeline; if any profile fails, nothing changes.
     pub(crate) fn run_cycle(&self, now: i64) -> Result<CycleReport, ServerError> {
         let events = lock(&self.windows).snapshot(now);
         if events.is_empty() {
             return Ok(CycleReport::default());
         }
-        let mut lifecycle = lock(&self.lifecycle);
-        let input = Input {
-            sources: &self.sources,
-            events: &events,
-            sigma: &self.rules.sigma,
-            wazuh: self.rules.wazuh.as_ref(),
-        };
-        let result = cycle(
-            input,
-            &self.book,
-            &Settings::default(),
-            Helpers::default(),
-            &mut lifecycle,
-            Timestamp(now),
-        )
-        .map_err(|e| ServerError::Cycle(e.to_string()))?;
-        let yaml = self.render(&result.plans(), &result.data_plane)?;
+        let mut lifecycles: Vec<_> = self.profiles.iter().map(|p| lock(&p.lifecycle)).collect();
+        let mut results = Vec::with_capacity(self.profiles.len());
+        for (profile, lifecycle) in self.profiles.iter().zip(&mut lifecycles) {
+            let (sigma, wazuh) = self.rules_of(profile);
+            let input = Input {
+                sources: &self.sources,
+                events: &events,
+                sigma,
+                wazuh,
+            };
+            let result = cycle(
+                input,
+                &self.book,
+                &Settings::default(),
+                Helpers::default(),
+                lifecycle,
+                Timestamp(now),
+            )
+            .map_err(|e| ServerError::Cycle(format!("profile {}: {e}", profile.name)))?;
+            results.push(result);
+        }
+        let plans: Vec<Vec<Plan<'_>>> =
+            results.iter().map(sluice_autopilot::Cycle::plans).collect();
+        let live: Vec<LiveProfile<'_>> = self
+            .profiles
+            .iter()
+            .zip(&results)
+            .zip(&plans)
+            .map(|((profile, result), plans)| LiveProfile {
+                name: &profile.name,
+                plans,
+                data_plane: &result.data_plane,
+            })
+            .collect();
+        let yaml = self.render(&live)?;
         let config_changed = self.write_if_changed(&yaml)?;
 
-        let mut status = self.status.write().unwrap_or_else(PoisonError::into_inner);
-        let report = Report::new(
-            &result.analysis,
-            &self.rules.sigma,
-            self.rules.wazuh.as_ref(),
-        );
-        status.record(now, &result, &lifecycle, &report, &self.sources, &events);
-        status.window = lock(&self.windows)
+        let window: BTreeMap<String, usize> = lock(&self.windows)
             .sizes()
             .into_iter()
             .map(|(s, n)| (s.to_string(), n))
             .collect();
+        let mut transitions = Vec::new();
+        for ((profile, lifecycle), result) in self.profiles.iter().zip(&lifecycles).zip(&results) {
+            let (sigma, wazuh) = self.rules_of(profile);
+            let report = Report::new(&result.analysis, sigma, wazuh);
+            let mut status = profile
+                .status
+                .write()
+                .unwrap_or_else(PoisonError::into_inner);
+            status.record(now, result, lifecycle, &report, &self.sources, &events);
+            status.window.clone_from(&window);
+            transitions.extend(
+                result
+                    .transitions
+                    .iter()
+                    .map(|t| (profile.name.clone(), t.clone())),
+            );
+        }
         Ok(CycleReport {
-            transitions: result.transitions,
+            transitions,
             config_changed,
         })
     }
 
-    fn render(&self, plans: &[Plan<'_>], data_plane: &VrlReducer) -> Result<String, ServerError> {
+    /// The rules a profile runs.
+    fn rules_of(&self, profile: &Profile) -> (&SigmaRules, Option<&WazuhRules>) {
+        let sigma = if profile.sigma {
+            &self.rules.sigma
+        } else {
+            &self.no_sigma
+        };
+        let wazuh = self.rules.wazuh.as_ref().filter(|_| profile.wazuh);
+        (sigma, wazuh)
+    }
+
+    fn render(&self, profiles: &[LiveProfile<'_>]) -> Result<String, ServerError> {
         let sources: Vec<LiveSource<'_>> = self
             .config
             .sources
@@ -205,7 +297,7 @@ impl Shared {
             tap_token: self.control_token.as_ref().map(|_| TOKEN_REFERENCE),
             secret_backends: &secret_backends,
         };
-        live_config(&sources, plans, data_plane, &settings)
+        live_config(&sources, profiles, &loaded(&self.rules), &settings)
             .map_err(|e| ServerError::Config(e.to_string()))
     }
 
@@ -221,6 +313,15 @@ impl Shared {
         tracing::info!(path = %self.config.vector_config.display(), "wrote Vector configuration");
         Ok(true)
     }
+}
+
+/// The rule sets a destination can name: Sigma always (it may be empty), Wazuh when loaded.
+fn loaded(rules: &Rules) -> Vec<&'static str> {
+    let mut loaded = vec!["sigma"];
+    if rules.wazuh.is_some() {
+        loaded.push("wazuh");
+    }
+    loaded
 }
 
 pub(crate) fn write_atomic(path: &Path, contents: &str) -> Result<(), ServerError> {

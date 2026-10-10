@@ -182,6 +182,7 @@ impl Pipeline {
 }
 
 /// Component ids of one source's pipeline.
+#[derive(Clone)]
 pub(crate) struct Components {
     pub(crate) stem: String,
     pub(crate) input: String,
@@ -209,6 +210,32 @@ impl Components {
         Self {
             input: name("_input"),
             parse: name("_parse"),
+            program: name(""),
+            split: name("_route"),
+            summarize: name("_summarize"),
+            summaries: name("_summaries"),
+            stem,
+        }
+    }
+
+    /// The reduction components of `profile`'s pipeline. The input and archive stay shared: one
+    /// copy of every event is archived, whatever each destination's rules allow.
+    pub(crate) fn for_profile(&self, profile: &str) -> Self {
+        let tag: String = profile
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let stem = format!("{}_{tag}", self.stem);
+        let name = |suffix: &str| format!("sluice_{stem}{suffix}");
+        Self {
+            input: self.input.clone(),
+            parse: self.parse.clone(),
             program: name(""),
             split: name("_route"),
             summarize: name("_summarize"),
