@@ -15,8 +15,9 @@ First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
   `report.html` and a `vector.yaml` with Vector unit tests.
 - Sigma rules via rsigma, including correlations and filters; Wazuh `rules.xml` requirements,
   read as leniently as Wazuh reads them and bounded by decoders (`--wazuh-decoders`) and
-  `<if_sid>` chains; an optional live Wazuh `logtest` spot check (`--wazuh-api`), with text
-  sources sent as raw lines.
+  `<if_sid>` chains (including literal `prematch`, `<category>`, `<if_fts/>`, and rules that
+  only ever see syslog lines, so they do not hold JSON templates); an optional live Wazuh
+  `logtest` spot check (`--wazuh-api`), with text sources sent as raw lines.
 - An optional AI advisor (`--llm`: Anthropic, Ollama, LM Studio, any OpenAI-compatible API) with
   redacted samples. Its proposals pass the same guardrails as any other.
 - Guardrails scope rules by log source and per template, protect what a rule reads only on events
@@ -28,6 +29,9 @@ First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
 - `sluice up`: Vector with a generated pipeline, a full-fidelity gzip archive, a sampled tap to the
   control plane, shadow, promotion, continuous re-proof and rollback, with SIGHUP reloads.
 - `sluice status`, `sluice search`, `sluice replay` (ADR 0006).
+- A read-only web console at the control plane's address: overview with the proof, sources and
+  templates by stage, per-template recipe, guardrail reasons and lifecycle, and archive search
+  (`GET /archive/search`). Built into the binary, no third-party assets, strict CSP (ADR 0011).
 - `sluice connect` for Splunk, Elastic, Microsoft Sentinel, Google SecOps, Wazuh (JSON and raw-line
   files) and HTTP, validated against Vector 0.59.
 
