@@ -37,6 +37,28 @@ fn event(n: u32, at: &str) -> Value {
 }
 
 #[test]
+fn a_line_budget_bounds_a_search_that_matches_nothing() {
+    let root = archive("budget");
+    let lines: Vec<Value> = (0..50).map(|n| event(n, "2026-10-09T17:00:00Z")).collect();
+    write(&root, "sysmon/2026-10-09/17.ndjson.gz", &gzip(&lines));
+    let query = Query {
+        conditions: vec!["n=never".parse().expect("a valid condition")],
+        ..Query::default()
+    };
+    let mut scan = Scan::new(&root, query.clone())
+        .expect("the archive exists")
+        .with_line_budget(10);
+    assert_eq!(scan.by_ref().count(), 0);
+    assert_eq!(scan.stats().lines, 10);
+    assert!(scan.stats().budget_exhausted);
+
+    let mut unbounded = Scan::new(&root, query).expect("the archive exists");
+    assert_eq!(unbounded.by_ref().count(), 0);
+    assert_eq!(unbounded.stats().lines, 50);
+    assert!(!unbounded.stats().budget_exhausted);
+}
+
+#[test]
 fn selects_by_source_time_and_condition_in_hour_order() {
     let root = archive("select");
     write(

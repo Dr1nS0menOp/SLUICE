@@ -242,6 +242,100 @@ async fn a_control_token_guards_every_route_but_health() {
     assert_eq!(mode & 0o777, 0o600);
 }
 
+async fn get(shared: &Arc<Shared>, uri: &str, token: Option<&str>) -> axum::response::Response {
+    let mut request = Request::get(uri);
+    if let Some(token) = token {
+        request = request.header("authorization", format!("Bearer {token}"));
+    }
+    router(Arc::clone(shared))
+        .oneshot(request.body(Body::empty()).unwrap())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn the_console_is_served_without_data_and_under_a_strict_policy() {
+    let token = "0123456789abcdef0123456789abcdef";
+    let shared = shared_with_token(&scratch("console"), Some(token));
+    for (uri, kind) in [
+        ("/", "text/html"),
+        ("/ui/app.js", "text/javascript"),
+        ("/ui/app.css", "text/css"),
+    ] {
+        let response = get(&shared, uri, None).await;
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+        let headers = response.headers();
+        assert!(headers["content-type"].to_str().unwrap().starts_with(kind));
+        let csp = headers["content-security-policy"].to_str().unwrap();
+        assert!(csp.contains("default-src 'none'") && csp.contains("script-src 'self'"));
+        assert_eq!(headers["x-content-type-options"], "nosniff");
+    }
+    // Archived events are untrusted: the console writes them as text, never as markup.
+    let script = include_str!("../ui/app.js");
+    assert!(!script.contains("innerHTML") && !script.contains("insertAdjacentHTML"));
+    assert!(!script.contains("eval("));
+}
+
+#[tokio::test]
+async fn archive_search_needs_the_token_and_reads_originals() {
+    use std::io::Write as _;
+
+    let token = "0123456789abcdef0123456789abcdef";
+    let dir = scratch("archive-search");
+    let shared = shared_with_token(&dir, Some(token));
+    let hour = dir.join("archive/sysmon/2026-10-10");
+    std::fs::create_dir_all(&hour).unwrap();
+    let mut gz = flate2::write::GzEncoder::new(
+        std::fs::File::create(hour.join("06.ndjson.gz")).unwrap(),
+        flate2::Compression::default(),
+    );
+    for (id, image) in [(10, "lsass.exe"), (1, "cmd.exe"), (10, "LSASS.EXE")] {
+        let event =
+            json!({"timestamp": "2026-10-10T06:15:00Z", "EventID": id, "TargetImage": image});
+        writeln!(gz, "{event}").unwrap();
+    }
+    gz.finish().unwrap();
+
+    assert_eq!(
+        get(&shared, "/archive/search", None).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let search = |uri: &'static str| {
+        let shared = Arc::clone(&shared);
+        async move {
+            let response = get(&shared, uri, Some(token)).await;
+            let status = response.status();
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            (status, body)
+        }
+    };
+    let (status, body) =
+        search("/archive/search?source=sysmon&where=EventID%3D10%0ATargetImage~lsass").await;
+    assert_eq!(status, StatusCode::OK);
+    let result: crate::archive::SearchResult = serde_json::from_slice(&body).unwrap();
+    assert_eq!(result.events.len(), 2, "both lsass events, any case");
+    assert!(!result.more_available && !result.truncated);
+
+    let (_, body) = search("/archive/search?limit=1").await;
+    let result: crate::archive::SearchResult = serde_json::from_slice(&body).unwrap();
+    assert_eq!(result.events.len(), 1);
+    assert!(result.more_available);
+
+    let (_, body) = search("/archive/search?source=nginx").await;
+    let result: crate::archive::SearchResult = serde_json::from_slice(&body).unwrap();
+    assert!(
+        result.events.is_empty(),
+        "another source's files are not read"
+    );
+
+    let (status, _) = search("/archive/search?where=no-operator").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = search("/archive/search?from=yesterday").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
 #[test]
 fn listening_beyond_loopback_needs_a_token() {
     assert!(crate::check_exposure("127.0.0.1:8686", None).is_ok());

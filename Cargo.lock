@@ -2889,9 +2889,11 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "chrono",
+ "flate2",
  "rustix",
  "serde",
  "serde_json",
+ "sluice-archive",
  "sluice-autopilot",
  "sluice-core",
  "sluice-rules",

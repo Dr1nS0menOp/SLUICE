@@ -283,7 +283,8 @@ log sources (ADR 0009). Real Linux logs of the Wazuh server (177,008 lines): 28.
 
 **v0.2+.**
 
-- Web UI with live before/after preview and toggles.
+- Web UI: a read-only console shipped in v0.1 (ADR 0011). Still open: live before/after preview
+  of single events, and toggles (pausing or forcing a recipe), which need write routes.
 - SPL/KQL/EQL/YARA-L/AQL parsers.
 - OCSF canonical schema plus ECS/CIM/ASIM/UDM output mappers.
 - PII masking.

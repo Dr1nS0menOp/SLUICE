@@ -5,6 +5,7 @@
 //! rolled back the moment a proof fails. Each change rewrites Vector's configuration, which Vector
 //! reloads on its own. If the control plane stops, Vector keeps running the last configuration.
 
+mod archive;
 mod config;
 mod control;
 mod error;
@@ -12,6 +13,7 @@ mod routes;
 mod status;
 #[cfg(test)]
 mod tests;
+mod ui;
 mod window;
 
 use std::process::Stdio;

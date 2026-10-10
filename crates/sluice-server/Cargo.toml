@@ -13,6 +13,7 @@ chrono.workspace = true
 rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sluice-archive.workspace = true
 sluice-autopilot.workspace = true
 sluice-core.workspace = true
 sluice-rules.workspace = true
@@ -22,6 +23,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+flate2.workspace = true
 sluice-synth.workspace = true
 tower.workspace = true
 

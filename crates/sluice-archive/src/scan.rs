@@ -42,6 +42,9 @@ pub struct Stats {
     /// Files that ended early with the reason: the newest hour while Vector still writes it, or a
     /// damaged file. The events before that point were read.
     pub incomplete: Vec<(PathBuf, String)>,
+    /// The line budget ([`Scan::with_line_budget`]) ran out before the selection was read to the
+    /// end, so more events may match.
+    pub budget_exhausted: bool,
 }
 
 /// An iterator over the archived events a [`Query`] selects, in file order (hour, then source)
@@ -54,6 +57,7 @@ pub struct Scan {
     current: Option<Open>,
     stats: Stats,
     line: Vec<u8>,
+    budget: Option<u64>,
 }
 
 struct Open {
@@ -75,7 +79,16 @@ impl Scan {
             current: None,
             stats: Stats::default(),
             line: Vec::new(),
+            budget: None,
         })
+    }
+
+    /// Stops the scan after reading `lines` lines, matching or not, so a search over a large
+    /// archive ends in bounded time. [`Stats::budget_exhausted`] then tells the caller.
+    #[must_use]
+    pub fn with_line_budget(mut self, lines: u64) -> Self {
+        self.budget = Some(lines);
+        self
     }
 
     /// What has been read so far; complete once the iterator returns `None`.
@@ -118,6 +131,10 @@ impl Iterator for Scan {
 
     fn next(&mut self) -> Option<Record> {
         loop {
+            if self.budget.is_some_and(|budget| self.stats.lines >= budget) {
+                self.stats.budget_exhausted = true;
+                return None;
+            }
             let (source, hour) = self.next_line()?;
             if self.line.iter().all(u8::is_ascii_whitespace) {
                 continue;

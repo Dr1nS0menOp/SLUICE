@@ -22,12 +22,14 @@ pub(crate) fn router(shared: Arc<Shared>) -> Router {
         .route("/tap/{source}", post(tap))
         .route("/status", get(status))
         .route("/rules", get(rules))
+        .route("/archive/search", get(crate::archive::search))
         .layer(middleware::from_fn_with_state(
             Arc::clone(&shared),
             authorize,
         ));
     Router::new()
         .merge(protected)
+        .merge(crate::ui::router())
         .route("/healthz", get(|| async { "ok" }))
         .layer(DefaultBodyLimit::max(MAX_BODY))
         .with_state(shared)

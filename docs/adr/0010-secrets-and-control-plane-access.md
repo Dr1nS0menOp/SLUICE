@@ -1,6 +1,6 @@
 # ADR 0010: Secrets through Vector secret backends; a token for the control plane
 
-- Status: Accepted
+- Status: Accepted (amended by ADR 0011: the web console's static files need no token)
 - Date: 2026-10-10
 
 ## Context
