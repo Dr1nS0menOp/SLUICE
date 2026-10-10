@@ -9,6 +9,9 @@ pub enum ServerError {
     /// The Vector configuration could not be rendered.
     #[error("cannot render the Vector configuration: {0}")]
     Config(String),
+    /// The configuration is unsafe or invalid, so the control plane does not start.
+    #[error("refusing to start: {0}")]
+    Refused(String),
     /// A control cycle failed; the previous configuration stays in force.
     #[error("control cycle failed: {0}")]
     Cycle(String),

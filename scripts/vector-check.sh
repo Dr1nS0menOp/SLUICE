@@ -15,9 +15,7 @@ vector validate --no-environment "${config}"
 echo "==> vector test ${config}"
 vector test "${config}"
 
-# Dummy values for the `${VAR}` secrets the destination sinks reference.
+# The destination sinks read dummy secrets from a directory backend the test wrote.
 connect="${target_dir}/tmp/connect.yaml"
 echo "==> vector validate ${connect}"
-SPLUNK_HEC_TOKEN=x ELASTIC_USER=x ELASTIC_PASSWORD=x AZURE_TENANT_ID=x AZURE_CLIENT_ID=x \
-  AZURE_CLIENT_SECRET=x CHRONICLE_CUSTOMER_ID=x GOOGLE_APPLICATION_CREDENTIALS=/dev/null \
-  vector validate --no-environment "${connect}"
+vector validate --no-environment "${connect}"

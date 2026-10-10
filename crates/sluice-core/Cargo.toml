@@ -4,6 +4,7 @@ description = "Domain model, safety contract and shadow proof for Sluice"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [features]

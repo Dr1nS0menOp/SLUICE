@@ -84,3 +84,14 @@ the DRL license) shows no unsafe difference; Sluice requires more fields than py
 rules, which is the safe direction. A deliberately broken requirements file is caught.
 Locally, without root: `uv venv ~/.cache/sluice-pysigma && uv pip install pysigma` and
 `PYTHON=~/.cache/sluice-pysigma/bin/python`.
+
+## Pre-filter widening rules (verified 2026-10-10 on the SigmaHQ set)
+
+- `not`, `null`, `exists: false`, unsupported modifiers, array blocks → `Always`.
+- `|all` on a field → conjunction of the value tests; a keyword mapping `{'|all': [...]}` →
+  conjunction of single-keyword tests (rsigma parses it as an `AllOf` item without a field name).
+- Inner wildcards (`*`, `?`) → starts with the first literal piece (if anchored), ends with the
+  last (if anchored), contains the longest. Keywords keep only the longest piece, and widen to
+  `Always` if it is shorter than three characters. SigmaHQ's "Equation Group Indicators" and
+  "JexBoss Command Sequence" (product `linux`, keywords) used to make every Linux template
+  unreducible through these two gaps.

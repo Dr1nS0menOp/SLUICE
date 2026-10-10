@@ -73,12 +73,7 @@ impl Compiler<'_> {
         }
         let value = format!("{var}_v");
         let rendered = format!("{var}_s");
-        let checks = test
-            .values
-            .iter()
-            .map(|k| call("contains", &rendered, k, test.case_sensitive))
-            .collect::<Vec<_>>()
-            .join(" || ");
+        let checks = keyword_checks(&rendered, test);
         self.statements.push(format!("{var} = false"));
         self.statements.push(format!(
             "for_each(values(flatten(.))) -> |_index, {value}| {{\n  \
@@ -93,7 +88,7 @@ impl Compiler<'_> {
 
     fn join(&mut self, parts: &[Predicate], operator: &str) -> String {
         let parts: Vec<String> = parts.iter().map(|p| self.expression(p)).collect();
-        format!("({})", parts.join(operator))
+        balanced(&parts, operator)
     }
 
     /// Emits the statements for one field test and returns the variable holding its result.
@@ -108,6 +103,15 @@ impl Compiler<'_> {
         }
         let value = format!("{var}_v");
         let rendered = format!("{var}_s");
+        if let Some(alternation) = literal_alternation(&rendered, test) {
+            self.statements.push(format!("{var} = false"));
+            self.statements.push(format!("{value} = {path}"));
+            self.statements.push(format!(
+                "if is_array({value}) || is_object({value}) {{ {var} = true }} \
+                 else if !is_null({value}) {{ {rendered} = to_string!({value}); {var} = {alternation} }}"
+            ));
+            return var;
+        }
         let comparisons: Option<Vec<String>> = test
             .values
             .iter()
@@ -117,7 +121,7 @@ impl Compiler<'_> {
             self.statements.push(format!("{var} = true"));
             return var;
         };
-        let matches = comparisons.join(" || ");
+        let matches = balanced(&comparisons, " || ");
         self.statements.push(format!("{var} = false"));
         self.statements.push(format!("{value} = {path}"));
         self.statements.push(format!(
@@ -126,6 +130,105 @@ impl Compiler<'_> {
         ));
         var
     }
+}
+
+/// A field test with many literal values as one anchored alternation over the value, lowercased
+/// once for case-insensitive tests (what `downcase(…) ==` and `contains(…, case_sensitive:
+/// false)` do per value); `None` for few values, regexes, or a pattern VRL cannot take.
+fn literal_alternation(rendered: &str, test: &FieldTest) -> Option<String> {
+    let (prefix, suffix) = match test.op {
+        MatchOp::Equals => ("^", "$"),
+        MatchOp::Contains => ("", ""),
+        MatchOp::StartsWith => ("^", ""),
+        MatchOp::EndsWith => ("", "$"),
+        MatchOp::Regex | MatchOp::Exists => return None,
+    };
+    if test.values.len() < KEYWORD_REGEX_MIN {
+        return None;
+    }
+    alternation(rendered, &test.values, test.case_sensitive, prefix, suffix)
+}
+
+/// `match(text, r'prefix(?:v1|v2|…)suffix')` over escaped literals, lowercasing both sides
+/// when case-insensitive.
+fn alternation(
+    text: &str,
+    values: &[String],
+    case_sensitive: bool,
+    prefix: &str,
+    suffix: &str,
+) -> Option<String> {
+    let literals: Vec<String> = values
+        .iter()
+        .map(|v| {
+            regex::escape(&if case_sensitive {
+                v.clone()
+            } else {
+                v.to_lowercase()
+            })
+        })
+        .collect();
+    let pattern = format!("{prefix}(?:{}){suffix}", literals.join("|"));
+    regex::Regex::new(&pattern).ok()?;
+    let quoted = syntax::regex(&pattern)?;
+    let haystack = if case_sensitive {
+        text.to_owned()
+    } else {
+        format!("downcase({text})")
+    };
+    Some(format!("match({haystack}, {quoted})"))
+}
+
+/// Above this many keywords, one regex alternation replaces a `contains` per keyword.
+const KEYWORD_REGEX_MIN: usize = 5;
+
+/// The test of the rendered value in `text` against the keywords: `contains` calls for a few,
+/// one alternation of escaped literals for many (Rust's regex runs it as a single `Aho-Corasick`
+/// scan). Case-insensitive alternations lowercase value and literals, exactly as
+/// `contains(…, case_sensitive: false)` does, so both forms decide alike.
+fn keyword_checks(rendered: &str, test: &KeywordTest) -> String {
+    let contains = || {
+        balanced(
+            &test
+                .values
+                .iter()
+                .map(|k| call("contains", rendered, k, test.case_sensitive))
+                .collect::<Vec<_>>(),
+            " || ",
+        )
+    };
+    if test.values.len() < KEYWORD_REGEX_MIN {
+        return contains();
+    }
+    alternation(rendered, &test.values, test.case_sensitive, "", "").unwrap_or_else(contains)
+}
+
+/// Joins `parts` with a binary `operator` as a balanced tree of parentheses. VRL parses and
+/// type-checks `a || b || c …` recursively, one level per operand, so a pre-filter over the
+/// thousands of `SigmaHQ` rules overflowed the stack; halving keeps the depth logarithmic.
+fn balanced(parts: &[String], operator: &str) -> String {
+    match parts {
+        [] => unreachable_empty(operator),
+        [one] => one.clone(),
+        _ => {
+            let (left, right) = parts.split_at(parts.len() / 2);
+            format!(
+                "({}{operator}{})",
+                balanced(left, operator),
+                balanced(right, operator)
+            )
+        }
+    }
+}
+
+/// Callers never join nothing; should one, the neutral element keeps the program valid.
+fn unreachable_empty(operator: &str) -> String {
+    if operator.contains("||") {
+        "false"
+    } else {
+        "true"
+    }
+    .to_owned()
 }
 
 /// One comparison of the stringified field value in variable `text` with `value`, or `None` if

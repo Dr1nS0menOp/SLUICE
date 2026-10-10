@@ -57,3 +57,23 @@ All providers use JSON-schema-constrained output with `additionalProperties: fal
 - TLS uses the bundled Mozilla roots (`webpki-roots`). Enterprises with an intercepting proxy
   need the system trust store: switch ureq to its platform verifier.
 - Recipe export for community contribution (PLAN M3) isn't implemented.
+
+## Live run with LM Studio (2026-10-10)
+
+Verified with LM Studio's server (`lms` CLI) and `qwen/qwen3.8-27b` (a reasoning model), on the
+demo sample at scale 25:
+
+- **The constrained answer lands in `reasoning_content`.** With `response_format: json_schema`
+  the model's JSON comes back in `choices[0].message.reasoning_content` while `content` is `""`
+  (`finish_reason: stop`). `OpenAiCompatible` falls back to `reasoning_content` only when it
+  parses as JSON; the proposal is validated against the schema afterwards in any case.
+- **From WSL (NAT networking) `localhost:1234` is not the Windows host.** Bind the server to the
+  WSL virtual interface only, not the LAN: `lms server start --bind <vEthernet (WSL) IPv4>` and
+  use `--llm "openai:http://<that IP>:1234/v1#qwen/qwen3.8-27b"`.
+- Speed: about a minute per template for a 27B model on this machine (3 templates, 3 minutes);
+  answers are cached per template and model, so a rerun is instant.
+- Outcome: the model proposed boilerplate drops for three nginx templates, one of them including
+  `message` (the raw line itself). The guardrails refused all three, because a loaded Sigma
+  keyword rule may read any field of nginx events; nothing the model said reached the data
+  plane. This is the intended division of labour: the model proposes, the guardrails and proof
+  decide.

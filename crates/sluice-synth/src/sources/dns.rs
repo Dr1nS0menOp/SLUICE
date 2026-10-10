@@ -13,6 +13,7 @@ pub(crate) const SPEC: Spec = Spec {
         product: Some("unbound".into()),
         service: None,
         category: Some("dns".into()),
+        complete: false,
     },
     format: json_format,
 };

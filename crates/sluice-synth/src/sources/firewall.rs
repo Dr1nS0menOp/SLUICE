@@ -14,6 +14,7 @@ pub(crate) const SPEC: Spec = Spec {
         product: Some("opnsense".into()),
         service: Some("filterlog".into()),
         category: Some("firewall".into()),
+        complete: false,
     },
     format: json_format,
 };

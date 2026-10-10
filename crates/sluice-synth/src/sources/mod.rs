@@ -66,6 +66,7 @@ pub(crate) fn logsource(product: &str, service: Option<&str>) -> LogSource {
         product: Some(product.to_owned()),
         service: service.map(str::to_owned),
         category: None,
+        complete: false,
     }
 }
 

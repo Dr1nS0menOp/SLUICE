@@ -8,6 +8,8 @@
 //! Exact Wazuh verification (the `logtest` API) is separate; these requirements only feed the
 //! guardrails, so every uncertainty widens them.
 
+mod chains;
+mod decoders;
 mod xml;
 
 use std::collections::BTreeSet;
@@ -18,7 +20,9 @@ use sluice_core::logsource::LogSource;
 use sluice_core::predicate::{FieldTest, MatchOp, Predicate};
 use sluice_core::rules::{RequiredFields, RuleRequirements};
 
-use self::xml::{RawChild, RawRule};
+use self::chains::Parsed;
+use self::decoders::Decoders;
+use self::xml::{RawChild, RawElement};
 use crate::error::RulesError;
 
 /// Static decoder fields that a JSON-decoded event carries under the same name.
@@ -72,17 +76,52 @@ pub struct WazuhRules {
 impl WazuhRules {
     /// Parses Wazuh rule files (one string per file).
     ///
+    /// A file that still cannot be read becomes one opaque rule that applies everywhere and may
+    /// read anything (fail closed), and is reported in [`WazuhRules::problems`].
+    ///
     /// # Errors
     ///
-    /// Returns [`RulesError::WazuhXml`] if a file is not well-formed.
+    /// Never at present; the `Result` leaves room for errors that must stop the load.
     pub fn parse<'a>(files: impl IntoIterator<Item = &'a str>) -> Result<Self, RulesError> {
-        let mut requirements = Vec::new();
+        Self::parse_with_decoders(files, std::iter::empty())
+    }
+
+    /// Parses Wazuh rule files together with the decoder files they rely on. A rule's
+    /// `<decoded_as>` then bounds what it can see by the decoder's program names, and `<if_sid>`
+    /// chains pass a parent's bounds and fields to its children.
+    ///
+    /// # Errors
+    ///
+    /// As [`WazuhRules::parse`].
+    pub fn parse_with_decoders<'a>(
+        files: impl IntoIterator<Item = &'a str>,
+        decoder_files: impl IntoIterator<Item = &'a str>,
+    ) -> Result<Self, RulesError> {
+        let mut parsed = Vec::new();
         let mut problems = Vec::new();
-        for file in files {
-            for (n, raw) in xml::rules(file)?.into_iter().enumerate() {
-                requirements.push(requirement(&raw, n, &mut problems));
+        let decoders = Decoders::parse(decoder_files, &mut problems);
+        for (index, file) in files.into_iter().enumerate() {
+            match xml::rules(file) {
+                Ok(raws) => {
+                    for (n, raw) in raws.into_iter().enumerate() {
+                        parsed.push(requirement(&raw, n, &decoders, &mut problems));
+                    }
+                }
+                Err(error) => {
+                    problems.push(format!(
+                        "Wazuh rule file {index} could not be read ({error}); it is treated as \
+                         a rule that may read anything"
+                    ));
+                    parsed.push(Parsed {
+                        requirements: RuleRequirements::opaque(RuleId::new(format!(
+                            "wazuh:unreadable:{index}"
+                        ))),
+                        parents: Vec::new(),
+                    });
+                }
             }
         }
+        let requirements = chains::inherit(parsed);
         Ok(Self {
             requirements,
             problems,
@@ -102,10 +141,20 @@ impl WazuhRules {
     }
 }
 
-fn requirement(raw: &RawRule, position: usize, problems: &mut Vec<String>) -> RuleRequirements {
+fn requirement(
+    raw: &RawElement,
+    position: usize,
+    decoders: &Decoders,
+    problems: &mut Vec<String>,
+) -> Parsed {
     let Some(id) = raw.attributes.get("id") else {
         problems.push(format!("Wazuh rule #{position} has no id"));
-        return RuleRequirements::opaque(RuleId::new(format!("wazuh:unknown:{position}")));
+        return Parsed {
+            requirements: RuleRequirements::opaque(RuleId::new(format!(
+                "wazuh:unknown:{position}"
+            ))),
+            parents: Vec::new(),
+        };
     };
     let rule = RuleId::new(format!("wazuh:{id}"));
     let mut builder = Builder {
@@ -113,10 +162,28 @@ fn requirement(raw: &RawRule, position: usize, problems: &mut Vec<String>) -> Ru
             || raw.attributes.contains_key("timeframe"),
         ..Builder::default()
     };
+    let mut parents = Vec::new();
     for child in &raw.children {
-        builder.add(child, &rule, problems);
+        match child.tag.as_str() {
+            "decoded_as" => builder.conditions.push(decoders.condition(&child.text)),
+            "category" => builder
+                .conditions
+                .push(decoders.category_condition(&child.text)),
+            "if_sid" => parents.extend(
+                child
+                    .text
+                    .split(|c: char| c == ',' || c.is_whitespace())
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned),
+            ),
+            "if_fts" => match decoders.fts_fields() {
+                Some(names) => builder.first_time_seen(names),
+                None => builder.add(child, &rule, problems),
+            },
+            _ => builder.add(child, &rule, problems),
+        }
     }
-    RuleRequirements {
+    let requirements = RuleRequirements {
         rule,
         logsource: LogSource::default(),
         fields: if builder.unknown_fields {
@@ -127,6 +194,10 @@ fn requirement(raw: &RawRule, position: usize, problems: &mut Vec<String>) -> Ru
         matches_raw_text: builder.raw_text,
         stateful: builder.stateful,
         prefilter: Predicate::all(builder.conditions),
+    };
+    Parsed {
+        requirements,
+        parents,
     }
 }
 
@@ -173,6 +244,24 @@ impl Builder {
         }
     }
 
+    /// `<if_fts/>`: the rule fires the first time a combination of the decoder's `<fts>` names
+    /// is seen. That history only takes events that passed the rule's other conditions, so it
+    /// is stateful in the sense of ADR 0004, and it reads those names: `name` (the decoder) and
+    /// `location` are not in the event body, `hostname` and `program_name` come from the raw
+    /// syslog header, and every other name is a decoded field.
+    fn first_time_seen(&mut self, names: &BTreeSet<String>) {
+        self.stateful = true;
+        for name in names {
+            match name.as_str() {
+                "name" | "location" => {}
+                "hostname" | "program_name" => self.raw_text = true,
+                field => {
+                    self.fields.insert(FieldPath::new(field));
+                }
+            }
+        }
+    }
+
     fn field_condition(&mut self, name: &str, child: &RawChild) {
         self.fields.insert(FieldPath::new(name));
         let negated = child.attributes.get("negate").is_some_and(|v| v == "yes");
@@ -187,6 +276,9 @@ impl Builder {
                 values: vec![text.to_owned()],
                 case_sensitive: false,
             }),
+            // A pattern the pre-filter cannot express still needs a value in the field; a
+            // negated one may also pass when the field is missing.
+            _ if !negated => Predicate::present(FieldPath::new(name)),
             _ => Predicate::Always,
         };
         self.conditions.push(condition);

@@ -43,6 +43,9 @@ jobs:
       - run: PATH="$HOME/.local/bin:$PATH" bash scripts/vector-check.sh
       - name: Live smoke test (sluice up + Vector, ~4 minutes)
         run: PATH="$HOME/.local/bin:$PATH" bash scripts/live-smoke.sh 200
+      - uses: azure/setup-helm@v4
+      - name: Helm chart (lint, refused without token, config through sluice and Vector)
+        run: PATH="$HOME/.local/bin:$PATH" bash scripts/helm-check.sh
 
   sigma-differential:
     name: Rule requirements against pySigma (examples and SigmaHQ)

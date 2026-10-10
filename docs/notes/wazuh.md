@@ -24,15 +24,53 @@ A "plain literal" contains only letters, digits, space, `_-:@,`. Every `OS_Regex
 operator, including `.`, `\`, `|`, `^`, `$` and `!`, disqualifies a value, so "contains" is
 always a superset of what Wazuh matches.
 
-## Known limit: Wazuh rules are unscoped
+## Known limit: Wazuh rules carry no log source
 
-Wazuh rules carry no Sigma-style log source, so every Wazuh rule applies to every template. A
-single stateful or raw-text Wazuh rule therefore blocks L2 (rule-guided) reduction everywhere.
-That is safe, but it costs savings. Planned improvement, in the guardrails and for every engine:
+Wazuh rules carry no Sigma-style log source, so every Wazuh rule applies to every source. A rule
+is scoped per template by its pre-filter instead (ADR 0009), which these sharpen:
 
-- A rule applies to a template only if its pre-filter can be satisfied on that template's fields.
-  A rule that requires `EventID` cannot fire on DNS logs.
-- For Wazuh, follow `<if_sid>` chains, so a child inherits its parent's scope.
+- **Decoders** (`--wazuh-decoders`): `<decoded_as>sshd</decoded_as>` becomes a keyword test for
+  the decoder's `program_name` literals (`^sshd`, `^apache2|^httpd`), inherited through
+  `<parent>`. A `prematch` that starts with a literal of two or more characters (`^ossec: `,
+  `^SU \S+`) bounds the same way. A decoder bounds only if *every* definition of that name
+  does: the stock `su` decoder has two (`program_name ^su$` and `prematch ^SU`). A decoder
+  that selects by a regex or a plugin (JSON, Windows eventchannel) bounds nothing.
+- **`<category>`** is the decoder `<type>`: bounded by the union of all decoders of that type.
+- **`<if_sid>` chains**: a child's pre-filter is its own conditions and any parent's; it also
+  takes its parents' fields, raw-text use and statefulness. A missing or cyclic parent adds
+  nothing.
+
+**Measured on the stock ruleset (Wazuh 4.14.8, 4,654 rules, 2026-10-10):** decoders and chains
+bound 1,051 more rules, but 2,799 stay unbounded, mostly Windows rule chains rooted in
+`<category>windows</category>` or the eventchannel decoder, and `if_group` chains. An unbounded
+rule applies to every template, so with the full stock ruleset loaded Sluice reduces nothing:
+the fail-closed outcome. Bounding those needs knowledge of which log formats reach Wazuh (the
+eventchannel format never comes through Sluice), which is a deployment fact rather than a rule
+fact; it is left open on purpose.
+
+- **`<if_fts/>`** ("first time seen") is stateful and reads the union of every decoder's `<fts>`
+  names (stock: `srcip`, `user`, `id`, `extra_data`, `srcuser`, `system_name`, `dstip`; `name`
+  and `location` are not body fields, `hostname`/`program_name` mean raw text). Its history only
+  takes events that passed the rule's other conditions, so ADR 0004 applies. Without decoder
+  files it stays "reads every field".
+
+**After prematch, category and `if_fts` (same ruleset):** 657 rules stay unbounded, and none
+reads unknown fields any more. Real Windows plus Linux data with SigmaHQ and the stock Wazuh
+ruleset: 0.1% saved, 206 = 206 alerts.
+
+**What holds the rest:** raw-text rules (`<match>`, `<regex>`). On a JSON event Wazuh matches them
+against the whole JSON line, so they read every field (for example a Windows `Message`), and
+their decoder bound is a keyword (`pam`, `sshd`) that a template with free text cannot rule out.
+They would drop out of JSON templates only if JSON lines reach Wazuh without a syslog header,
+because then `program_name` decoders never select them. That is a deployment fact
+(`log_format json`) that has not been verified with `logtest` yet, so Sluice does not assume it.
+
+## Lenient rule files
+
+The stock rule files are not strict XML: `<regex>` holds `</\/\w+\>` and bare `&&`, which a
+strict parser rejects. Sluice reads them as Wazuh does, escaping `<` that does not start markup
+and `&` that does not start an entity. A file that still cannot be read becomes one opaque rule
+(it may read anything, everywhere) and is reported; before, one such file stopped the load.
 
 ## Verification with `logtest` (crates/sluice-wazuh)
 
@@ -62,3 +100,32 @@ rules:
 **Not yet run live.** No API credentials or SSH keys are available on the development machine.
 Ward's Wazuh (192.168.1.9) uses `wazuh-logtest` over SSH; the API password is in the homelab sops
 file.
+
+## Live run against Wazuh 4.14.8 (2026-10-10)
+
+Verified on a real manager (all-in-one 4.14.8) through `PUT /logtest` with the `wazuh-wui` API
+user:
+
+- **`alert` is the level gate, not "a rule matched".** A rule with level 0 still appears in
+  `output.rule` (for example 5521 for a cron PAM session) but `data.alert` is `false`. Sluice
+  counts only `alert: true`, which matches what the manager would write to `alerts.json`.
+- **Text sources must be sent as the raw line with `log_format: syslog`.** Pre-decoding then
+  finds `program_name`, `hostname` and `timestamp`, and the `sshd`/`pam` decoders and rules run
+  (a synthetic `Failed password` line fired rule 5760). Wrapped in JSON the same line matches
+  nothing. `EventRules::fired_line` exists for this.
+- **Windows events sent as JSON match no Windows rule,** not even in the agent's
+  `win.system`/`win.eventdata` shape: the Windows ruleset hangs off the `eventchannel` log format
+  of the agent. A logtest spot check of JSON Windows events against Wazuh therefore proves
+  nothing, and Windows data reduced by Sluice should reach Wazuh through the agent, not as a JSON
+  `localfile`.
+- Result on the demo sample (scale 40): only the two cron-session templates are reduced
+  (summarized); every sampled original was a level-0 match, so Wazuh agrees no alert is lost.
+  The `sshd` templates are forwarded unchanged and need no check. `sluice analyze` reports the
+  number of checked events that fired a rule, so an all-quiet check is visible as such.
+- **Delivery** (verified end to end the same day): `sluice connect wazuh` emits two file
+  destinations. `sluice_formats: [json]` takes JSON sources and all summary records; the
+  `_lines` one takes text sources with Vector's `text` codec, which writes the `message` field,
+  so the file holds the original syslog lines. Read them with `log_format: json` and
+  `log_format: syslog` respectively. A `Failed password` line written by `sluice up` that way
+  fired rule 5710 in logtest. `sluice up` refuses a text destination when a text source keeps
+  its line outside `message`.

@@ -30,13 +30,30 @@ pub use crate::status::{
     CycleStatus, RuleInfo, SourceHealth, Status, TemplateDetail, TemplateStatus, TransitionRecord,
 };
 
+/// The environment variable from which `sluice` reads the control plane's bearer token. Vector
+/// gets it through a secret backend (a file only this user can read), never through its config.
+pub const CONTROL_TOKEN_ENV: &str = "SLUICE_CONTROL_TOKEN";
+
+/// The shortest control token accepted.
+pub const MIN_CONTROL_TOKEN_LEN: usize = 32;
+
 /// Runs the control plane and Vector until Ctrl-C, or until Vector exits.
+///
+/// With `control_token`, every route but `/healthz` requires `Authorization: Bearer <token>`.
+/// Without one, the control plane only listens on a loopback address: anyone who can post to
+/// `/tap` shapes the sample the proofs run on.
 ///
 /// # Errors
 ///
-/// Returns [`ServerError`] if the listener, the configuration or Vector cannot be set up, or if
-/// Vector exits on its own.
-pub async fn up(config: ServerConfig, rules: Rules, book: RecipeBook) -> Result<(), ServerError> {
+/// Returns [`ServerError`] if the listener, the configuration or Vector cannot be set up, if the
+/// control plane would listen beyond loopback without a token, or if Vector exits on its own.
+pub async fn up(
+    config: ServerConfig,
+    rules: Rules,
+    book: RecipeBook,
+    control_token: Option<String>,
+) -> Result<(), ServerError> {
+    check_config(&config, control_token.as_deref())?;
     let listener = TcpListener::bind(&config.listen)
         .await
         .map_err(|e| ServerError::Io(format!("cannot listen on {}: {e}", config.listen)))?;
@@ -44,7 +61,8 @@ pub async fn up(config: ServerConfig, rules: Rules, book: RecipeBook) -> Result<
         std::fs::create_dir_all(dir)
             .map_err(|e| ServerError::Io(format!("{}: {e}", dir.display())))?;
     }
-    let shared = Arc::new(Shared::new(config, rules, book));
+    let shared = Arc::new(Shared::new(config, rules, book, control_token));
+    shared.write_secrets()?;
     shared.write_initial_config()?;
     let mut vector = spawn_vector(&shared.config)?;
     tracing::info!(listen = %shared.config.listen, "control plane listening");
@@ -60,6 +78,58 @@ pub async fn up(config: ServerConfig, rules: Rules, book: RecipeBook) -> Result<
         () = shutdown_signal() => tracing::info!("shutting down"),
     }
     stop_vector(&mut vector).await
+}
+
+/// Checks a configuration without starting anything: the safety checks `up` makes, and the
+/// Vector configuration it would start with (every source passing through). Returns that
+/// configuration, for `vector validate`.
+///
+/// # Errors
+///
+/// As [`up`], for everything short of binding and starting Vector.
+pub fn check(
+    config: ServerConfig,
+    rules: Rules,
+    book: RecipeBook,
+    control_token: Option<String>,
+) -> Result<String, ServerError> {
+    check_config(&config, control_token.as_deref())?;
+    Shared::new(config, rules, book, control_token).initial_config()
+}
+
+fn check_config(config: &ServerConfig, control_token: Option<&str>) -> Result<(), ServerError> {
+    check_exposure(&config.listen, control_token)?;
+    if config.vector_secrets.contains_key(control::SECRET_BACKEND) {
+        return Err(ServerError::Refused(format!(
+            "vector_secrets: the name `{}` is reserved for Sluice",
+            control::SECRET_BACKEND
+        )));
+    }
+    Ok(())
+}
+
+/// Refuses a short token, and a non-loopback listen address without a token.
+fn check_exposure(listen: &str, token: Option<&str>) -> Result<(), ServerError> {
+    if let Some(token) = token {
+        if token.chars().count() < MIN_CONTROL_TOKEN_LEN {
+            return Err(ServerError::Refused(format!(
+                "{CONTROL_TOKEN_ENV} must be at least {MIN_CONTROL_TOKEN_LEN} characters"
+            )));
+        }
+        return Ok(());
+    }
+    let loopback = listen.parse::<std::net::SocketAddr>().map_or_else(
+        |_| listen.starts_with("localhost:"),
+        |a| a.ip().is_loopback(),
+    );
+    if loopback {
+        Ok(())
+    } else {
+        Err(ServerError::Refused(format!(
+            "listen {listen} is reachable beyond this host: set {CONTROL_TOKEN_ENV} (at least \
+             {MIN_CONTROL_TOKEN_LEN} characters), or listen on 127.0.0.1"
+        )))
+    }
 }
 
 /// Resolves on Ctrl-C (SIGINT) or SIGTERM, the signal systemd and container runtimes send.

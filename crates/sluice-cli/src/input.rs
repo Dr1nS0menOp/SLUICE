@@ -66,6 +66,30 @@ pub(crate) fn events(dir: &Path, sources: &[Source]) -> Result<Vec<Event>> {
     Ok(events)
 }
 
+/// Wazuh rules from `rules`, bounded by the decoders in `decoders` if given.
+pub(crate) fn wazuh(
+    rules: Option<&Path>,
+    decoders: Option<&Path>,
+) -> Result<Option<sluice_rules::WazuhRules>> {
+    let Some(rules) = rules else {
+        return Ok(None);
+    };
+    let rule_files = files(rules, &["xml"])?;
+    let decoder_files = if let Some(dir) = decoders {
+        files(dir, &["xml"])?
+    } else {
+        eprintln!(
+            "hint: without --wazuh-decoders, Wazuh rules are not bounded by <decoded_as> and \
+             apply to every template"
+        );
+        Vec::new()
+    };
+    Ok(Some(sluice_rules::WazuhRules::parse_with_decoders(
+        rule_files.iter().map(|(_, text)| text.as_str()),
+        decoder_files.iter().map(|(_, text)| text.as_str()),
+    )?))
+}
+
 /// Every file under `dir` with one of `extensions`, as `(path, contents)`, sorted by path.
 pub(crate) fn files(dir: &Path, extensions: &[&str]) -> Result<Vec<(String, String)>> {
     let mut paths = Vec::new();

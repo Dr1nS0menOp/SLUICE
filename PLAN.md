@@ -26,7 +26,7 @@ Standalone project at `C:\Users\ward\SLUICE`. It has nothing to do with the home
 - **Runner-up:** an open-source Venafi/Keyfactor alternative, driven by 47-day certificates. Less
   SOC-centric.
 - **Still open:**
-  - License: Apache-2.0 vs AGPL-3.0. Decide before the first public push.
+  - License: decided, AGPL-3.0-only (ADR 0008).
   - ~~Install method for the Vector binary~~. Decided 2026-10-09: `scripts/install-vector.sh`
     installs the pinned release (0.59.0, which embeds `vrl` 0.36.0) into `~/.local` with SHA-256
     verification.
@@ -224,7 +224,7 @@ the same events.
 done (AI: see `docs/notes/ai.md`).
 Demo: 75.3% ingest saved, 41 = 41 alerts, reproduced exactly by Vector 0.59.
 
-1. Workspace scaffold: lints, toolchain, `deny.toml`, CI, README, LICENSE placeholder.
+1. Workspace scaffold: lints, toolchain, `deny.toml`, CI, README, LICENSE.
 2. `sluice-core` domain model and the safety-contract guardrails, with tests named after each
    contract rule.
 3. `sluice-synth`: a deterministic generator for the demo sources and rule-matching attack events.
@@ -264,7 +264,10 @@ spec is `recipes/recipe.schema.json`, generated from the parser's types (`sluice
 musl binaries for x86_64 and aarch64 via cargo-zigbuild, a Dockerfile on Vector's
 distroless-static image, compose example, CI image build, draft releases on tags. MCP also runs over
 streamable HTTP behind a mandatory bearer token (`--http`). The differential test against pySigma
-covers all 3152 SigmaHQ rules. Open: the license decision.
+covers all 3152 SigmaHQ rules. License: AGPL-3.0-only (ADR 0008). Real data (2026-10-10, this
+machine's Windows System, Application and PowerShell logs, 22,448 events, all SigmaHQ rules):
+23.8 % saved, 206 = 206 alerts, after conditional protection, per-template scoping and complete
+log sources (ADR 0009). Real Linux logs of the Wazuh server (177,008 lines): 28.6 % saved.
 
 - MCP server (`rmcp`, the official Rust SDK; stdio and HTTP) with these tools: `status`, `savings`, `sources`,
   `templates`, `explain`, `what_breaks`, `coverage_gaps`, `source_health`, `search_archive`
@@ -288,8 +291,22 @@ covers all 3152 SigmaHQ rules. Open: the license decision.
 - Recipe-hub PR bot.
 - OpenTelemetry Collector runtime.
 - Parquet archive.
-- Helm chart.
-- Throughput benchmarks (EPS per vCPU).
+- Helm chart. Done: `deploy/helm/sluice` (one replica, volume, token and SIEM secrets from
+  Kubernetes Secrets), checked by `scripts/helm-check.sh`.
+- Throughput benchmarks (EPS per vCPU). Done: `scripts/bench.sh`, about 16k events/s per vCPU,
+  near-linear to four threads (docs/notes/benchmarks.md).
+- **Native SIEM transformations.** Besides Vector, emit the proven reductions in each
+  platform's own ingest-time language: Azure Monitor DCR `transformKql` for Sentinel, Splunk
+  ingest actions / props+transforms, Elastic ingest pipelines, Google SecOps parser extensions,
+  Wazuh decoders. Needs the matching rule parser (KQL, SPL, EQL, YARA-L) first, so the proof
+  covers the platform's own detections.
+- **Windows data for Wazuh.** Wazuh's Windows rules only match the agent's eventchannel
+  (docs/notes/wazuh.md), so Windows events cannot be reduced in Vector for Wazuh; reduce them
+  on the agent side instead (ingest-agent builder below). JSON and text sources are done:
+  `sluice connect wazuh` writes a JSON file and a raw-line file (`sluice_formats`).
+- **Ingest-agent builder.** Help operators build the collection side too: generate agent
+  configs (Azure Monitor Agent DCR XPath filters, Splunk UF inputs, Elastic Agent, Wazuh
+  `localfile`) from the sources and rules, so only data a detection or recipe needs is collected.
 
 ## Project layout (Rust Cargo workspace)
 
@@ -301,7 +318,7 @@ together and does process I/O.
 sluice/
   Cargo.toml            # [workspace] + [workspace.dependencies] + [workspace.lints]
   rust-toolchain.toml   deny.toml   rustfmt.toml   .github/workflows/ci.yml
-  LICENSE               # final call (Apache-2.0 vs AGPL-3.0) before first public push
+  LICENSE               # AGPL-3.0-only (ADR 0008)
   crates/
     sluice-core/        # domain model, safety contract/guardrails, reduction plan, shadow proof
                         #   (pure: no I/O, no async; engines injected via traits)

@@ -1,0 +1,13 @@
+id: microsoft/windows/powershell/rendered-message
+description: PowerShell Operational events (script block, module and engine logging)
+match:
+  logsource: { product: windows, service: powershell }
+reductions:
+  - op: drop_fields
+    fields: [Message]
+  - op: drop_empty_fields
+rationale: >-
+  Message is rendered from the event's own EventData values; for script block logging (4104) it
+  repeats the whole ScriptBlockText after a fixed header, doubling the largest events. Rules read
+  ScriptBlockText, Payload and the other fields, which stay. Rules that match on Message keep it
+  through the guardrails.

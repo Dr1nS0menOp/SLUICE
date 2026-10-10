@@ -25,7 +25,7 @@ want to install a toolchain or shared libraries on. `sluice up` runs Vector as i
    a draft GitHub release; a maintainer publishes it. Publishing the image to a registry is left
    until the project has one.
 4. `cargo install --path crates/sluice-cli` remains the route for people who build from source.
-   Publishing to crates.io waits for the license decision (`Cargo.toml`, `publish = false`).
+   Publishing to crates.io waits for a repository URL and a release (`publish = false`).
 
 ## Consequences
 
@@ -33,7 +33,10 @@ want to install a toolchain or shared libraries on. `sluice up` runs Vector as i
   `docs/compatibility.md` together.
 - The base image installs Vector as `/usr/local/bin/vector` (its entrypoint); the container
   configuration names that path. Checked on the pinned digest through the registry API:
-  the layer holds `vector 0.59.0 (x86_64-unknown-linux-musl)`, static-pie.
+  the layer holds `vector 0.59.0 (x86_64-unknown-linux-musl)`, static-pie. The image's layers
+  plus the static `sluice`, run in a user-namespace chroot with `/dev` bind-mounted (Docker
+  provides `/dev`; without it spawning Vector fails, because its stdin is `/dev/null`), ran
+  `sluice up --demo-traffic` end to end: reloads, promotions, archive and SIEM output.
 - Zig prints `ignoring deprecated linker optimization setting '1'` while linking; it is harmless.
 - The image cannot be built on a machine without Docker access; CI builds both architectures and
   runs the amd64 image on every push.

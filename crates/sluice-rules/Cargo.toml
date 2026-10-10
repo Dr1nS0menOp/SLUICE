@@ -4,6 +4,7 @@ description = "Rule awareness for Sluice: Sigma and Wazuh rules as engine-neutra
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [dependencies]
@@ -15,6 +16,7 @@ sluice-core.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+proptest.workspace = true
 sluice-synth.workspace = true
 
 [lints]

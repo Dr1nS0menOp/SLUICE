@@ -152,6 +152,7 @@ fn logsource(rule: &SigmaRule) -> LogSource {
         product: rule.logsource.product.clone(),
         service: rule.logsource.service.clone(),
         category: rule.logsource.category.clone(),
+        complete: false,
     }
 }
 

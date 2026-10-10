@@ -3,7 +3,10 @@
 mod html;
 mod text;
 
+use std::collections::BTreeMap;
+
 use sluice_core::guard::EffectiveRecipe;
+use sluice_core::logsource::LogSource;
 use sluice_core::proof::Volume;
 use sluice_core::rules::RuleRequirements;
 use sluice_core::template::Template;
@@ -32,6 +35,9 @@ pub struct Report {
     pub coverage_gaps: Vec<String>,
     /// Rules or recipes that could not be fully understood.
     pub problems: Vec<String>,
+    /// Sources where many rules apply only because the log source leaves an attribute unknown;
+    /// declaring it (or `complete: true`) lets the guardrails ignore those rules.
+    pub scope_hints: Vec<String>,
     /// The spot check with the SIEM's own rules, if one ran.
     pub spot_check: Option<SpotCheck>,
 }
@@ -88,6 +94,7 @@ impl Report {
             rules,
             templates,
             coverage_gaps: coverage_gaps(&requirements, &analysis.discovery.templates),
+            scope_hints: scope_hints(&requirements, &analysis.discovery.templates),
             problems: analysis.problems.clone(),
             spot_check: analysis.spot_check.clone(),
         }
@@ -134,6 +141,40 @@ fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> Te
             .get(&template.id)
             .map(|p| text::provenance(p.provenance())),
     }
+}
+
+/// For each source whose log source is not complete, the rules that apply only because an
+/// attribute is undeclared: they would not apply if the declared attributes were all there is.
+fn scope_hints(requirements: &[&RuleRequirements], templates: &[Template]) -> Vec<String> {
+    let mut sources: BTreeMap<&str, &LogSource> = BTreeMap::new();
+    for template in templates {
+        sources
+            .entry(template.source.as_str())
+            .or_insert(&template.logsource);
+    }
+    sources
+        .into_iter()
+        .filter(|(_, logsource)| !logsource.complete)
+        .filter_map(|(source, logsource)| {
+            let complete = LogSource {
+                complete: true,
+                ..logsource.clone()
+            };
+            let only_unknown = requirements
+                .iter()
+                .filter(|r| {
+                    r.logsource.may_apply_to(logsource) && !r.logsource.may_apply_to(&complete)
+                })
+                .count();
+            (only_unknown > 0).then(|| {
+                format!(
+                    "{source}: {only_unknown} rules apply only because its log source ({}) leaves \
+                     an attribute unknown; if that is all it is, add `complete: true`",
+                    text::logsource(logsource)
+                )
+            })
+        })
+        .collect()
 }
 
 fn coverage_gaps(requirements: &[&RuleRequirements], templates: &[Template]) -> Vec<String> {

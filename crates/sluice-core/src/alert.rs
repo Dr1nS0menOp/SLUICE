@@ -39,6 +39,15 @@ pub trait EventRules {
         &self,
         fields: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<BTreeSet<RuleId>, EngineError>;
+
+    /// The rules that alert on one raw log line, as the SIEM receives it from a text source (a
+    /// log file or syslog). Text rules such as Wazuh's `sshd` rules decode the line itself, so
+    /// wrapping it in JSON would hide every match.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError`] if the rules cannot be evaluated; the check then fails closed.
+    fn fired_line(&self, line: &str) -> Result<BTreeSet<RuleId>, EngineError>;
 }
 
 /// Evaluates detection rules over a sequence of events.

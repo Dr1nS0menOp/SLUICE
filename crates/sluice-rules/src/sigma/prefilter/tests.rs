@@ -32,6 +32,25 @@ fn exclusions_are_dropped_not_negated() {
 }
 
 #[test]
+fn all_modifier_requires_every_value() {
+    let p = prefilter(
+        "    s:\n        ScriptBlockText|contains|all:\n            - 'Net.WebClient'\n            - 'DownloadString'\n    condition: s\n",
+    );
+    assert_eq!(
+        p,
+        Predicate::all([
+            test("ScriptBlockText", MatchOp::Contains, "Net.WebClient", false),
+            test(
+                "ScriptBlockText",
+                MatchOp::Contains,
+                "DownloadString",
+                false
+            ),
+        ])
+    );
+}
+
+#[test]
 fn edge_wildcards_fold_into_the_comparison() {
     let p = prefilter(
         "    a:\n        X: '*mimi*'\n    b:\n        Y: 'pre*'\n    c:\n        Z: '*\\evil.exe'\n    condition: a or b or c\n",
@@ -47,22 +66,57 @@ fn edge_wildcards_fold_into_the_comparison() {
 }
 
 #[test]
-fn inner_wildcards_and_unsupported_modifiers_widen() {
-    assert_eq!(
-        prefilter("    s:\n        X: 'a*b'\n    condition: s\n"),
-        Predicate::Always
-    );
-    assert_eq!(
-        prefilter("    s:\n        X: 'a?b'\n    condition: s\n"),
-        Predicate::Always
-    );
+fn unsupported_modifiers_widen_to_a_present_field() {
+    // Not expressible, but a match needs a value in X: that is all the pre-filter keeps.
     assert_eq!(
         prefilter("    s:\n        X|base64: 'abc'\n    condition: s\n"),
-        Predicate::Always
+        Predicate::present("X".into())
     );
     assert_eq!(
         prefilter("    s:\n        X|cidr: '10.0.0.0/8'\n    condition: s\n"),
-        Predicate::Always
+        Predicate::present("X".into())
+    );
+}
+
+#[test]
+fn inner_wildcards_bound_by_their_literal_pieces() {
+    // A value matching `cmd*evil.exe` starts with `cmd`, ends with `evil.exe` and contains it.
+    assert_eq!(
+        prefilter("    s:\n        X: 'cmd*evil.exe'\n    condition: s\n"),
+        Predicate::all([
+            test("X", MatchOp::StartsWith, "cmd", false),
+            test("X", MatchOp::EndsWith, "evil.exe", false),
+            test("X", MatchOp::Contains, "evil.exe", false),
+        ])
+    );
+    assert_eq!(
+        prefilter("    s:\n        X|contains: 'chown root*chmod 4777'\n    condition: s\n"),
+        test("X", MatchOp::Contains, "chmod 4777", false)
+    );
+    // Keywords: the value contains the longest piece; pieces too short say nothing.
+    assert_eq!(
+        prefilter("    keywords:\n        - 'ghost_* -v '\n    condition: keywords\n"),
+        Predicate::Keywords(KeywordTest {
+            values: vec!["ghost_".into()],
+            case_sensitive: false,
+        })
+    );
+}
+
+#[test]
+fn keywords_with_all_require_every_keyword() {
+    let p = prefilter(
+        "    keywords:\n        '|all':\n            - 'bash -c /bin/bash'\n            - '&/dev/tcp/'\n    condition: keywords\n",
+    );
+    let kw = |v: &str| {
+        Predicate::Keywords(KeywordTest {
+            values: vec![v.into()],
+            case_sensitive: false,
+        })
+    };
+    assert_eq!(
+        p,
+        Predicate::all([kw("bash -c /bin/bash"), kw("&/dev/tcp/")])
     );
 }
 
@@ -71,7 +125,7 @@ fn keywords_become_free_text_tests() {
     assert_eq!(
         prefilter("    keywords:\n        - 'evil'\n        - '*bad*'\n    condition: keywords\n"),
         Predicate::Keywords(KeywordTest {
-            values: vec!["evil".into(), "bad".into()],
+            values: vec!["bad".into(), "evil".into()],
             case_sensitive: false,
         })
     );

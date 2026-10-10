@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use sluice_autopilot::RecipeBook;
 use sluice_core::event::Timestamp;
-use sluice_rules::{SigmaRules, WazuhRules};
+use sluice_rules::SigmaRules;
 use sluice_server::{Rules, ServerConfig, Status};
 use sluice_synth::{SynthConfig, generate};
 
@@ -31,13 +31,19 @@ pub(crate) fn up(args: &UpArgs) -> Result<()> {
                 .iter()
                 .map(String::as_str),
         )?,
-        wazuh: match &args.wazuh_rules {
-            Some(dir) => Some(WazuhRules::parse(
-                read(Some(dir), &["xml"])?.iter().map(String::as_str),
-            )?),
-            None => None,
-        },
+        wazuh: input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?,
     };
+    if args.check {
+        let sources = config.sources.len();
+        let destinations = config.destinations.len();
+        let vector = sluice_server::check(config, rules, RecipeBook::embedded()?, control_token())?;
+        print!("{vector}");
+        eprintln!(
+            "configuration ok: {sources} sources, {destinations} destinations; the Vector \
+             configuration above is what `sluice up` starts with"
+        );
+        return Ok(());
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -48,13 +54,22 @@ pub(crate) fn up(args: &UpArgs) -> Result<()> {
         thread::spawn(move || demo_traffic(&targets));
     }
     let runtime = tokio::runtime::Runtime::new().context("starting the async runtime")?;
-    runtime.block_on(sluice_server::up(config, rules, RecipeBook::embedded()?))?;
+    runtime.block_on(sluice_server::up(
+        config,
+        rules,
+        RecipeBook::embedded()?,
+        control_token(),
+    ))?;
     Ok(())
 }
 
 pub(crate) fn status(args: &StatusArgs) -> Result<()> {
     let url = format!("http://{}/status", args.listen);
-    let body = ureq::get(&url)
+    let mut request = ureq::get(&url);
+    if let Some(token) = control_token() {
+        request = request.header("authorization", format!("Bearer {token}"));
+    }
+    let body = request
         .call()
         .with_context(|| format!("is `sluice up` running? GET {url}"))?
         .body_mut()
@@ -93,6 +108,7 @@ pub(crate) fn status(args: &StatusArgs) -> Result<()> {
 pub(crate) fn mcp(args: McpArgs) -> Result<()> {
     let config = sluice_mcp::McpConfig {
         control_plane: args.listen,
+        control_token: control_token(),
         archive: args.archive,
         allow_replay: args.allow_replay,
     };
@@ -115,6 +131,13 @@ pub(crate) fn mcp(args: McpArgs) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The control plane's bearer token from the environment, if one is set.
+fn control_token() -> Option<String> {
+    std::env::var(sluice_server::CONTROL_TOKEN_ENV)
+        .ok()
+        .filter(|t| !t.is_empty())
 }
 
 /// Unix seconds as UTC wall time, for people reading `sluice status`.

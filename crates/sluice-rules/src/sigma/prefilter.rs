@@ -109,6 +109,11 @@ fn keywords(values: &[SigmaValue]) -> Predicate {
         let text = match value {
             SigmaValue::String(s) => match string_test(Base::Contains, s) {
                 Some((MatchOp::Contains, literal)) => literal,
+                // `a*b` in a value: that value contains its longest literal piece.
+                None => match pieces(s).into_iter().max_by_key(String::len) {
+                    Some(piece) if piece.chars().count() >= MIN_PIECE => piece,
+                    _ => return Predicate::Always,
+                },
                 _ => return Predicate::Always,
             },
             SigmaValue::Integer(n) => n.to_string(),
@@ -128,6 +133,21 @@ fn keywords(values: &[SigmaValue]) -> Predicate {
     })
 }
 
+/// A keyword item written as a mapping, such as `keywords: {'|all': [a, b]}`: with `|all`
+/// every keyword must occur somewhere in the event, without it any. Other modifiers widen.
+fn keyword_item(item_: &DetectionItem) -> Predicate {
+    match item_.field.modifiers.as_slice() {
+        [] => keywords(&item_.values),
+        [Modifier::All] => Predicate::all(
+            item_
+                .values
+                .iter()
+                .map(|value| keywords(std::slice::from_ref(value))),
+        ),
+        _ => Predicate::Always,
+    }
+}
+
 /// How an item's values are compared, from its modifiers; `None` if not expressible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Base {
@@ -141,10 +161,11 @@ enum Base {
 
 fn item(item_: &DetectionItem) -> Predicate {
     let Some(field) = item_.field.name.as_deref() else {
-        return Predicate::Always;
+        return keyword_item(item_);
     };
     let Some((base, case_sensitive)) = base(&item_.field.modifiers) else {
-        return Predicate::Always;
+        // Not expressible, but a positive match still needs a value in the field.
+        return present_unless_null(field, &item_.values);
     };
     if base == Base::Exists {
         // `exists: true` is a field test; `exists: false` matches absence, which is unbounded.
@@ -157,13 +178,16 @@ fn item(item_: &DetectionItem) -> Predicate {
     if item_.values.is_empty() {
         return Predicate::Always;
     }
-    // A value list is OR-linked (or AND-linked with `|all`, of which OR is a superset).
-    Predicate::any(
-        item_
-            .values
-            .iter()
-            .map(|value| value_test(field, base, case_sensitive, value)),
-    )
+    // A value list is OR-linked, or AND-linked with `|all`: every value must match.
+    let tests = item_
+        .values
+        .iter()
+        .map(|value| value_test(field, base, case_sensitive, value));
+    if item_.field.modifiers.contains(&Modifier::All) {
+        Predicate::all(tests)
+    } else {
+        Predicate::any(tests)
+    }
 }
 
 /// The comparison and case sensitivity implied by a modifier list.
@@ -216,12 +240,23 @@ fn value_test(field: &str, base: Base, case_sensitive: bool, value: &SigmaValue)
         ),
         SigmaValue::String(s) => match string_test(base, s) {
             Some((op, literal)) => test(field, op, vec![literal], case_sensitive),
-            None => Predicate::Always,
+            None => wildcard_superset(field, base, case_sensitive, s),
         },
         SigmaValue::Integer(n) if base == Base::Equals => {
             test(field, MatchOp::Equals, vec![n.to_string()], case_sensitive)
         }
-        _ => Predicate::Always,
+        SigmaValue::Null => Predicate::Always,
+        _ => Predicate::present(FieldPath::new(field)),
+    }
+}
+
+/// `present(field)` for a value list without `null` (which matches a missing field), else
+/// `Always`.
+fn present_unless_null(field: &str, values: &[SigmaValue]) -> Predicate {
+    if values.is_empty() || values.iter().any(|v| matches!(v, SigmaValue::Null)) {
+        Predicate::Always
+    } else {
+        Predicate::present(FieldPath::new(field))
     }
 }
 
@@ -257,6 +292,74 @@ fn string_test(base: Base, s: &SigmaString) -> Option<(MatchOp, String)> {
         return Some((MatchOp::Exists, String::new()));
     }
     Some((op, literal))
+}
+
+/// Literal pieces shorter than this say too little to bound a keyword search.
+const MIN_PIECE: usize = 3;
+
+/// The literal pieces between a string's wildcards (`*` or `?`), in order.
+fn pieces(s: &SigmaString) -> Vec<String> {
+    let mut pieces = vec![String::new()];
+    for part in &s.parts {
+        match part {
+            StringPart::Plain(text) => {
+                if let Some(last) = pieces.last_mut() {
+                    last.push_str(text);
+                }
+            }
+            StringPart::Special(_) => pieces.push(String::new()),
+        }
+    }
+    pieces
+}
+
+/// A superset test for a value with inner wildcards, such as `a*b?c`: a matching value starts
+/// with its first piece (when the comparison is anchored there), ends with its last, and
+/// contains its longest. `Always` if no piece is left.
+fn wildcard_superset(field: &str, base: Base, case_sensitive: bool, s: &SigmaString) -> Predicate {
+    if base == Base::Regex || base == Base::Exists {
+        return Predicate::Always;
+    }
+    let pieces = pieces(s);
+    let mut tests = Vec::new();
+    if let Some(first) = pieces.first().filter(|p| !p.is_empty())
+        && matches!(base, Base::Equals | Base::StartsWith)
+    {
+        tests.push(test(
+            field,
+            MatchOp::StartsWith,
+            vec![first.clone()],
+            case_sensitive,
+        ));
+    }
+    if let Some(last) = pieces.last().filter(|p| !p.is_empty())
+        && pieces.len() > 1
+        && matches!(base, Base::Equals | Base::EndsWith)
+    {
+        tests.push(test(
+            field,
+            MatchOp::EndsWith,
+            vec![last.clone()],
+            case_sensitive,
+        ));
+    }
+    if let Some(longest) = pieces
+        .iter()
+        .max_by_key(|p| p.len())
+        .filter(|p| !p.is_empty())
+    {
+        tests.push(test(
+            field,
+            MatchOp::Contains,
+            vec![longest.clone()],
+            case_sensitive,
+        ));
+    }
+    if tests.is_empty() {
+        // Only wildcards: any value matches, but there must be one.
+        return Predicate::present(FieldPath::new(field));
+    }
+    Predicate::all(tests)
 }
 
 fn test(field: &str, op: MatchOp, values: Vec<String>, case_sensitive: bool) -> Predicate {

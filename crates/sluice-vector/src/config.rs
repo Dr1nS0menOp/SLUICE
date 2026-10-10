@@ -268,7 +268,8 @@ fn summary_program(source: &SourceId, plans: &[Plan<'_>]) -> String {
     program
 }
 
-/// One test per reducing template and outcome, plus one pass-through test per source, each
+/// One test per reducing template and outcome (summarized, forwarded reduced, forwarded whole:
+/// both sides of a conditional protection), plus one pass-through test per source, each
 /// asserting what the `vrl` crate computed.
 fn unit_tests(
     data_plane: &VrlReducer,
@@ -280,7 +281,7 @@ fn unit_tests(
         .filter(|p| !p.recipe.is_passthrough())
         .map(|p| &p.template.id)
         .collect();
-    let mut seen: BTreeSet<(SourceId, Option<TemplateId>, &str)> = BTreeSet::new();
+    let mut seen: BTreeSet<(SourceId, Option<TemplateId>, &str, bool)> = BTreeSet::new();
     let mut tests = Vec::new();
     for event in events {
         if data_plane.program(&event.source).is_none() {
@@ -303,7 +304,8 @@ fn unit_tests(
         } else {
             None
         };
-        if !seen.insert((event.source.clone(), key_template, route)) {
+        let whole = expected == &event.fields;
+        if !seen.insert((event.source.clone(), key_template, route, whole)) {
             continue;
         }
         tests.push(unit_test(

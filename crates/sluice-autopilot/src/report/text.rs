@@ -41,6 +41,13 @@ pub(crate) fn adjustment(adjustment: &Adjustment) -> String {
             format!("{rule} may read any field, so no field is dropped")
         }
         Reason::FieldNeededByRule { field, rule } => format!("kept {field}: {rule} reads it"),
+        Reason::KeptWhereRuleMayMatch { field, rule } => match field {
+            Some(field) => format!("{field} kept on events {rule} could match"),
+            None => format!("events {rule} could match are kept whole"),
+        },
+        Reason::ProtectionTooBroad { tests } => {
+            format!("kept: {tests} rule tests could apply, too many to check per event")
+        }
         Reason::UnboundedRule { rule } => {
             format!("{rule} could match any event, so every event is forwarded")
         }

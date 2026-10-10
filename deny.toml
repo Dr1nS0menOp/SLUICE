@@ -13,8 +13,8 @@ version = 2
 confidence-threshold = 0.9
 # The allow-list anticipates upcoming dependencies (vrl, rsigma, …); unused entries are fine.
 unused-allowed-license = "allow"
-# Permissive and weak-copyleft licenses that are compatible with either candidate project
-# license (Apache-2.0 or AGPL-3.0). Adding to this list needs a reason in the PR.
+# Permissive and weak-copyleft licenses compatible with the project license (AGPL-3.0-only).
+# Adding to this list needs a reason in the PR.
 allow = [
     "0BSD",          # public-domain equivalent; quoted_printable via vrl
     "Apache-2.0",
@@ -33,7 +33,7 @@ allow = [
 ]
 
 [licenses.private]
-# Our own crates are `publish = false` until the project license is decided.
+# Our own crates are AGPL-3.0-only (LICENSE) and unpublished; only dependencies are checked.
 ignore = true
 
 [bans]

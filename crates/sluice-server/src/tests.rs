@@ -16,6 +16,10 @@ use crate::control::{Rules, Shared};
 use crate::routes::router;
 
 fn shared(dir: &std::path::Path) -> Arc<Shared> {
+    shared_with_token(dir, None)
+}
+
+fn shared_with_token(dir: &std::path::Path, token: Option<&str>) -> Arc<Shared> {
     let sample = generate(&SynthConfig {
         scale_percent: 1,
         ..SynthConfig::default()
@@ -34,6 +38,7 @@ fn shared(dir: &std::path::Path) -> Arc<Shared> {
         listen: "127.0.0.1:8686".into(),
         sources,
         destinations,
+        vector_secrets: Map::new(),
         archive_dir: dir.join("archive"),
         data_dir: dir.join("data"),
         vector_config: dir.join("vector.yaml"),
@@ -51,7 +56,12 @@ fn shared(dir: &std::path::Path) -> Arc<Shared> {
             .unwrap(),
         wazuh: None,
     };
-    Arc::new(Shared::new(config, rules, RecipeBook::embedded().unwrap()))
+    Arc::new(Shared::new(
+        config,
+        rules,
+        RecipeBook::embedded().unwrap(),
+        token.map(str::to_owned),
+    ))
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -186,5 +196,60 @@ async fn rules_lists_what_each_rule_needs() {
     assert!(
         rules.iter().any(|r| r.stateful),
         "the example correlation rule"
+    );
+}
+
+#[tokio::test]
+async fn a_control_token_guards_every_route_but_health() {
+    let token = "0123456789abcdef0123456789abcdef";
+    let shared = shared_with_token(&scratch("token"), Some(token));
+    let get = |uri: &str, auth: Option<String>| {
+        let mut request = Request::get(uri);
+        if let Some(auth) = auth {
+            request = request.header("authorization", auth);
+        }
+        request.body(Body::empty()).unwrap()
+    };
+    let status = |request: Request<Body>| {
+        let app = router(Arc::clone(&shared));
+        async move { app.oneshot(request).await.unwrap().status() }
+    };
+    assert_eq!(status(get("/status", None)).await, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        status(get("/rules", Some("Bearer nope".into()))).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        status(get("/status", Some(format!("Bearer {token}")))).await,
+        StatusCode::OK
+    );
+    assert_eq!(status(get("/healthz", None)).await, StatusCode::OK);
+    assert_eq!(
+        post(&shared, "/tap/sysmon", "{}\n".into()).await,
+        StatusCode::UNAUTHORIZED
+    );
+
+    // Vector's tap sinks read the token from a secret file only this user can read.
+    shared.write_secrets().unwrap();
+    shared.write_initial_config().unwrap();
+    let config = std::fs::read_to_string(shared.config.vector_config.clone()).unwrap();
+    assert!(config.contains("SECRET[sluice.control_token]"));
+    assert!(!config.contains(token));
+    let file = shared.config.data_dir.join("sluice-secrets/control_token");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), token);
+    let mode =
+        std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&file).unwrap().permissions());
+    assert_eq!(mode & 0o777, 0o600);
+}
+
+#[test]
+fn listening_beyond_loopback_needs_a_token() {
+    assert!(crate::check_exposure("127.0.0.1:8686", None).is_ok());
+    assert!(crate::check_exposure("[::1]:8686", None).is_ok());
+    assert!(crate::check_exposure("localhost:8686", None).is_ok());
+    assert!(crate::check_exposure("0.0.0.0:8686", None).is_err());
+    assert!(crate::check_exposure("10.0.0.5:8686", Some("short")).is_err());
+    assert!(
+        crate::check_exposure("0.0.0.0:8686", Some("0123456789abcdef0123456789abcdef")).is_ok()
     );
 }

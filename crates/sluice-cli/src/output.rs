@@ -68,10 +68,14 @@ pub(crate) fn summary(report: &Report, templates: usize, sources: usize) {
     println!("  rules   {}", rules.join(", "));
     if let Some(check) = &report.spot_check {
         println!(
-            "  siem    logtest compared {} events, rolled back {} templates",
+            "  siem    logtest compared {} events ({} fired a rule), rolled back {} templates",
             check.checked,
+            check.fired,
             check.rolled_back.len()
         );
+    }
+    for hint in &report.scope_hints {
+        println!("  hint    {hint}");
     }
     if !report.coverage_gaps.is_empty() {
         println!(

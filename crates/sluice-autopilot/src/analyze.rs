@@ -230,6 +230,7 @@ pub fn analyze_proposals(
     if let Some(rules) = helpers.event_rules {
         let check = spot::check(
             rules,
+            input.sources,
             input.events,
             &discovery.assignments,
             &selection.recipes,

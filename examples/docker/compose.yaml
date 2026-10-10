@@ -2,9 +2,15 @@
 #
 #   scripts/build-release.sh
 #   docker compose -f examples/docker/compose.yaml up --build
-#   sluice status                     # or: curl localhost:8686/status
+#   sluice status                     # sends $SLUICE_CONTROL_TOKEN
 #
-# Secrets for real destinations (`sluice connect`) go in `environment`, never in sluice.yaml.
+# The control plane listens on 0.0.0.0 inside the container, so it needs a token (ADR 0010):
+#
+#   export SLUICE_CONTROL_TOKEN=$(openssl rand -hex 32)
+#
+# Credentials for real destinations (`sluice connect`) are files under /run/secrets/siem: mount
+# them there as Docker secrets or a read-only volume, never put them in sluice.yaml. The demo
+# writes to a file, so it needs none.
 
 services:
   sluice:
@@ -18,6 +24,8 @@ services:
       - --rules
       - /etc/sluice/rules/sigma
       - --demo-traffic
+    environment:
+      - SLUICE_CONTROL_TOKEN
     volumes:
       - ./sluice.yaml:/etc/sluice/sluice.yaml:ro
       - ../rules:/etc/sluice/rules:ro
