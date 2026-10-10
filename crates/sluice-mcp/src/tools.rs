@@ -59,15 +59,26 @@ struct SearchRequest {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ProfileRequest {
+    /// The rule profile (the rules a group of destinations' SIEMs run), such as `sigma` or
+    /// `sigma+wazuh`. Each is proven and cut separately. Default: the first one.
+    profile: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct TemplatesRequest {
     /// Only templates in this stage: `shadow` or `enforced`.
     stage: Option<String>,
+    /// The rule profile, such as `sigma` or `sigma+wazuh` (default: the first).
+    profile: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ExplainRequest {
     /// Part of a template id or pattern, such as `4624`, `sysmon:10` or `pam_unix`.
     template: String,
+    /// The rule profile, such as `sigma` or `sigma+wazuh` (default: the first).
+    profile: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -77,6 +88,8 @@ struct WhatBreaksRequest {
     /// A source id, such as `windows-security`. With a field: only rules for this source.
     /// Alone: every rule this source feeds.
     source: Option<String>,
+    /// The rule profile, such as `sigma` or `sigma+wazuh` (default: the first).
+    profile: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -111,8 +124,14 @@ impl Sluice {
                        last cycle, how many reductions are enforced or in shadow, and recent \
                        transitions (promotions and rollbacks)."
     )]
-    async fn status(&self) -> Result<CallToolResult, ErrorData> {
-        match self.fetch::<Status>("status").await {
+    async fn status(
+        &self,
+        Parameters(request): Parameters<ProfileRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        match self
+            .fetch::<Status>(&status_path(request.profile.as_deref()))
+            .await
+        {
             Ok(status) => reply(&answers::status(&status)),
             Err(message) => Ok(failure(message)),
         }
@@ -126,7 +145,10 @@ impl Sluice {
         &self,
         Parameters(request): Parameters<TemplatesRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let status = match self.fetch::<Status>("status").await {
+        let status = match self
+            .fetch::<Status>(&status_path(request.profile.as_deref()))
+            .await
+        {
             Ok(status) => status,
             Err(message) => return Ok(failure(message)),
         };
@@ -155,7 +177,10 @@ impl Sluice {
         &self,
         Parameters(request): Parameters<ExplainRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        match self.fetch::<Status>("status").await {
+        match self
+            .fetch::<Status>(&status_path(request.profile.as_deref()))
+            .await
+        {
             Ok(status) => reply(&answers::explain(&status, &request.template)),
             Err(message) => Ok(failure(message)),
         }
@@ -173,8 +198,9 @@ impl Sluice {
         if request.field.is_none() && request.source.is_none() {
             return Ok(failure("give a field, a source, or both".to_owned()));
         }
+        let path = status_path(request.profile.as_deref());
         let fetched = tokio::try_join!(
-            self.fetch::<Status>("status"),
+            self.fetch::<Status>(&path),
             self.fetch::<Vec<RuleInfo>>("rules")
         );
         let (status, rules) = match fetched {
@@ -198,8 +224,14 @@ impl Sluice {
                        sources whose description is incomplete, which keeps rules in scope that \
                        may not belong there."
     )]
-    async fn coverage_gaps(&self) -> Result<CallToolResult, ErrorData> {
-        match self.fetch::<Status>("status").await {
+    async fn coverage_gaps(
+        &self,
+        Parameters(request): Parameters<ProfileRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        match self
+            .fetch::<Status>(&status_path(request.profile.as_deref()))
+            .await
+        {
             Ok(status) => reply(&answers::coverage_gaps(&status)),
             Err(message) => Ok(failure(message)),
         }
@@ -209,8 +241,14 @@ impl Sluice {
         description = "Per source in the last window: events, templates, bytes in and out, and \
                        warnings such as a source that went silent."
     )]
-    async fn source_health(&self) -> Result<CallToolResult, ErrorData> {
-        match self.fetch::<Status>("status").await {
+    async fn source_health(
+        &self,
+        Parameters(request): Parameters<ProfileRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        match self
+            .fetch::<Status>(&status_path(request.profile.as_deref()))
+            .await
+        {
             Ok(status) => reply(&answers::source_health(&status)),
             Err(message) => Ok(failure(message)),
         }
@@ -340,6 +378,28 @@ impl Sluice {
     }
 }
 
+/// The control plane path of a profile's status (the first profile without one).
+fn status_path(profile: Option<&str>) -> String {
+    profile.map_or_else(
+        || "status".to_owned(),
+        |p| format!("status?profile={}", percent_encode(p)),
+    )
+}
+
+/// Encodes a query value: everything but unreserved characters (RFC 3986) as `%XX`.
+fn percent_encode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+                char::from(b).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
+}
+
 fn reply(value: &Value) -> Result<CallToolResult, ErrorData> {
     Ok(CallToolResult::success(vec![ContentBlock::json(value)?]))
 }
@@ -347,4 +407,19 @@ fn reply(value: &Value) -> Result<CallToolResult, ErrorData> {
 /// A failure the assistant should see and explain, as opposed to a protocol error.
 fn failure(message: String) -> CallToolResult {
     CallToolResult::error(vec![ContentBlock::text(message)])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::status_path;
+
+    #[test]
+    fn profiles_reach_the_control_plane_encoded() {
+        assert_eq!(status_path(None), "status");
+        assert_eq!(
+            status_path(Some("sigma+wazuh")),
+            "status?profile=sigma%2Bwazuh",
+            "a raw + would arrive as a space"
+        );
+    }
 }

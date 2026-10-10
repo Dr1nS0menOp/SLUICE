@@ -11,6 +11,7 @@ const state = {
   error: null,
   needsToken: false,
   filter: "all",
+  profile: null,
   search: null,
   searching: false,
   searchError: null,
@@ -103,7 +104,7 @@ async function refresh() {
   const hadStatus = state.status !== null;
   const hadToken = !state.needsToken;
   try {
-    state.status = await api("/status");
+    state.status = await api("/status" + (state.profile ? "?profile=" + encodeURIComponent(state.profile) : ""));
     state.error = null;
     state.needsToken = false;
     setConnection("Live · refreshed " + new Date().toLocaleTimeString());
@@ -183,7 +184,13 @@ function tokenView() {
 
 // ---------- overview ----------
 
-function proofBadge(cycle) {
+function proofBadge(cycle, profile) {
+  if (cycle && profile && !profile.split("+").includes("sigma")) {
+    // The offline proof replays Sigma only; other engines' rules are held by the guardrails.
+    return h("div", { class: "proof", role: "status" },
+      h("div", {}, h("div", { class: "proof-title" }, "Guarded by the rules' requirements"),
+        h("div", { class: "proof-detail" }, `No Sigma rules in profile ${profile}: nothing is replayed offline`)));
+  }
   if (!cycle) {
     return h("div", { class: "proof", role: "status" },
       h("div", {}, h("div", { class: "proof-title" }, "Waiting for the first cycle"),
@@ -221,8 +228,9 @@ function overviewView() {
     h("header", { class: "head" },
       h("div", {}, h("h1", {}, "Overview"),
         h("p", { class: "sub" }, cycle ? `Cycle ${num(s.cycles)} · last cycle ${utc(cycle.at)}` : "No cycle has run yet")),
-      proofBadge(cycle)),
+      proofBadge(cycle, s.profile)),
   ];
+  if (s.profiles && s.profiles.length > 1) view.push(profilePicker(s));
   if (s.last_error) view.push(h("div", { class: "banner", role: "alert" }, "Last cycle failed: " + s.last_error));
   if (cycle) {
     view.push(h("section", { class: "kpis", "aria-label": "Last cycle" },
@@ -245,6 +253,21 @@ function overviewView() {
       items.length > 50 ? h("p", { class: "hint" }, `and ${items.length - 50} more`) : null));
   }
   return view;
+}
+
+/** Destinations whose SIEMs run different rules are proven, and cut, separately. */
+function profilePicker(s) {
+  return h("section", { class: "card", "aria-labelledby": "profile-h" },
+    h("div", { class: "card-head" },
+      h("div", {}, h("h2", { id: "profile-h" }, "Rule profile"),
+        h("p", { class: "sub" }, "Each group of destinations is proven against the rules its SIEM runs. Savings and recipes below are for this profile.")),
+      h("div", { class: "tabs", role: "group", "aria-label": "Rule profile" },
+        s.profiles.map((name) => h("button", {
+          type: "button",
+          class: "mono",
+          "aria-pressed": name === s.profile ? "true" : "false",
+          onclick: () => { state.profile = name; state.filter = "all"; refresh(); },
+        }, name)))));
 }
 
 function sourcesCard(s) {

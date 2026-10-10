@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, PoisonError};
 
-use axum::extract::{DefaultBodyLimit, Path, Request, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, Request, State};
 use axum::http::{StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -96,8 +96,30 @@ async fn rules(State(shared): State<Arc<Shared>>) -> Json<Vec<RuleInfo>> {
     Json(shared.rule_info.clone())
 }
 
-/// `GET /status`: the lifecycle and the last cycle.
-async fn status(State(shared): State<Arc<Shared>>) -> Json<Status> {
-    let status = shared.status.read().unwrap_or_else(PoisonError::into_inner);
-    Json(status.clone())
+/// The query of `GET /status`.
+#[derive(Debug, Default, serde::Deserialize)]
+struct StatusParams {
+    /// The rule profile; the first one when absent.
+    profile: Option<String>,
+}
+
+/// `GET /status[?profile=…]`: the lifecycle and the last cycle of one rule profile.
+async fn status(
+    State(shared): State<Arc<Shared>>,
+    Query(params): Query<StatusParams>,
+) -> Result<Json<Status>, (StatusCode, String)> {
+    let profile = shared.profile(params.profile.as_deref()).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            format!(
+                "no rule profile {}\n",
+                params.profile.as_deref().unwrap_or("(none configured)")
+            ),
+        )
+    })?;
+    let status = profile
+        .status
+        .read()
+        .unwrap_or_else(PoisonError::into_inner);
+    Ok(Json(status.clone()))
 }

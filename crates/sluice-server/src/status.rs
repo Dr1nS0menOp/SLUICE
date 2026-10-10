@@ -16,6 +16,13 @@ use sluice_core::source::Source;
 /// The control plane's status.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Status {
+    /// The rule profile this status is about, such as `sigma` or `sigma+wazuh`: the rules the
+    /// SIEMs of some destinations run, which their reductions are proven against.
+    #[serde(default)]
+    pub profile: String,
+    /// Every profile, so a client can ask for another (`GET /status?profile=…`).
+    #[serde(default)]
+    pub profiles: Vec<String>,
     /// Completed cycles since start.
     pub cycles: u64,
     /// Events held per source in the rolling window.

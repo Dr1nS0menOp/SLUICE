@@ -11,6 +11,13 @@
 //! ```
 //!
 //! A source without a program (nothing discovered yet) goes straight to the destinations.
+//!
+//! Destinations whose SIEMs run different rules get different reductions: each rule profile
+//! (`sluice_rules` on a destination, all loaded rules by default) has its own program, route and
+//! summaries per source, proven against that profile's rules only. The input, the archive and the
+//! tap stay one per source. With a single profile the component names carry no profile tag.
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value, json};
 use sluice_core::source::{Source, SourceFormat};
@@ -51,19 +58,78 @@ pub struct LiveSettings<'a> {
     pub secret_backends: &'a Map<String, Value>,
 }
 
-/// Renders the live configuration.
+/// The proven reductions for the destinations of one rule profile.
+#[derive(Debug, Clone, Copy)]
+pub struct LiveProfile<'a> {
+    /// The profile's name, as [`destination_profile`] gives it.
+    pub name: &'a str,
+    /// Each template with its deployed recipe.
+    pub plans: &'a [Plan<'a>],
+    /// The data plane enforcing `plans`.
+    pub data_plane: &'a VrlReducer,
+}
+
+/// Destination key, removed before Vector sees the sink, naming the rule sets the destination's
+/// SIEM runs: `[sigma]`, `[wazuh]` or both. Without it, every loaded rule set applies. A
+/// destination is only proven against its own rules, so a SIEM that never runs Wazuh rules is not
+/// held back by them.
+pub const RULES_KEY: &str = "sluice_rules";
+
+/// The rule profile of a destination: its `sluice_rules`, sorted and joined with `+`, or all of
+/// `loaded` when it has none.
 ///
 /// # Errors
 ///
-/// Returns [`VectorError::Config`] if the configuration cannot be serialized.
+/// Returns [`VectorError::Config`] if `sluice_rules` is not a non-empty list of loaded rule sets.
+pub fn destination_profile(
+    name: &str,
+    sink: &Value,
+    loaded: &[&str],
+) -> Result<String, VectorError> {
+    let invalid = || {
+        VectorError::Config(format!(
+            "destination {name}: {RULES_KEY} must be a non-empty list of loaded rule sets ({})",
+            loaded.join(", ")
+        ))
+    };
+    let rules: BTreeSet<&str> = match sink.get(RULES_KEY) {
+        None => loaded.iter().copied().collect(),
+        Some(list) => list
+            .as_array()
+            .ok_or_else(invalid)?
+            .iter()
+            .map(|r| {
+                r.as_str()
+                    .filter(|r| loaded.contains(r))
+                    .ok_or_else(invalid)
+            })
+            .collect::<Result<_, _>>()?,
+    };
+    if rules.is_empty() {
+        return Err(invalid());
+    }
+    Ok(rules.into_iter().collect::<Vec<_>>().join("+"))
+}
+
+/// Renders the live configuration.
+///
+/// `profiles` holds one entry per rule profile any destination uses (see
+/// [`destination_profile`]); a destination whose profile is missing gets the sources unreduced.
+///
+/// # Errors
+///
+/// Returns [`VectorError::Config`] if a destination is misconfigured or the configuration cannot
+/// be serialized.
 pub fn live_config(
     sources: &[LiveSource<'_>],
-    plans: &[Plan<'_>],
-    data_plane: &VrlReducer,
+    profiles: &[LiveProfile<'_>],
+    loaded: &[&str],
     settings: &LiveSettings<'_>,
 ) -> Result<String, VectorError> {
     let mut pipeline = Pipeline::default();
-    let mut outputs = Outputs::default();
+    let mut outputs: BTreeMap<&str, Outputs> = BTreeMap::new();
+    let mut unreduced = Outputs::default();
+    let tagged = profiles.len() > 1;
     for live in sources {
         let c = Components::for_source(&live.source.id);
         pipeline
@@ -109,26 +175,45 @@ pub fn live_config(
             }),
         );
 
-        match data_plane.program(&live.source.id) {
-            Some(program) => {
-                pipeline.add_transforms(&c, &c.input, &live.source.id, program.source(), plans);
-                outputs.add_events(
-                    live.source,
-                    [
-                        format!("{}.{FORWARD}", c.split),
-                        format!("{}._unmatched", c.split),
-                        format!("{}.dropped", c.program),
-                    ],
-                );
-                outputs.summaries.push(c.summaries.clone());
+        unreduced.add_events(live.source, [c.input.clone()]);
+        for profile in profiles {
+            let p = if tagged {
+                c.for_profile(profile.name)
+            } else {
+                c.clone()
+            };
+            let out = outputs.entry(profile.name).or_default();
+            match profile.data_plane.program(&live.source.id) {
+                Some(program) => {
+                    pipeline.add_transforms(
+                        &p,
+                        &c.input,
+                        &live.source.id,
+                        program.source(),
+                        profile.plans,
+                    );
+                    out.add_events(
+                        live.source,
+                        [
+                            format!("{}.{FORWARD}", p.split),
+                            format!("{}._unmatched", p.split),
+                            format!("{}.dropped", p.program),
+                        ],
+                    );
+                    out.summaries.push(p.summaries.clone());
+                }
+                None => out.add_events(live.source, [c.input.clone()]),
             }
-            None => outputs.add_events(live.source, [c.input.clone()]),
         }
     }
     for (name, sink) in settings.destinations {
+        let profile = destination_profile(name, sink, loaded)?;
         let mut sink = sink.clone();
-        let formats = sink.as_object_mut().and_then(|s| s.remove(FORMATS_KEY));
-        sink["inputs"] = json!(outputs.select(name, formats.as_ref(), sources)?);
+        let (formats, _) = sink.as_object_mut().map_or((None, None), |s| {
+            (s.remove(FORMATS_KEY), s.remove(RULES_KEY))
+        });
+        let feeds = outputs.get(profile.as_str()).unwrap_or(&unreduced);
+        sink["inputs"] = json!(feeds.select(name, formats.as_ref(), sources)?);
         pipeline.sinks.insert(name.clone(), sink);
     }
 
@@ -249,7 +334,7 @@ mod tests {
                 vector: &vector,
             }],
             &[],
-            &VrlReducer::default(),
+            &["sigma"],
             &settings,
         )
         .unwrap();
@@ -306,7 +391,7 @@ mod tests {
                 vector: &vector,
             },
         ];
-        let yaml = live_config(&sources, &[], &VrlReducer::default(), &settings).unwrap();
+        let yaml = live_config(&sources, &[], &["sigma"], &settings).unwrap();
         let config: Value = serde_yaml_ng::from_str(&yaml).unwrap();
         let sinks = &config["sinks"];
         assert_eq!(sinks["wazuh"]["inputs"], json!(["sluice_fw_input"]));
@@ -341,6 +426,65 @@ mod tests {
             source: &text,
             vector: &vector,
         }];
-        assert!(live_config(&sources, &[], &VrlReducer::default(), &settings).is_err());
+        assert!(live_config(&sources, &[], &["sigma"], &settings).is_err());
+    }
+
+    #[test]
+    fn each_destination_takes_the_profile_of_the_rules_its_siem_runs() {
+        let loaded = ["sigma", "wazuh"];
+        let profile = |sink: Value| destination_profile("d", &sink, &loaded);
+        assert_eq!(
+            profile(json!({"type": "blackhole"})).unwrap(),
+            "sigma+wazuh"
+        );
+        assert_eq!(
+            profile(json!({"sluice_rules": ["wazuh", "sigma"]})).unwrap(),
+            "sigma+wazuh",
+            "sorted"
+        );
+        assert_eq!(
+            profile(json!({"sluice_rules": ["sigma"]})).unwrap(),
+            "sigma"
+        );
+        assert!(profile(json!({"sluice_rules": []})).is_err());
+        assert!(
+            profile(json!({"sluice_rules": ["splunk"]})).is_err(),
+            "not loaded"
+        );
+        assert!(profile(json!({"sluice_rules": "sigma"})).is_err());
+
+        // A destination whose profile has no proven pipeline gets every source unreduced, and
+        // Sluice's key never reaches Vector.
+        let source = Source {
+            id: "fw".into(),
+            logsource: LogSource::default(),
+            format: SourceFormat::Json,
+        };
+        let vector = json!({"type": "http_server", "address": "127.0.0.1:9000"});
+        let mut destinations = Map::new();
+        destinations.insert(
+            "sentinel".into(),
+            json!({"type": "blackhole", "sluice_rules": ["sigma"]}),
+        );
+        let settings = LiveSettings {
+            control_plane: "http://127.0.0.1:8686",
+            tap_rate: 10,
+            archive_dir: "/archive",
+            data_dir: "/data",
+            destinations: &destinations,
+            tap_token: None,
+            secret_backends: &Map::new(),
+        };
+        let sources = [LiveSource {
+            source: &source,
+            vector: &vector,
+        }];
+        let yaml = live_config(&sources, &[], &loaded, &settings).unwrap();
+        let config: Value = serde_yaml_ng::from_str(&yaml).unwrap();
+        assert_eq!(
+            config["sinks"]["sentinel"]["inputs"],
+            json!(["sluice_fw_input"])
+        );
+        assert!(!yaml.contains(RULES_KEY));
     }
 }

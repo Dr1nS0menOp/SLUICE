@@ -22,7 +22,9 @@ use sluice_core::ids::SourceId;
 pub use crate::config::{Paths, vector_config};
 pub use crate::connect::{SECRET_BACKEND, Target};
 pub use crate::error::VectorError;
-pub use crate::live::{FORMATS_KEY, LiveSettings, LiveSource, live_config};
+pub use crate::live::{
+    FORMATS_KEY, LiveProfile, LiveSettings, LiveSource, RULES_KEY, destination_profile, live_config,
+};
 pub use crate::program::{
     FORWARD, Plan, ROUTE_METADATA, SUMMARIZE, TEMPLATE_METADATA, source_program,
 };

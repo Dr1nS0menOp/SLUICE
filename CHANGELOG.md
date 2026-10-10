@@ -31,6 +31,9 @@ First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
 - `sluice up`: Vector with a generated pipeline, a full-fidelity gzip archive, a sampled tap to the
   control plane, shadow, promotion, continuous re-proof and rollback, with SIGHUP reloads.
 - `sluice status`, `sluice search`, `sluice replay` (ADR 0006).
+- Per-destination proofs: `sluice_rules` on a destination names the rules its SIEM runs; each
+  rule profile gets its own proof, lifecycle and Vector pipeline, so dual-shipping to Wazuh and
+  Sentinel saves on the Sentinel side (ADR 0012).
 - A read-only web console at the control plane's address: overview with the proof, sources and
   templates by stage, per-template recipe, guardrail reasons, lifecycle and one real event before
   and after its recipe, and archive search

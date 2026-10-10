@@ -318,6 +318,12 @@ destination, and Vector gets one route and one effective recipe per destination,
 the same archive. Dual-shipping to an old and a new SIEM then saves on each side independently.
 Done when: a Wazuh plus Sentinel run saves on the Sentinel route while the Wazuh route stays
 proven, and the console and MCP show savings per destination.
+Status 2026-10-10: done (ADR 0012). `sluice_rules` on destinations, one proof, lifecycle and
+Vector pipeline per profile, `/status?profile=`, a profile picker in the console,
+`sluice status --profile`, and a `profile` parameter on every MCP tool that reads the status.
+The two-profile configuration passes `vector validate` (0.59); the single-profile path is
+unchanged (live smoke test); `examples/up/sluice-dual.yaml` shows a dual-ship live. Open:
+`sluice analyze` (offline) per profile.
 
 **M5 — Native transformations, proven like VRL.** Sluice emits the proven reductions in each
 platform's own ingest language, so the cut can run without Vector in the path:

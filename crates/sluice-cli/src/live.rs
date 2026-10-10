@@ -64,7 +64,14 @@ pub(crate) fn up(args: &UpArgs) -> Result<()> {
 }
 
 pub(crate) fn status(args: &StatusArgs) -> Result<()> {
-    let url = format!("http://{}/status", args.listen);
+    let url = match &args.profile {
+        Some(profile) => format!(
+            "http://{}/status?profile={}",
+            args.listen,
+            profile.replace('+', "%2B")
+        ),
+        None => format!("http://{}/status", args.listen),
+    };
     let mut request = ureq::get(&url);
     if let Some(token) = control_token() {
         request = request.header("authorization", format!("Bearer {token}"));
@@ -75,6 +82,13 @@ pub(crate) fn status(args: &StatusArgs) -> Result<()> {
         .body_mut()
         .read_to_string()?;
     let status: Status = serde_json::from_str(&body).context("reading the status")?;
+    if status.profiles.len() > 1 {
+        println!(
+            "profile     {} (of {}; --profile to pick)",
+            status.profile,
+            status.profiles.join(", ")
+        );
+    }
     let Some(last) = &status.last_cycle else {
         println!("No cycle has run yet. Window: {:?}", status.window);
         return Ok(());

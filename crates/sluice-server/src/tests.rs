@@ -20,6 +20,26 @@ fn shared(dir: &std::path::Path) -> Arc<Shared> {
 }
 
 fn shared_with_token(dir: &std::path::Path, token: Option<&str>) -> Arc<Shared> {
+    let mut destinations = Map::new();
+    destinations.insert("siem".into(), json!({"type": "blackhole"}));
+    shared_with(dir, token, destinations, false)
+}
+
+fn shared_with(
+    dir: &std::path::Path,
+    token: Option<&str>,
+    destinations: Map<String, Value>,
+    wazuh: bool,
+) -> Arc<Shared> {
+    Arc::new(build(dir, token, destinations, wazuh).unwrap())
+}
+
+fn build(
+    dir: &std::path::Path,
+    token: Option<&str>,
+    destinations: Map<String, Value>,
+    wazuh: bool,
+) -> Result<Shared, crate::ServerError> {
     let sample = generate(&SynthConfig {
         scale_percent: 1,
         ..SynthConfig::default()
@@ -32,8 +52,6 @@ fn shared_with_token(dir: &std::path::Path, token: Option<&str>) -> Arc<Shared> 
             vector: json!({"type": "http_server", "address": "127.0.0.1:0", "decoding": {"codec": "json"}}),
         })
         .collect();
-    let mut destinations = Map::new();
-    destinations.insert("siem".into(), json!({"type": "blackhole"}));
     let config = ServerConfig {
         listen: "127.0.0.1:8686".into(),
         sources,
@@ -54,14 +72,19 @@ fn shared_with_token(dir: &std::path::Path, token: Option<&str>) -> Arc<Shared> 
     let rules = Rules {
         sigma: SigmaRules::parse([include_str!("../../../examples/rules/sigma/windows.yml")])
             .unwrap(),
-        wazuh: None,
+        wazuh: wazuh.then(|| {
+            sluice_rules::WazuhRules::parse([include_str!(
+                "../../../examples/rules/wazuh/local_rules.xml"
+            )])
+            .unwrap()
+        }),
     };
-    Arc::new(Shared::new(
+    Shared::new(
         config,
         rules,
         RecipeBook::embedded().unwrap(),
         token.map(str::to_owned),
-    ))
+    )
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -139,7 +162,7 @@ async fn cycles_shadow_then_enforce_and_rewrite_the_config() {
         second
             .transitions
             .iter()
-            .any(|t| matches!(t, sluice_autopilot::Transition::Promoted(_)))
+            .any(|(_, t)| matches!(t, sluice_autopilot::Transition::Promoted(_)))
     );
     assert!(second.config_changed);
 
@@ -151,7 +174,8 @@ async fn cycles_shadow_then_enforce_and_rewrite_the_config() {
     assert!(config.contains("/tap/windows-security"));
     assert!(!dir.join("vector.yaml.tmp").exists(), "written atomically");
 
-    let status = shared.status.read().unwrap().clone();
+    let status = shared.profile(None).unwrap().status.read().unwrap().clone();
+    assert_eq!(status.profile, "sigma");
     assert_eq!(status.cycles, 2);
     let last = status.last_cycle.unwrap();
     assert!(last.proven && last.bytes_out < last.bytes_in);
@@ -185,6 +209,105 @@ async fn cycles_shadow_then_enforce_and_rewrite_the_config() {
             .iter()
             .any(|s| s.source == "nginx" && s.volume.events == 0),
         "a silent source shows up with no events"
+    );
+}
+
+#[tokio::test]
+async fn c5_each_destination_is_proven_against_its_own_siems_rules() {
+    let dir = scratch("profiles");
+    let mut destinations = Map::new();
+    destinations.insert(
+        "sentinel".into(),
+        json!({"type": "blackhole", "sluice_rules": ["sigma"]}),
+    );
+    destinations.insert("wazuh".into(), json!({"type": "blackhole"}));
+    let shared = shared_with(&dir, None, destinations, true);
+    let names: Vec<&str> = shared.profiles.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["sigma", "sigma+wazuh"]);
+
+    post(
+        &shared,
+        "/tap/windows-security",
+        ndjson("windows-security", 10),
+    )
+    .await;
+    let now = 1_791_622_800;
+    shared.run_cycle(now).unwrap();
+    let report = shared.run_cycle(now + 60).unwrap();
+    assert!(
+        report
+            .transitions
+            .iter()
+            .any(|(p, t)| p == "sigma" && matches!(t, sluice_autopilot::Transition::Promoted(_)))
+    );
+    // The example Wazuh rules include a `<match>` without a decoder: it reads the whole JSON
+    // line, so nothing may be cut for the destination whose SIEM runs it.
+    assert!(!report.transitions.iter().any(|(p, _)| p == "sigma+wazuh"));
+
+    // One archive and tap per source; the Sentinel destination gets its own reduced pipeline,
+    // the Wazuh destination never does.
+    let yaml = std::fs::read_to_string(dir.join("vector.yaml")).unwrap();
+    let config: Value = serde_yaml_ng::from_str(&yaml).unwrap();
+    let transforms = config["transforms"].as_object().unwrap();
+    assert!(transforms.contains_key("sluice_windows_security_sigma_route"));
+    let inputs = |sink: &str| config["sinks"][sink]["inputs"].to_string();
+    assert!(inputs("sentinel").contains("sluice_windows_security_sigma_route."));
+    assert!(!inputs("wazuh").contains("sluice_windows_security_sigma_route"));
+    assert!(
+        inputs("wazuh").contains("sluice_windows_security_sigma_wazuh_route.")
+            || inputs("wazuh").contains("sluice_windows_security_input"),
+        "its own pass-through pipeline, or the source itself"
+    );
+    assert_eq!(
+        config["sinks"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .filter(|k| k.ends_with("_archive"))
+            .count(),
+        shared.sources.len()
+    );
+
+    // More rules never allow more cuts.
+    let out = |name: &str| {
+        let status = shared
+            .profile(Some(name))
+            .unwrap()
+            .status
+            .read()
+            .unwrap()
+            .clone();
+        let last = status.last_cycle.unwrap();
+        assert!(last.proven, "{name}");
+        last.bytes_out
+    };
+    assert!(out("sigma") < out("sigma+wazuh"));
+
+    let response = get(&shared, "/status?profile=sigma%2Bwazuh", None).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let status: crate::Status = serde_json::from_slice(&body).unwrap();
+    assert_eq!(status.profile, "sigma+wazuh");
+    assert_eq!(status.profiles, ["sigma", "sigma+wazuh"]);
+    assert_eq!(
+        get(&shared, "/status?profile=nope", None).await.status(),
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[test]
+fn a_destination_naming_rules_that_are_not_loaded_is_refused() {
+    let mut destinations = Map::new();
+    destinations.insert(
+        "wazuh".into(),
+        json!({"type": "blackhole", "sluice_rules": ["wazuh"]}),
+    );
+    let refused = build(&scratch("refused"), None, destinations, false);
+    assert!(
+        matches!(refused, Err(crate::ServerError::Config(ref m)) if m.contains("sluice_rules")),
+        "Wazuh rules are not loaded"
     );
 }
 
