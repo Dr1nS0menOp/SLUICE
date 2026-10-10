@@ -136,6 +136,7 @@ fn requirements(collection: &SigmaCollection, problems: &mut Vec<String>) -> Vec
             matches_raw_text: reads.matches_raw_text(),
             fields: reads.into_required(),
             stateful,
+            text_lines_only: false,
             prefilter: prefilter::rule_prefilter(&rule.detection),
         })
         .collect();

@@ -58,12 +58,19 @@ fact; it is left open on purpose.
 reads unknown fields any more. Real Windows plus Linux data with SigmaHQ and the stock Wazuh
 ruleset: 0.1% saved, 206 = 206 alerts.
 
-**What holds the rest:** raw-text rules (`<match>`, `<regex>`). On a JSON event Wazuh matches them
-against the whole JSON line, so they read every field (for example a Windows `Message`), and
-their decoder bound is a keyword (`pam`, `sshd`) that a template with free text cannot rule out.
-They would drop out of JSON templates only if JSON lines reach Wazuh without a syslog header,
-because then `program_name` decoders never select them. That is a deployment fact
-(`log_format json`) that has not been verified with `logtest` yet, so Sluice does not assume it.
+**JSON lines never reach syslog decoders** (verified with `logtest`, Wazuh 4.14.8, 2026-10-10).
+A JSON line gets no pre-decoding (empty `predecoder`, so no program name) and the `json` decoder,
+with `log_format` `json` and also `syslog`, even when a field holds a full `sshd`/`pam`/`su` line.
+So a rule whose decoder tests `program_name`, or anchors its `prematch` on a letter or `\(` (a
+JSON line starts with `{`), never sees a JSON event: `RuleRequirements::text_lines_only`, inherited
+through decoder `<parent>` and rule `<if_sid>` (every parent must have it). The guard skips such
+rules for JSON (key-set) templates and keeps them for every text template, because Wazuh may
+recognise headers Sluice's discovery does not. Stock ruleset: 427+ rules. Raw-text rules
+without such a decoder (1002 "bad words" fired on a JSON line in the same probe) still protect
+the whole line.
+
+**Result:** real Windows plus Linux data, SigmaHQ plus the stock Wazuh ruleset: 1.3% saved,
+206 = 206 alerts. The rest is held by raw-text rules without a decoder bound and the cost cap.
 
 ## Lenient rule files
 

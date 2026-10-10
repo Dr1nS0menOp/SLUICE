@@ -6,6 +6,11 @@
 //! that starts with a literal (`^ossec: `) bounds the same way. A rule's `<category>` is the
 //! decoder `<type>`, so it is bounded by every decoder of that type. Decoders that select lines
 //! any other way (regexes, plugins such as JSON) say nothing usable: `Always`.
+//!
+//! A decoder that tests the program name needs a syslog header to have one. A JSON line has none,
+//! and a `prematch` anchored on a letter cannot match its leading `{`, so rules under such
+//! decoders never see a JSON event (verified with `logtest` on Wazuh 4.14.8; see
+//! `docs/notes/wazuh.md`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -21,6 +26,18 @@ pub(crate) struct Decoders {
     types: BTreeMap<String, Vec<String>>,
     /// Every name any decoder lists in `<fts>`: what an `<if_fts/>` rule may compare.
     fts: BTreeSet<String>,
+    /// Decoders that never take a JSON line: every definition tests the program name (a JSON line
+    /// has no syslog header, so no program name), anchors its `prematch` on a character a JSON
+    /// line cannot start with, or has a `<parent>` that never takes one.
+    never_json: BTreeSet<String>,
+}
+
+/// What one `<decoder>` definition says about JSON lines.
+struct JsonShape {
+    /// It rules JSON lines out by itself.
+    excludes: bool,
+    /// Its `<parent>`, which must have matched first.
+    parent: Option<String>,
 }
 
 /// What one `<decoder>` definition selects lines by.
@@ -43,6 +60,7 @@ impl Decoders {
         let mut definitions: BTreeMap<String, Vec<Selects>> = BTreeMap::new();
         let mut types: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let mut fts = BTreeSet::new();
+        let mut shapes: BTreeMap<String, Vec<JsonShape>> = BTreeMap::new();
         for (index, file) in files.into_iter().enumerate() {
             let elements = match xml::decoders(file) {
                 Ok(elements) => elements,
@@ -80,6 +98,10 @@ impl Decoders {
                     (None, Some(parent)) => Selects::Parent(parent.to_owned()),
                     (None, None) => Selects::Unknown,
                 };
+                shapes.entry(name.clone()).or_default().push(JsonShape {
+                    excludes: excludes_json(&element),
+                    parent: child_text(&element, "parent").map(str::to_owned),
+                });
                 definitions.entry(name).or_default().push(selects);
             }
         }
@@ -87,11 +109,30 @@ impl Decoders {
             .keys()
             .map(|name| (name.clone(), resolve(name, &definitions, 0)))
             .collect();
+        let never_json = shapes
+            .keys()
+            .filter(|name| never_json(name, &shapes, 0))
+            .cloned()
+            .collect();
         Self {
             programs,
             types,
             fts,
+            never_json,
         }
+    }
+
+    /// Whether a rule `<decoded_as>` `decoder` never sees a JSON event.
+    pub(crate) fn never_json(&self, decoder: &str) -> bool {
+        self.never_json.contains(decoder.trim())
+    }
+
+    /// Whether a rule with `<category>` `kind` never sees a JSON event: no decoder of that
+    /// type takes one.
+    pub(crate) fn category_never_json(&self, kind: &str) -> bool {
+        self.types
+            .get(kind.trim())
+            .is_some_and(|names| !names.is_empty() && names.iter().all(|n| self.never_json(n)))
     }
 
     /// The names an `<if_fts/>` rule may compare: the union of every decoder's `<fts>` list.
@@ -140,6 +181,42 @@ fn resolve(
     }
     (!names.is_empty()).then_some(names)
 }
+
+fn never_json(name: &str, shapes: &BTreeMap<String, Vec<JsonShape>>, depth: usize) -> bool {
+    shapes.get(name).is_some_and(|definitions| {
+        !definitions.is_empty()
+            && definitions.iter().all(|d| {
+                d.excludes
+                    || d.parent
+                        .as_deref()
+                        .is_some_and(|p| depth < 8 && never_json(p, shapes, depth + 1))
+            })
+    })
+}
+
+/// Whether a decoder definition can never take a JSON line (one that starts with `{`): it tests a
+/// program name, or its `prematch` is matched from the line start (no `offset`) and every
+/// alternative starts with `^` and then a letter, digit or `\(`.
+fn excludes_json(element: &RawElement) -> bool {
+    if child_text(element, "program_name").is_some_and(|p| !p.is_empty()) {
+        return true;
+    }
+    element
+        .children
+        .iter()
+        .find(|c| c.tag == "prematch")
+        .filter(|c| c.attributes.get("type").is_none_or(|t| t == "osregex"))
+        .filter(|c| !c.attributes.contains_key("offset"))
+        .is_some_and(|c| {
+            c.text.trim().split('|').all(|alternative| {
+                alternative.strip_prefix('^').is_some_and(|rest| {
+                    rest.starts_with(|ch: char| ch.is_ascii_alphanumeric())
+                        || rest.starts_with("\\(")
+                })
+            })
+        })
+}
+
 fn child_text<'a>(element: &'a RawElement, tag: &str) -> Option<&'a str> {
     element
         .children

@@ -34,6 +34,12 @@ pub struct RuleRequirements {
     /// merges or reorders events its pre-filter matches would change it. Rule-guided routing
     /// forwards all of those unchanged (ADR 0004); a future de-duplication must not touch them.
     pub stateful: bool,
+    /// The rule only ever sees text lines, never a structured (JSON) event, so it does not apply
+    /// to JSON templates. A Wazuh rule whose decoder selects by syslog program name is such a
+    /// rule: a JSON line has no syslog header, so Wazuh decodes it with its JSON decoder only
+    /// (see `docs/notes/wazuh.md`). `false` is always safe.
+    #[serde(default)]
+    pub text_lines_only: bool,
     /// Superset of the events this rule could match on its own.
     pub prefilter: Predicate,
 }
@@ -67,6 +73,7 @@ impl RuleRequirements {
             fields: RequiredFields::Unknown,
             matches_raw_text: true,
             stateful: true,
+            text_lines_only: false,
             prefilter: Predicate::Always,
         }
     }

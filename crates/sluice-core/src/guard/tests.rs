@@ -65,6 +65,7 @@ fn rule(id: &str, fields: &[&str], prefilter: Predicate) -> RuleRequirements {
         fields: RequiredFields::known(fields.iter().copied().map(FieldPath::from)),
         matches_raw_text: false,
         stateful: false,
+        text_lines_only: false,
         prefilter,
     }
 }
@@ -211,6 +212,28 @@ fn c3_a_rule_for_another_event_id_protects_nothing_here() {
     // The same rule on its own event ID keeps every field.
     other.prefilter = eq("EventID", "4625");
     let effective = guard(&template(), Some(&recipe), ctx(&[other]));
+    assert!(effective.drop_fields.is_empty());
+}
+
+#[test]
+fn c3_a_text_lines_only_rule_protects_nothing_in_json_but_everything_in_text() {
+    // A Wazuh `<match>` rule under a syslog program-name decoder, such as `pam`.
+    let mut syslog = rule("pam", &[], Predicate::Always);
+    syslog.matches_raw_text = true;
+    syslog.fields = RequiredFields::Unknown;
+    syslog.text_lines_only = true;
+    let drops = recipe(vec![drop(&["Message"])]);
+    let effective = guard(&template(), Some(&drops), ctx(&[syslog.clone()]));
+    assert_eq!(effective.drop_fields, BTreeSet::from(["Message".into()]));
+
+    // On a text template the same rule applies and keeps the line.
+    let mut text = template();
+    text.shape = TemplateShape::Text {
+        field: "Message".into(),
+        header: crate::template::LineHeader::None,
+        tokens: vec!["x".into()],
+    };
+    let effective = guard(&text, Some(&drops), ctx(&[syslog]));
     assert!(effective.drop_fields.is_empty());
 }
 

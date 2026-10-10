@@ -264,6 +264,50 @@ fn first_time_seen_reads_the_decoders_fts_names() {
 }
 
 #[test]
+fn rules_under_program_name_decoders_only_see_text_lines() {
+    let rules = WazuhRules::parse_with_decoders([CHAIN], [DECODERS]).unwrap();
+    let text_only = |id: &str| {
+        rules
+            .requirements()
+            .iter()
+            .find(|r| r.rule.as_str() == format!("wazuh:{id}"))
+            .unwrap()
+            .text_lines_only
+    };
+    // sshd tests the program name; its child inherits that through <if_sid>.
+    assert!(text_only("5700") && text_only("5716"));
+    // The JSON decoder selects by prematch, and a missing parent says nothing.
+    assert!(!text_only("9100") && !text_only("9000"));
+
+    // A child decoder inherits its parent's bound. A prematch anchored on a letter cannot match
+    // a JSON line's leading `{`; one that starts with `\S` or is unanchored can.
+    let decoders = r#"
+        <decoder name="sshd"><program_name>^sshd</program_name></decoder>
+        <decoder name="sshd-success"><parent>sshd</parent><prematch>^Accepted</prematch></decoder>
+        <decoder name="sudo"><program_name/><prematch>^\S+ :</prematch></decoder>
+        <decoder name="pam"><program_name>(pam_unix)$</program_name></decoder>
+        <decoder name="pam"><program_name></program_name><prematch>^pam_unix|^\(pam_unix\)</prematch></decoder>
+        <decoder name="loose"><prematch>pam_unix</prematch></decoder>
+    "#;
+    let rules = WazuhRules::parse_with_decoders(
+        [
+            r#"<rule id="1" level="3"><decoded_as>sshd-success</decoded_as></rule>
+            <rule id="2" level="3"><decoded_as>sudo</decoded_as></rule>
+            <rule id="3" level="3"><decoded_as>pam</decoded_as></rule>
+            <rule id="4" level="3"><decoded_as>loose</decoded_as></rule>"#,
+        ],
+        [decoders],
+    )
+    .unwrap();
+    let text_only: Vec<bool> = rules
+        .requirements()
+        .iter()
+        .map(|r| r.text_lines_only)
+        .collect();
+    assert_eq!(text_only, [true, false, true, false]);
+}
+
+#[test]
 fn first_time_seen_without_decoders_fails_closed() {
     let rules = parse(r#"<rule id="5403" level="4"><if_sid>5400</if_sid><if_fts /></rule>"#);
     assert_eq!(only(&rules).fields, RequiredFields::Unknown);
