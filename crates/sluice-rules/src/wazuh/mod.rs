@@ -163,12 +163,19 @@ fn requirement(
         ..Builder::default()
     };
     let mut parents = Vec::new();
+    let mut text_lines_only = false;
     for child in &raw.children {
         match child.tag.as_str() {
-            "decoded_as" => builder.conditions.push(decoders.condition(&child.text)),
-            "category" => builder
-                .conditions
-                .push(decoders.category_condition(&child.text)),
+            "decoded_as" => {
+                builder.conditions.push(decoders.condition(&child.text));
+                text_lines_only |= decoders.never_json(&child.text);
+            }
+            "category" => {
+                builder
+                    .conditions
+                    .push(decoders.category_condition(&child.text));
+                text_lines_only |= decoders.category_never_json(&child.text);
+            }
             "if_sid" => parents.extend(
                 child
                     .text
@@ -193,6 +200,7 @@ fn requirement(
         },
         matches_raw_text: builder.raw_text,
         stateful: builder.stateful,
+        text_lines_only,
         prefilter: Predicate::all(builder.conditions),
     };
     Parsed {

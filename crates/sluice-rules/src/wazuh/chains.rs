@@ -53,20 +53,24 @@ fn resolve(
     let mut rule = own.requirements.clone();
     if !own.parents.is_empty() {
         let mut parent_prefilters = Vec::new();
+        // Only text lines reach the child if only text lines reach every parent.
+        let mut parents_text_only = true;
         for id in &own.parents {
             let parent = index
                 .get(&format!("wazuh:{id}"))
                 .and_then(|&p| resolve(p, parsed, index, resolved, visiting));
-            match parent {
-                Some(parent) => {
-                    parent_prefilters.push(parent.prefilter);
-                    rule.fields = union(&rule.fields, &parent.fields);
-                    rule.matches_raw_text |= parent.matches_raw_text;
-                    rule.stateful |= parent.stateful;
-                }
-                None => parent_prefilters.push(Predicate::Always),
+            if let Some(parent) = parent {
+                parent_prefilters.push(parent.prefilter);
+                rule.fields = union(&rule.fields, &parent.fields);
+                rule.matches_raw_text |= parent.matches_raw_text;
+                rule.stateful |= parent.stateful;
+                parents_text_only &= parent.text_lines_only;
+            } else {
+                parent_prefilters.push(Predicate::Always);
+                parents_text_only = false;
             }
         }
+        rule.text_lines_only |= parents_text_only;
         rule.prefilter = Predicate::all([rule.prefilter, Predicate::any(parent_prefilters)]);
     }
     visiting[i] = false;

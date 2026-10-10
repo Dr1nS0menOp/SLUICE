@@ -211,8 +211,10 @@ fn rule_guided_route(
 /// Whether `rule` can see events of `template`: its log source may apply, and its pre-filter is
 /// not ruled out by the template's fixed discriminator values. A rule that requires
 /// `EventID: 5805` reads nothing of an `EventID=7036` template, even if it also has keywords.
+/// A rule that only sees text lines reads nothing of a JSON template.
 fn applies(rule: &RuleRequirements, template: &Template) -> bool {
     let (fixed, paths): (&[(FieldPath, String)], _) = match &template.shape {
+        TemplateShape::Keyset { .. } if rule.text_lines_only => return false,
         TemplateShape::Keyset {
             discriminators,
             paths,
