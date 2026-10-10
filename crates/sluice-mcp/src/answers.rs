@@ -133,6 +133,7 @@ pub(crate) fn coverage_gaps(status: &Status) -> Value {
     json!({
         "rules_without_data": status.coverage_gaps,
         "not_fully_understood": status.problems,
+        "describe_sources_better": status.scope_hints,
     })
 }
 
@@ -196,6 +197,7 @@ mod tests {
             product: Some("windows".into()),
             service: Some("security".into()),
             category: None,
+            complete: false,
         }
     }
 

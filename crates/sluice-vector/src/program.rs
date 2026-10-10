@@ -155,9 +155,16 @@ fn reduction(plan: &Plan<'_>) -> String {
         );
     }
     if !shaping.is_empty() {
+        // Events a protecting rule could match are forwarded whole (contract rule 3). The test
+        // runs on the event before any field is removed.
+        let mut condition = format!("%sluice.{ROUTE_METADATA} == {}", syntax::string(FORWARD));
+        if let Some(keep) = &plan.recipe.keep_whole_when {
+            let compiled = predicate::compile(keep, "_sluice_k");
+            body.extend(compiled.statements);
+            condition = format!("{condition} && !({})", compiled.expression);
+        }
         body.push(format!(
-            "if %sluice.{ROUTE_METADATA} == {} {{\n    {}\n  }}",
-            syntax::string(FORWARD),
+            "if {condition} {{\n    {}\n  }}",
             shaping.join("\n    ")
         ));
     }

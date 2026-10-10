@@ -100,6 +100,9 @@ pub(crate) enum RulesCommand {
         /// Directory of Wazuh rule files (`*.xml`), searched recursively.
         #[arg(long)]
         wazuh_rules: Option<PathBuf>,
+        /// Directory of Wazuh decoder files (`*.xml`), to bound rules by `<decoded_as>`.
+        #[arg(long, requires = "wazuh_rules")]
+        wazuh_decoders: Option<PathBuf>,
     },
 }
 
@@ -177,9 +180,17 @@ pub(crate) struct UpArgs {
     /// Directory of Wazuh rule files (`*.xml`), searched recursively.
     #[arg(long)]
     pub(crate) wazuh_rules: Option<PathBuf>,
+    /// Directory of Wazuh decoder files (`*.xml`), to bound rules by `<decoded_as>`
+    /// (for example a copy of `/var/ossec/ruleset/decoders` and `/var/ossec/etc/decoders`).
+    #[arg(long, requires = "wazuh_rules")]
+    pub(crate) wazuh_decoders: Option<PathBuf>,
     /// Feed synthetic traffic into the configured `http_server` sources (for trying it out).
     #[arg(long)]
     pub(crate) demo_traffic: bool,
+    /// Check the configuration and rules and print the Vector configuration `up` would start
+    /// with, without starting anything (pipe it to `vector validate`).
+    #[arg(long, conflicts_with = "demo_traffic")]
+    pub(crate) check: bool,
 }
 
 #[derive(Debug, Args)]
@@ -218,6 +229,10 @@ pub(crate) struct AnalyzeArgs {
     /// Directory of Wazuh rule files (`*.xml`), searched recursively.
     #[arg(long)]
     pub(crate) wazuh_rules: Option<PathBuf>,
+    /// Directory of Wazuh decoder files (`*.xml`), to bound rules by `<decoded_as>`
+    /// (for example a copy of `/var/ossec/ruleset/decoders` and `/var/ossec/etc/decoders`).
+    #[arg(long, requires = "wazuh_rules")]
+    pub(crate) wazuh_decoders: Option<PathBuf>,
     /// Wazuh manager API (for example `https://wazuh:55000`) to spot-check reductions with its
     /// real decoders and rules through `logtest`. The password is read from
     /// `WAZUH_API_PASSWORD`.

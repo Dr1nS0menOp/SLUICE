@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use super::*;
 use crate::logsource::LogSource;
-use crate::predicate::{FieldTest, MatchOp};
+use crate::predicate::{FieldTest, KeywordTest, MatchOp};
 use crate::recipe::Provenance;
 use crate::rules::RequiredFields;
 use crate::template::{TemplateShape, TemplateStats};
@@ -14,8 +14,20 @@ fn windows_security() -> LogSource {
         product: Some("windows".into()),
         service: Some("security".into()),
         category: None,
+        complete: false,
     }
 }
+
+/// The leaf paths of every event of the test template.
+const FIELDS: [&str; 7] = [
+    "EventID",
+    "TargetUserName",
+    "IpAddress",
+    "Message",
+    "Keywords",
+    "LogonType",
+    "process.name",
+];
 
 fn template() -> Template {
     Template {
@@ -25,18 +37,9 @@ fn template() -> Template {
         pattern: "4625 failed logon".into(),
         shape: TemplateShape::Keyset {
             discriminators: vec![("EventID".into(), "4625".into())],
-            paths: BTreeSet::new(),
+            paths: FIELDS.into_iter().map(FieldPath::from).collect(),
         },
-        fields: [
-            "EventID",
-            "TargetUserName",
-            "IpAddress",
-            "Message",
-            "Keywords",
-        ]
-        .into_iter()
-        .map(FieldPath::from)
-        .collect(),
+        fields: FIELDS.into_iter().map(FieldPath::from).collect(),
         text_fields: BTreeSet::from(["Message".into()]),
         stats: TemplateStats {
             events: 50_000,
@@ -137,10 +140,42 @@ fn c3_fields_referenced_by_rules_are_never_dropped() {
 
 #[test]
 fn c3_parent_and_child_of_a_referenced_field_are_kept() {
-    let rules = [rule("r1", &["process.name"], eq("process.name", "x"))];
+    // The rule covers every event of the template (its EventID), so its claim holds everywhere.
+    let rules = [rule("r1", &["process.name"], eq("EventID", "4625"))];
     let recipe = recipe(vec![drop(&["process", "process.name.raw", "other"])]);
     let effective = guard(&template(), Some(&recipe), ctx(&rules));
     assert_eq!(effective.drop_fields, BTreeSet::from(["other".into()]));
+    assert_eq!(effective.keep_whole_when, None);
+}
+
+#[test]
+fn c3_events_a_selective_rule_could_match_are_kept_whole() {
+    // The rule matches only some events of the template, so its field may go elsewhere.
+    let rules = [rule("r1", &["process.name"], eq("process.name", "x"))];
+    let drops = recipe(vec![drop(&["process", "other"])]);
+    let effective = guard(&template(), Some(&drops), ctx(&rules));
+    assert_eq!(
+        effective.drop_fields,
+        BTreeSet::from(["other".into(), "process".into()])
+    );
+    assert_eq!(effective.keep_whole_when, Some(eq("process.name", "x")));
+
+    // A keyword rule over all data, like SigmaHQ's mimikatz keywords: its fields are unknown,
+    // so every event it could match is kept whole and the rest lose Message.
+    let mut keywords = rule("kw", &[], Predicate::Always);
+    keywords.fields = RequiredFields::Unknown;
+    keywords.matches_raw_text = true;
+    keywords.prefilter = Predicate::Keywords(KeywordTest {
+        values: vec!["sekurlsa::".into()],
+        case_sensitive: false,
+    });
+    let effective = guard(
+        &template(),
+        Some(&recipe(vec![drop(&["Message"])])),
+        ctx(&[keywords.clone()]),
+    );
+    assert_eq!(effective.drop_fields, BTreeSet::from(["Message".into()]));
+    assert_eq!(effective.keep_whole_when, Some(keywords.prefilter));
 }
 
 #[test]
@@ -160,6 +195,22 @@ fn c3_raw_text_rule_keeps_text_fields() {
     keyword_rule.matches_raw_text = true;
     let recipe = recipe(vec![drop(&["Message"])]);
     let effective = guard(&template(), Some(&recipe), ctx(&[keyword_rule]));
+    assert!(effective.drop_fields.is_empty());
+}
+
+#[test]
+fn c3_a_rule_for_another_event_id_protects_nothing_here() {
+    // Zerologon-style: an EventID selection and keywords. It cannot fire on 4625 events.
+    let mut other = rule("other", &[], eq("EventID", "5805"));
+    other.matches_raw_text = true;
+    other.fields = RequiredFields::Unknown;
+    let recipe = recipe(vec![drop(&["Message"])]);
+    let effective = guard(&template(), Some(&recipe), ctx(&[other.clone()]));
+    assert_eq!(effective.drop_fields, BTreeSet::from(["Message".into()]));
+
+    // The same rule on its own event ID keeps every field.
+    other.prefilter = eq("EventID", "4625");
+    let effective = guard(&template(), Some(&recipe), ctx(&[other]));
     assert!(effective.drop_fields.is_empty());
 }
 

@@ -62,6 +62,16 @@ These were verified against 0.36.0 while building `sluice-vector`, on 2026-10-09
   variables.
 - **Metadata** (`%sluice.route`) is readable and writable from VRL. After `Runtime::resolve` it
   is in `TargetValue::metadata`. Sluice routes on it.
+- **Long operator chains overflow the stack** (found 2026-10-10 with the full SigmaHQ set). VRL
+  parses and type-checks `a || b || c …` one recursion level per operand; a pre-filter over a
+  few thousand rules aborted the process. Generated chains are balanced trees of parentheses
+  (depth log₂ n).
+- **Many `contains` calls are slow on large values.** `contains(x, y, case_sensitive: false)`
+  lowercases `x` on every call; hundreds of rules against 20 KB PowerShell script blocks took
+  minutes. Generated code lowercases once and matches one alternation of escaped literals
+  (`match(downcase(x), r'(?:a|b|…)')`, anchored for equality and prefixes/suffixes), which the
+  `regex` crate runs as one Aho-Corasick scan. Lowercasing value and literals with Rust's
+  `to_lowercase` is what VRL's case-insensitive functions do, so both forms decide alike.
 
 ## Vector runtime facts for `sluice up`
 
@@ -103,8 +113,13 @@ full default configuration, which is the quickest way to see its real field name
   default kind is `managed_identity`). Top-level `azure_client_id` is rejected.
 - `gcp_chronicle_unstructured`: `endpoint`, `customer_id`, `credentials_path`, `log_type`,
   `encoding`.
-- `${VAR}` references are resolved from Vector's environment when the config loads, so secrets
-  stay out of the generated file.
+- **`${VAR}` is not interpolated** in Vector 0.59 unless it runs with
+  `--dangerously-allow-env-var-interpolation`: a probe server received `Bearer ${PROBE_TOKEN}`
+  literally (2026-10-10). `vector validate` does not notice. Credentials therefore go through a
+  secret backend: `secret: {siem: {type: directory, path: /run/secrets/siem}}` and
+  `SECRET[siem.splunk_hec_token]` read the file `/run/secrets/siem/splunk_hec_token` (verified
+  with the same probe). Vector resolves every referenced secret at load time, so a missing file
+  fails validation.
 
 ## Version coupling
 

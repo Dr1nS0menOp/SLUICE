@@ -159,3 +159,25 @@ fn invalid_json_is_an_error() {
         Err(AiError::Invalid(_))
     ));
 }
+
+#[test]
+fn a_reasoning_model_answer_in_reasoning_content_is_used_only_if_it_parses() {
+    // LM Studio 0.4 with qwen3.8: the constrained JSON lands in `reasoning_content`.
+    let transport = Canned::new(&json!({"choices": [{"finish_reason": "stop", "message": {
+        "content": "", "reasoning_content": "{\"summarize\": true}"
+    }}]}));
+    let model = OpenAiCompatible::new("m", "http://x", None, &transport);
+    assert_eq!(
+        model.complete("s", "u", &schema()).unwrap(),
+        json!({"summarize": true})
+    );
+
+    let thinking = Canned::new(&json!({"choices": [{"finish_reason": "stop", "message": {
+        "content": "", "reasoning_content": "Let me think about the fields first."
+    }}]}));
+    let model = OpenAiCompatible::new("m", "http://x", None, &thinking);
+    assert!(matches!(
+        model.complete("s", "u", &schema()),
+        Err(AiError::Invalid(_))
+    ));
+}

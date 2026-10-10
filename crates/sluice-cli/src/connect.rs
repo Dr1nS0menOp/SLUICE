@@ -1,7 +1,7 @@
 //! `sluice connect`: a destination block to paste into the `sluice up` configuration.
 
 use anyhow::Result;
-use serde_json::{Map, json};
+use serde_json::json;
 use sluice_vector::Target;
 
 use crate::cli::{ConnectArgs, ConnectTarget};
@@ -20,9 +20,12 @@ pub(crate) fn connect(args: &ConnectArgs) -> Result<()> {
         .as_deref()
         .unwrap_or_else(|| target.example_endpoint());
     let name = args.name.as_deref().unwrap_or_else(|| target.name());
-    let mut destinations = Map::new();
-    destinations.insert(name.to_owned(), target.sink(endpoint));
-    let yaml = serde_yaml_ng::to_string(&json!({ "destinations": destinations }))?;
+    let destinations = target.destinations(name, endpoint);
+    let mut config = json!({ "destinations": destinations });
+    if let Some((backend, settings)) = target.secret_backend() {
+        config["vector_secrets"] = json!({ backend: settings });
+    }
+    let yaml = serde_yaml_ng::to_string(&config)?;
 
     // Everything is YAML, the notes as comments, so the output can be appended to a config.
     println!(
@@ -32,9 +35,11 @@ pub(crate) fn connect(args: &ConnectArgs) -> Result<()> {
     if args.endpoint.is_none() {
         println!("# Replace the placeholder endpoint (or pass --endpoint).");
     }
-    if !target.secrets().is_empty() {
+    if let Some((_, settings)) = target.secret_backend() {
         println!(
-            "# Set for Vector's environment (never in this file): {}",
+            "# Secrets (never in this file): one file each in {}, readable only by the user \
+             running Sluice: {}",
+            settings["path"].as_str().unwrap_or_default(),
             target.secrets().join(", ")
         );
     }

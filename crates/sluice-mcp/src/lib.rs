@@ -25,6 +25,8 @@ use crate::tools::Sluice;
 pub struct McpConfig {
     /// The control plane's address, such as `127.0.0.1:8686`.
     pub control_plane: String,
+    /// The control plane's bearer token, if it requires one.
+    pub control_token: Option<String>,
     /// The archive directory. Without it, the archive tools are not offered.
     pub archive: Option<PathBuf>,
     /// Offer the `replay` tool.

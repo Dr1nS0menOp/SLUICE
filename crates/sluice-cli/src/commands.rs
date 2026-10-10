@@ -68,15 +68,7 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
         None => Vec::new(),
     };
     let sigma = SigmaRules::parse(sigma_files.iter().map(|(_, text)| text.as_str()))?;
-    let wazuh = match &args.wazuh_rules {
-        Some(dir) => {
-            let files = input::files(dir, &["xml"])?;
-            Some(WazuhRules::parse(
-                files.iter().map(|(_, text)| text.as_str()),
-            )?)
-        }
-        None => None,
-    };
+    let wazuh = input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?;
     let book = recipe_book(args.recipes.as_deref())?;
     let advisor = ai::advisor(&args.ai)?;
     let logtest = logtest(args)?;
@@ -144,7 +136,11 @@ pub(crate) fn recipes(args: &RecipesArgs) -> Result<()> {
 }
 
 pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
-    let RulesCommand::Requirements { rules, wazuh_rules } = &args.command;
+    let RulesCommand::Requirements {
+        rules,
+        wazuh_rules,
+        wazuh_decoders,
+    } = &args.command;
     let mut requirements = Vec::new();
     let mut problems = Vec::new();
     if let Some(dir) = rules {
@@ -153,10 +149,9 @@ pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
         requirements.extend(sigma.requirements().iter().cloned());
         problems.extend(sigma.problems().iter().cloned());
     }
-    if let Some(dir) = wazuh_rules {
-        let files = input::files(dir, &["xml"])?;
-        let wazuh = WazuhRules::parse(files.iter().map(|(_, text)| text.as_str()))?;
+    if let Some(wazuh) = input::wazuh(wazuh_rules.as_deref(), wazuh_decoders.as_deref())? {
         requirements.extend(wazuh.requirements().iter().cloned());
+        problems.extend(wazuh.problems().iter().cloned());
     }
     for problem in &problems {
         eprintln!("warning: {problem}");

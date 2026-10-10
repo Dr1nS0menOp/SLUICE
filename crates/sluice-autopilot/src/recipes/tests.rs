@@ -13,6 +13,7 @@ fn keyset(id: &str, product: &str, service: &str, event_id: &str) -> Template {
             product: Some(product.into()),
             service: Some(service.into()),
             category: None,
+            complete: false,
         },
         pattern: format!("EventID={event_id}"),
         shape: TemplateShape::Keyset {

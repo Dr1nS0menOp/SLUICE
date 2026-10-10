@@ -1,0 +1,98 @@
+{{- $token := required "controlToken.secretName is required: the control plane listens beyond loopback (ADR 0010)" .Values.controlToken.secretName -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sluice.name" . }}
+  labels:
+    {{- include "sluice.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  # One writer for the lifecycle state and the archive volume.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "sluice.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sluice.selector" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ .Values.config | sha256sum }}
+    spec:
+      # Sluice stops Vector gracefully and gives it up to 60 s to flush the archive.
+      terminationGracePeriodSeconds: 75
+      containers:
+        - name: sluice
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - up
+            - --config
+            - /etc/sluice/sluice.yaml
+            {{- if .Values.rules.configMap }}
+            - --rules
+            - /etc/sluice/rules
+            {{- end }}
+          env:
+            - name: SLUICE_CONTROL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $token }}
+                  key: {{ .Values.controlToken.key }}
+          ports:
+            - name: control
+              containerPort: 8686
+            {{- range .Values.service.sourcePorts }}
+            - containerPort: {{ . }}
+            {{- end }}
+          readinessProbe:
+            httpGet: { path: /healthz, port: control }
+          livenessProbe:
+            httpGet: { path: /healthz, port: control }
+            periodSeconds: 30
+          volumeMounts:
+            - name: config
+              mountPath: /etc/sluice/sluice.yaml
+              subPath: sluice.yaml
+            - name: data
+              mountPath: /var/lib/sluice
+            {{- if .Values.rules.configMap }}
+            - name: rules
+              mountPath: /etc/sluice/rules
+            {{- end }}
+            {{- if .Values.siemSecrets.secretName }}
+            - name: siem-secrets
+              mountPath: /run/secrets/siem
+              readOnly: true
+            {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "sluice.name" . }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "sluice.name" . }}
+        {{- if .Values.rules.configMap }}
+        - name: rules
+          configMap:
+            name: {{ .Values.rules.configMap }}
+        {{- end }}
+        {{- if .Values.siemSecrets.secretName }}
+        - name: siem-secrets
+          secret:
+            secretName: {{ .Values.siemSecrets.secretName }}
+            defaultMode: 0400
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

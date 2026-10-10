@@ -2,8 +2,10 @@
 
 use std::sync::{Arc, PoisonError};
 
-use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::StatusCode;
+use axum::extract::{DefaultBodyLimit, Path, Request, State};
+use axum::http::{StatusCode, header};
+use axum::middleware::{self, Next};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use sluice_core::ids::SourceId;
@@ -16,13 +18,41 @@ use crate::unix_now;
 const MAX_BODY: usize = 32 * 1024 * 1024;
 
 pub(crate) fn router(shared: Arc<Shared>) -> Router {
-    Router::new()
+    let protected = Router::new()
         .route("/tap/{source}", post(tap))
         .route("/status", get(status))
         .route("/rules", get(rules))
+        .layer(middleware::from_fn_with_state(
+            Arc::clone(&shared),
+            authorize,
+        ));
+    Router::new()
+        .merge(protected)
         .route("/healthz", get(|| async { "ok" }))
         .layer(DefaultBodyLimit::max(MAX_BODY))
         .with_state(shared)
+}
+
+/// Requires `Authorization: Bearer <token>` when the control plane has a token.
+async fn authorize(State(shared): State<Arc<Shared>>, request: Request, next: Next) -> Response {
+    let Some(token) = &shared.control_token else {
+        return next.run(request).await;
+    };
+    let expected = format!("Bearer {token}");
+    let given = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .map(header::HeaderValue::as_bytes);
+    if given.is_some_and(|given| same(given, expected.as_bytes())) {
+        next.run(request).await
+    } else {
+        (StatusCode::UNAUTHORIZED, "missing or wrong bearer token\n").into_response()
+    }
+}
+
+/// Compares without stopping at the first difference, so timing reveals nothing about the token.
+fn same(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// `POST /tap/{source}`: newline-delimited JSON objects from Vector's tap sink.

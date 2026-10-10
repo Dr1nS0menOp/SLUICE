@@ -1,0 +1,52 @@
+# Sluice and its Vector in one pod (ADR 0005, ADR 0007). One replica: the lifecycle state and
+# the archive live on one volume.
+
+image:
+  repository: sluice
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+# The `sluice up` configuration (docs/guide.md). Paths must stay under /var/lib/sluice (the
+# volume); the control plane listens on 0.0.0.0, so a control token is required.
+config: |
+  listen: 0.0.0.0:8686
+  vector_binary: /usr/local/bin/vector
+  vector_config: /var/lib/sluice/vector.yaml
+  archive_dir: /var/lib/sluice/archive
+  data_dir: /var/lib/sluice/vector-data
+  sources:
+    - id: windows-system
+      logsource: { product: windows, service: system, complete: true }
+      format: { kind: json }
+      vector: { type: http_server, address: 0.0.0.0:9101, decoding: { codec: json } }
+  destinations:
+    siem: { type: blackhole }
+
+# Sigma rules: the name of a ConfigMap whose files are rules (`*.yml`), mounted at
+# /etc/sluice/rules. Empty: no Sigma rules.
+rules:
+  configMap: ""
+
+# Required: a Secret holding the control plane's bearer token (at least 32 characters).
+controlToken:
+  secretName: ""
+  key: token
+
+# Optional: a Secret whose keys are destination credentials (`sluice connect`), mounted at
+# /run/secrets/siem for the `siem` secret backend (`vector_secrets` in the config).
+siemSecrets:
+  secretName: ""
+
+persistence:
+  size: 20Gi
+  storageClass: ""
+
+service:
+  type: ClusterIP
+  controlPort: 8686
+  # Ports of the Vector sources in `config` that receive events.
+  sourcePorts: [9101]
+
+resources: {}
+nodeSelector: {}
+tolerations: []

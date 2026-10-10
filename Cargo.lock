@@ -2781,6 +2781,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "flate2",
+ "proptest",
  "serde_json",
  "sluice-core",
  "thiserror",
@@ -2872,6 +2873,7 @@ dependencies = [
 name = "sluice-rules"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "quick-xml",
  "rsigma-eval",
  "rsigma-parser",

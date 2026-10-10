@@ -100,6 +100,13 @@ fn rules(report: &Report) -> String {
          constrain the guardrails.</p>",
         counts.join(", ")
     );
+    if !report.scope_hints.is_empty() {
+        out.push_str(
+            "<p class=\"muted\">Scope: rules that apply only because a source's log source is \
+             not fully described. Describing it lets Sluice ignore them.</p>",
+        );
+        out.push_str(&list(&report.scope_hints));
+    }
     if !report.coverage_gaps.is_empty() {
         out.push_str(
             "<p class=\"muted\">Coverage gaps: rules no data in this sample can reach.</p>",

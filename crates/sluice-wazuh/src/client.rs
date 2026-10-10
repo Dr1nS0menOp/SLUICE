@@ -144,10 +144,23 @@ impl<T: Transport> Logtest<T> {
     ///
     /// Returns [`WazuhError`] if the API cannot be used.
     pub fn alert(&self, event: &Map<String, Value>) -> Result<Option<String>, WazuhError> {
+        self.logtest(&Value::Object(event.clone()).to_string(), "json")
+    }
+
+    /// The rule that alerts on a raw log line (decoded as syslog), or `None`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WazuhError`] if the API cannot be used.
+    pub fn alert_line(&self, line: &str) -> Result<Option<String>, WazuhError> {
+        self.logtest(line, "syslog")
+    }
+
+    fn logtest(&self, event: &str, log_format: &str) -> Result<Option<String>, WazuhError> {
         let jwt = self.authenticate()?;
         let mut request = json!({
-            "event": Value::Object(event.clone()).to_string(),
-            "log_format": "json",
+            "event": event,
+            "log_format": log_format,
             "location": "sluice",
         });
         if let Some(session) = self.session.borrow().clone() {
@@ -179,12 +192,20 @@ impl<T: Transport> Logtest<T> {
 
 impl<T: Transport> EventRules for Logtest<T> {
     fn fired(&self, fields: &Map<String, Value>) -> Result<BTreeSet<RuleId>, EngineError> {
-        let alert = self.alert(fields).map_err(|e| EngineError(e.to_string()))?;
-        Ok(alert
-            .into_iter()
-            .map(|id| RuleId::new(format!("wazuh:{id}")))
-            .collect())
+        rule_ids(self.alert(fields))
     }
+
+    fn fired_line(&self, line: &str) -> Result<BTreeSet<RuleId>, EngineError> {
+        rule_ids(self.alert_line(line))
+    }
+}
+
+fn rule_ids(alert: Result<Option<String>, WazuhError>) -> Result<BTreeSet<RuleId>, EngineError> {
+    let alert = alert.map_err(|e| EngineError(e.to_string()))?;
+    Ok(alert
+        .into_iter()
+        .map(|id| RuleId::new(format!("wazuh:{id}")))
+        .collect())
 }
 
 fn ok_json(status: u16, body: &str) -> Result<Value, WazuhError> {

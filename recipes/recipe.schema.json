@@ -42,7 +42,7 @@
       "type": "string"
     },
     "LogSource": {
-      "description": "Sigma-style log source descriptor (`product`, `service`, `category`).\n\nRules use it to say which data they apply to, and templates use it to say what they are. A\nmissing attribute means \"unknown\" on a template and \"any\" on a rule.",
+      "description": "Sigma-style log source descriptor (`product`, `service`, `category`).\n\nRules use it to say which data they apply to, and templates use it to say what they are. A\nmissing attribute means \"any\" on a rule, and \"unknown\" on data unless the data's descriptor is\nmarked complete.",
       "type": "object",
       "properties": {
         "category": {

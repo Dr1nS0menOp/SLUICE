@@ -5,7 +5,9 @@
 //! its environment. Every sink here is checked with `vector validate` against the Vector release
 //! in `docs/compatibility.md` (`scripts/vector-check.sh`).
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
+
+use crate::live::FORMATS_KEY;
 
 /// A SIEM or log platform Sluice can forward to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -61,28 +63,67 @@ impl Target {
         }
     }
 
-    /// Environment variables the sink reads, which must be set for Vector.
+    /// The secrets the sink reads from the [`SECRET_BACKEND`] backend, one file each under its
+    /// directory. Vector 0.59 does not interpolate `${VAR}` by default, so credentials are never
+    /// environment references.
     #[must_use]
     pub fn secrets(self) -> &'static [&'static str] {
         match self {
-            Self::Splunk => &["SPLUNK_HEC_TOKEN"],
-            Self::Elastic => &["ELASTIC_USER", "ELASTIC_PASSWORD"],
-            Self::Sentinel => &["AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET"],
-            Self::Chronicle => &["CHRONICLE_CUSTOMER_ID", "GOOGLE_APPLICATION_CREDENTIALS"],
-            Self::Wazuh | Self::Http => &[],
+            Self::Splunk => &["splunk_hec_token"],
+            Self::Elastic => &["elastic_password"],
+            Self::Sentinel => &["azure_client_secret"],
+            Self::Chronicle | Self::Wazuh | Self::Http => &[],
         }
     }
 
-    /// The Vector sink, without `inputs` (Sluice sets them). `endpoint` is a URL, or for Wazuh
-    /// the file path.
+    /// The `vector_secrets` entry for the `sluice up` configuration, if the target has secrets:
+    /// a directory backend with one file per secret (Docker and Kubernetes secrets mount so).
     #[must_use]
-    pub fn sink(self, endpoint: &str) -> Value {
+    pub fn secret_backend(self) -> Option<(String, Value)> {
+        (!self.secrets().is_empty()).then(|| {
+            (
+                SECRET_BACKEND.to_owned(),
+                json!({ "type": "directory", "path": SECRET_DIR }),
+            )
+        })
+    }
+
+    /// The destinations for the `sluice up` configuration, keyed by name, without `inputs`
+    /// (Sluice sets them). `endpoint` is a URL, or for Wazuh the JSON file's path.
+    ///
+    /// Most targets take one sink. Wazuh takes two, because its syslog rules only match raw
+    /// lines: JSON sources go to a JSON file and text sources, as their original lines, to a
+    /// second file (selected with [`FORMATS_KEY`]).
+    #[must_use]
+    pub fn destinations(self, name: &str, endpoint: &str) -> Map<String, Value> {
+        let mut destinations = Map::new();
+        if self == Self::Wazuh {
+            let mut json_file = self.sink(endpoint);
+            json_file[FORMATS_KEY] = json!(["json"]);
+            destinations.insert(name.to_owned(), json_file);
+            destinations.insert(
+                format!("{name}_lines"),
+                json!({
+                    "type": "file",
+                    "path": wazuh_lines_path(endpoint),
+                    // The text codec writes the `message` field: the original line.
+                    "encoding": { "codec": "text" },
+                    FORMATS_KEY: ["text"],
+                }),
+            );
+        } else {
+            destinations.insert(name.to_owned(), self.sink(endpoint));
+        }
+        destinations
+    }
+
+    fn sink(self, endpoint: &str) -> Value {
         let json_lines = json!({ "codec": "json" });
         match self {
             Self::Splunk => json!({
                 "type": "splunk_hec_logs",
                 "endpoint": endpoint,
-                "default_token": "${SPLUNK_HEC_TOKEN}",
+                "default_token": secret("splunk_hec_token"),
                 "encoding": json_lines,
             }),
             Self::Elastic => json!({
@@ -92,8 +133,8 @@ impl Target {
                 "bulk": { "index": "sluice-%Y.%m.%d" },
                 "auth": {
                     "strategy": "basic",
-                    "user": "${ELASTIC_USER}",
-                    "password": "${ELASTIC_PASSWORD}",
+                    "user": "sluice",
+                    "password": secret("elastic_password"),
                 },
             }),
             Self::Sentinel => json!({
@@ -103,16 +144,16 @@ impl Target {
                 "stream_name": "Custom-Sluice_CL",
                 "auth": {
                     "azure_credential_kind": "client_secret_credential",
-                    "azure_tenant_id": "${AZURE_TENANT_ID}",
-                    "azure_client_id": "${AZURE_CLIENT_ID}",
-                    "azure_client_secret": "${AZURE_CLIENT_SECRET}",
+                    "azure_tenant_id": "00000000-0000-0000-0000-000000000000",
+                    "azure_client_id": "00000000-0000-0000-0000-000000000000",
+                    "azure_client_secret": secret("azure_client_secret"),
                 },
             }),
             Self::Chronicle => json!({
                 "type": "gcp_chronicle_unstructured",
                 "endpoint": endpoint,
-                "customer_id": "${CHRONICLE_CUSTOMER_ID}",
-                "credentials_path": "${GOOGLE_APPLICATION_CREDENTIALS}",
+                "customer_id": "00000000-0000-0000-0000-000000000000",
+                "credentials_path": "/run/secrets/siem/chronicle-credentials.json",
                 "log_type": "UNSPECIFIED",
                 "encoding": json_lines,
             }),
@@ -132,7 +173,7 @@ impl Target {
     }
 
     /// What else to set up, for people: where the rules come from and what to replace.
-    /// `endpoint` is the one given to [`Target::sink`].
+    /// `endpoint` is the one given to [`Target::destinations`].
     #[must_use]
     pub fn notes(self, endpoint: &str) -> String {
         match self {
@@ -152,15 +193,37 @@ impl Target {
                                 `--rules` your Sigma rules (YARA-L parsing is planned)."
                 .to_owned(),
             Self::Wazuh => format!(
-                "Add to the manager's or an agent's ossec.conf:\n  <localfile>\n    \
-                 <log_format>json</log_format>\n    <location>{endpoint}</location>\n  \
-                 </localfile>\nDetections: copy /var/ossec/ruleset/rules and \
+                "Add both files to the manager's or an agent's ossec.conf, each in its format:\n  \
+                 <localfile>\n    <log_format>json</log_format>\n    <location>{endpoint}</location>\n  \
+                 </localfile>\n  <localfile>\n    <log_format>syslog</log_format>\n    \
+                 <location>{lines}</location>\n  </localfile>\nWindows events: keep them on the \
+                 agent's eventchannel; Wazuh's Windows rules do not match them from a file \
+                 (docs/notes/wazuh.md). Detections: copy /var/ossec/ruleset/rules and \
                  /var/ossec/etc/rules for `sluice up --wazuh-rules`, and add `--wazuh-api` to \
-                 `sluice analyze` for exact logtest checks."
+                 `sluice analyze` for exact logtest checks.",
+                lines = wazuh_lines_path(endpoint)
             ),
             Self::Http => {
                 "The endpoint receives batches of newline-delimited JSON objects.".to_owned()
             }
         }
+    }
+}
+
+/// Name of the secret backend the destinations' credentials come from.
+pub const SECRET_BACKEND: &str = "siem";
+/// Where that backend reads secrets by default: one file per secret.
+const SECRET_DIR: &str = "/run/secrets/siem";
+
+/// A reference to secret `key` of [`SECRET_BACKEND`].
+fn secret(key: &str) -> String {
+    format!("SECRET[{SECRET_BACKEND}.{key}]")
+}
+
+/// The raw-line file next to Wazuh's JSON file: `x.ndjson` becomes `x.log`.
+fn wazuh_lines_path(endpoint: &str) -> String {
+    match endpoint.strip_suffix(".ndjson") {
+        Some(stem) => format!("{stem}.log"),
+        None => format!("{endpoint}.log"),
     }
 }

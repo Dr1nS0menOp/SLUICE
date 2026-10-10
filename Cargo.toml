@@ -6,7 +6,9 @@ members = ["crates/*"]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
-# TODO(release): set `license` (ADR pending: Apache-2.0 vs AGPL-3.0) and `repository`.
+# AGPL-3.0-only: see LICENSE and docs/adr/0008-license.md.
+license = "AGPL-3.0-only"
+# TODO(release): set `repository` and decide on publishing to crates.io.
 publish = false
 
 [workspace.dependencies]

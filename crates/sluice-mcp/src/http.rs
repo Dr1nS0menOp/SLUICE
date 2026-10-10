@@ -117,6 +117,7 @@ mod tests {
     fn app() -> Router {
         let config = McpConfig {
             control_plane: "127.0.0.1:9".into(),
+            control_token: None,
             archive: None,
             allow_replay: false,
         };
@@ -180,6 +181,7 @@ mod tests {
         };
         let config = McpConfig {
             control_plane: String::new(),
+            control_token: None,
             archive: None,
             allow_replay: false,
         };

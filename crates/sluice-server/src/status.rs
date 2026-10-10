@@ -37,6 +37,9 @@ pub struct Status {
     /// Rules or recipes that could not be fully understood.
     #[serde(default)]
     pub problems: Vec<String>,
+    /// Sources whose log source leaves an attribute unknown, so extra rules apply.
+    #[serde(default)]
+    pub scope_hints: Vec<String>,
 }
 
 /// One template of the last window and what Sluice does to it.
@@ -212,6 +215,7 @@ impl Status {
         self.sources = health(cycle, sources);
         self.coverage_gaps.clone_from(&report.coverage_gaps);
         self.problems.clone_from(&report.problems);
+        self.scope_hints.clone_from(&report.scope_hints);
     }
 }
 

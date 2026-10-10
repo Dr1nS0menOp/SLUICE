@@ -1,0 +1,13 @@
+id: microsoft/windows/system/rendered-message
+description: Windows System log events, every type
+match:
+  logsource: { product: windows, service: system }
+reductions:
+  - op: drop_fields
+    fields: [Message]
+  - op: drop_empty_fields
+rationale: >-
+  Message is rendered by Windows from the provider's message template and the event's own
+  EventData values, so it adds no information beyond fixed text. Null and empty-string fields
+  carry none either. Rules that match on Message, or on an empty value, keep these fields through
+  the guardrails.

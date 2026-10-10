@@ -193,8 +193,10 @@ impl Sluice {
     }
 
     #[tool(
-        description = "Rules that cannot fire because no traffic matches their log source, and \
-                       rules or recipes Sluice could not fully understand (treated with care)."
+        description = "Rules that cannot fire because no traffic matches their log source, rules \
+                       or recipes Sluice could not fully understand (treated with care), and \
+                       sources whose description is incomplete, which keeps rules in scope that \
+                       may not belong there."
     )]
     async fn coverage_gaps(&self) -> Result<CallToolResult, ErrorData> {
         match self.fetch::<Status>("status").await {
@@ -298,8 +300,13 @@ impl Sluice {
     /// `GET /<path>` on the control plane.
     async fn fetch<T: DeserializeOwned + Send + 'static>(&self, path: &str) -> Result<T, String> {
         let url = format!("http://{}/{path}", self.config.control_plane);
+        let token = self.config.control_token.clone();
         tokio::task::spawn_blocking(move || {
-            let body = ureq::get(&url)
+            let mut request = ureq::get(&url);
+            if let Some(token) = token {
+                request = request.header("authorization", format!("Bearer {token}"));
+            }
+            let body = request
                 .call()
                 .and_then(|mut r| r.body_mut().read_to_string())
                 .map_err(|e| {

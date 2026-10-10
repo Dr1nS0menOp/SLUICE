@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sluice.name" . }}
+  labels:
+    {{- include "sluice.labels" . | nindent 4 }}
+data:
+  sluice.yaml: |
+    {{- .Values.config | nindent 4 }}

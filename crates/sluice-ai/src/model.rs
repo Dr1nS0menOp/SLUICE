@@ -267,8 +267,18 @@ impl<T: Transport> LanguageModel for OpenAiCompatible<T> {
         if choice["finish_reason"] == "length" {
             return Err(AiError::Truncated);
         }
-        let text = choice["message"]["content"]
+        let message = &choice["message"];
+        let text = message["content"]
             .as_str()
+            .filter(|t| !t.trim().is_empty())
+            // LM Studio with a reasoning model puts the schema-constrained answer in
+            // `reasoning_content` and leaves `content` empty (docs/notes/ai.md). It is used only
+            // if it parses; the proposal is validated against the schema afterwards anyway.
+            .or_else(|| {
+                message["reasoning_content"]
+                    .as_str()
+                    .filter(|t| serde_json::from_str::<Value>(t).is_ok())
+            })
             .ok_or_else(|| AiError::Invalid("no message content in the response".into()))?;
         parse(text)
     }

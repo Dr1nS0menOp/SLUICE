@@ -31,6 +31,8 @@ fn demo_then_analyze_agree() {
 
     let summary = sluice(&["demo", "--out", demo.to_str().unwrap(), "--scale", "5"]);
     assert!(summary.contains("✓ no detection changed"), "{summary}");
+    // Demo sources leave the category unknown, so category rules apply: Sluice says so.
+    assert!(summary.contains("add `complete: true`"), "{summary}");
     assert!(read(&demo.join("report.html")).contains("Sluice report"));
 
     let rules = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/rules/sigma");
@@ -190,10 +192,37 @@ fn search_prints_matching_archived_events() {
 #[test]
 fn connect_prints_a_destination_without_secrets() {
     let out = sluice(&["connect", "splunk", "--endpoint", "https://splunk:8088"]);
-    assert!(out.contains("# Set for Vector's environment (never in this file): SPLUNK_HEC_TOKEN"));
+    assert!(out.contains("one file each in /run/secrets/siem"), "{out}");
     let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).expect("valid YAML");
     let sink = &yaml["destinations"]["splunk"];
     assert_eq!(sink["type"], "splunk_hec_logs");
     assert_eq!(sink["endpoint"], "https://splunk:8088");
-    assert_eq!(sink["default_token"], "${SPLUNK_HEC_TOKEN}");
+    assert_eq!(sink["default_token"], "SECRET[siem.splunk_hec_token]");
+    assert_eq!(yaml["vector_secrets"]["siem"]["type"], "directory");
+}
+
+#[test]
+fn up_check_validates_without_starting() {
+    let config = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/up/sluice-up.yaml");
+    let rules = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/rules/sigma");
+    let vector = sluice(&[
+        "up",
+        "--config",
+        config.to_str().unwrap(),
+        "--rules",
+        rules.to_str().unwrap(),
+        "--check",
+    ]);
+    assert!(vector.contains("sluice_windows_security_tap"), "{vector}");
+
+    // The container example listens beyond loopback: without a token it is refused.
+    let docker = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/docker/sluice.yaml");
+    let output = Command::new(env!("CARGO_BIN_EXE_sluice"))
+        .args(["up", "--check", "--config"])
+        .arg(&docker)
+        .env_remove("SLUICE_CONTROL_TOKEN")
+        .output()
+        .expect("sluice runs");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("refusing to start"));
 }

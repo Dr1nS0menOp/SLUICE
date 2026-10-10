@@ -21,6 +21,9 @@ use crate::sigma::rule_id;
 const PRODUCT: &str = "__sluice.logsource.product";
 const SERVICE: &str = "__sluice.logsource.service";
 const CATEGORY: &str = "__sluice.logsource.category";
+/// Reported for an attribute a complete log source lacks: equal to no rule's value, so rsigma
+/// skips rules that name it, exactly as [`LogSource::may_apply_to`] does.
+const ABSENT: &str = "__sluice.absent";
 
 /// Evaluates a Sigma rule collection, including correlations.
 ///
@@ -95,7 +98,11 @@ impl SigmaEvent for Scoped<'_> {
             _ => None,
         };
         match reserved {
-            Some(value) => value.as_deref().map(|v| EventValue::Str(Cow::Borrowed(v))),
+            Some(value) => match value.as_deref() {
+                Some(v) => Some(EventValue::Str(Cow::Borrowed(v))),
+                None if self.logsource.complete => Some(EventValue::Str(Cow::Borrowed(ABSENT))),
+                None => None,
+            },
             None => self.inner.get_field(path),
         }
     }

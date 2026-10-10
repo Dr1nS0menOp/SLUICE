@@ -18,6 +18,10 @@ pub struct ServerConfig {
     pub sources: Vec<LiveSourceConfig>,
     /// Destination sinks (Vector sink configs). Sluice sets their `inputs`.
     pub destinations: Map<String, Value>,
+    /// Vector secret backends for the destinations' credentials (`SECRET[name.key]`), such as
+    /// `{siem: {type: directory, path: /run/secrets/sluice}}`. The name `sluice` is reserved.
+    #[serde(default)]
+    pub vector_secrets: Map<String, Value>,
     /// Directory of the full-fidelity archive.
     pub archive_dir: PathBuf,
     /// Vector's data directory.
