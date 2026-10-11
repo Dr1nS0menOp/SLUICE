@@ -197,6 +197,9 @@ fn sentinel(args: &UpArgs, config: &ServerConfig) -> Result<Option<SentinelRuleS
             let table = match s.shape? {
                 Shape::SentinelSecurityEvent => Table::SecurityEvent,
                 Shape::SentinelWindowsEvent => Table::WindowsEvent,
+                Shape::SentinelSyslog => Table::Syslog,
+                Shape::SentinelCommonSecurityLog => Table::CommonSecurityLog,
+                Shape::SentinelAsimNetworkSession => Table::ASimNetworkSessionLogs,
             };
             Some((s.source.id.clone(), table))
         })

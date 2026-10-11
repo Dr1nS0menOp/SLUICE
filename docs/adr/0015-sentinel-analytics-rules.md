@@ -116,3 +116,12 @@ not. 63 rules call ASIM parsers, which read the tables indirectly.
    alerts in the emulator. With every Microsoft rule loaded, rules that read `EventData` on any
    event keep it everywhere, as they should: point `--sentinel-rules` at the rules the
    workspace runs.
+5. Other shaped tables. **`Syslog` done 2026-10-11**: a `Syslog` reference is bounded to records
+   that have `SyslogMessage` (every `sentinel_syslog` record does, no other shape does), and its
+   rules apply to every product, since a Linux host and a firewall both send syslog. A rule that
+   may read any table (an unknown function, `search`, `union *`) applies to every product too,
+   bounded to records of the shapes Sluice sends to Sentinel (`EventID`, `Channel` or
+   `SyslogMessage` present). Rules on Windows tables only keep `product: windows`.
+   **`CommonSecurityLog` the same day**, bounded by `DeviceVendor`, which the shape always sets,
+   and **`ASimNetworkSessionLogs`**, bounded by `EventSchemaVersion` (the only ASIM table Sluice
+   shapes for so far; a second one needs its own marker).

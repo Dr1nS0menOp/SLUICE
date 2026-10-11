@@ -60,6 +60,17 @@ First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
   rule that fills it, for sources without a standard Sentinel table; checked end to end with
   firewall, Linux auth and DNS records in a real workspace.
 
+- `shape: sentinel_asim_network_session` for the same firewall records into the normalized
+  `ASimNetworkSessionLogs` (ASIM values as Microsoft's parsers set them) and
+  `--standard-table asim-network-session`; rules on the table apply and run in the emulator.
+- `shape: sentinel_common_security_log` for firewall records: raw OPNsense/pfSense `filterlog`
+  lines (CSV, inside syslog or not) and parsed records (flat `src_ip`/`dst_port` naming or ECS) and `sluice connect sentinel --standard-table common-security-log`; rules on
+  `CommonSecurityLog` apply to such records and run in the emulator proof. Checked end to end.
+- `shape: sentinel_syslog` on a `sluice up` source (Vector's `syslog` source or raw lines) and
+  `sluice connect sentinel --standard-table syslog --out DIR` (the DCR into `Syslog`); Sentinel rules on
+  `Syslog` apply to such records, and the emulator proof runs them. Checked end to end in a
+  real workspace.
+
 ### Sentinel analytics rules (in progress)
 
 - `SentinelRules`: Microsoft Sentinel analytics rules (KQL) as requirements: tables, fields,

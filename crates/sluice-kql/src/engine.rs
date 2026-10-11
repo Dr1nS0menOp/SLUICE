@@ -37,10 +37,22 @@ pub enum Table {
     SecurityEvent,
     /// Windows events from every other channel.
     WindowsEvent,
+    /// Syslog from Linux hosts and network devices.
+    Syslog,
+    /// Firewall and network device events (CEF).
+    CommonSecurityLog,
+    /// Network sessions in the ASIM schema.
+    ASimNetworkSessionLogs,
 }
 
 impl Table {
-    const ALL: [Self; 2] = [Self::SecurityEvent, Self::WindowsEvent];
+    const ALL: [Self; 5] = [
+        Self::SecurityEvent,
+        Self::WindowsEvent,
+        Self::Syslog,
+        Self::CommonSecurityLog,
+        Self::ASimNetworkSessionLogs,
+    ];
 
     /// The table's name in a Log Analytics workspace.
     #[must_use]
@@ -48,6 +60,9 @@ impl Table {
         match self {
             Self::SecurityEvent => "SecurityEvent",
             Self::WindowsEvent => "WindowsEvent",
+            Self::Syslog => "Syslog",
+            Self::CommonSecurityLog => "CommonSecurityLog",
+            Self::ASimNetworkSessionLogs => "ASimNetworkSessionLogs",
         }
     }
 
@@ -57,6 +72,9 @@ impl Table {
         let own = match self {
             Self::SecurityEvent => schema::SECURITY_EVENT,
             Self::WindowsEvent => schema::WINDOWS_EVENT,
+            Self::Syslog => schema::SYSLOG,
+            Self::CommonSecurityLog => schema::COMMON_SECURITY_LOG,
+            Self::ASimNetworkSessionLogs => schema::ASIM_NETWORK_SESSION_LOGS,
         };
         own.iter().chain(HIDDEN_COLUMNS).copied()
     }

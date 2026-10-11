@@ -126,3 +126,5 @@ full default configuration, which is the quickest way to see its real field name
 Vector embeds a specific `vrl` version. The VRL that Sluice proves must be the VRL that Vector
 runs, so we pin `vrl` to the version used by the targeted Vector release (see
 `docs/compatibility.md`).
+
+- `to_int(null)` is `0`, not an error or null (vrl 0.36, found 2026-10-11 by a test of an ICMP`filterlog` line without ports): guard optional numbers with `if x == null { null } else { to_int(x) ?? null }`. An `if` expression cannot be a function argument directly; bind it to a variable first.

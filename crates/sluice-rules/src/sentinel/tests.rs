@@ -17,6 +17,17 @@ fn indent(text: &str) -> String {
         .join("\n")
 }
 
+/// Records of any shape Sluice sends to a Sentinel table.
+fn shaped_records() -> Predicate {
+    Predicate::any([
+        super::extract::present("EventID"),
+        super::extract::present("Channel"),
+        super::extract::present("SyslogMessage"),
+        super::extract::present("DeviceVendor"),
+        super::extract::present("EventSchemaVersion"),
+    ])
+}
+
 fn event_ids(ids: &[&str]) -> Predicate {
     Predicate::Field(FieldTest {
         field: "EventID".into(),
@@ -122,9 +133,9 @@ fn parsers_and_workspace_functions_may_read_every_windows_table() {
         "MyWorkspaceFunction() | take 1",
     ] {
         let r = rule(query);
-        assert_eq!(r.logsource.product.as_deref(), Some("windows"), "{query}");
+        assert_eq!(r.logsource.product.as_deref(), None, "{query}");
         assert_eq!(r.logsource.service, None, "{query}");
-        assert_eq!(r.prefilter, Predicate::Always, "{query}");
+        assert_eq!(r.prefilter, shaped_records(), "{query}");
         assert_eq!(r.fields, RequiredFields::Unknown, "{query}");
     }
     for other in [
@@ -257,7 +268,7 @@ fn a_rule_reads_what_the_parsers_it_uses_read() {
         ),
         parser(
             "ParserName: vimProcessCreateSyslog",
-            "Syslog | where Facility == 'x' | project-away *",
+            "AzureDiagnostics | where Category == 'x' | project-away *",
         ),
     ];
     for call in ["imProcessCreate", "_Im_ProcessCreate(starttime=ago(1d))"] {
@@ -287,8 +298,8 @@ fn unknown_or_recursive_parsers_fail_closed() {
     ];
     for parsers in [&calls_unknown[..], &recursive[..]] {
         let r = with_parsers("imDns | where DnsQuery has 'x'", parsers);
-        assert_eq!(r.logsource.product.as_deref(), Some("windows"));
-        assert_eq!(r.prefilter, Predicate::Always);
+        assert_eq!(r.logsource.product.as_deref(), None);
+        assert_eq!(r.prefilter, shaped_records());
         assert_eq!(r.fields, RequiredFields::Unknown);
     }
 }
@@ -312,8 +323,8 @@ fn columns_named_as_strings_are_read() {
 fn union_star_and_search_may_read_every_windows_table() {
     for query in ["union * | where EventID == 1", "search \"mimikatz\""] {
         let r = rule(query);
-        assert_eq!(r.logsource.product.as_deref(), Some("windows"), "{query}");
-        assert_eq!(r.prefilter, Predicate::Always, "{query}");
+        assert_eq!(r.logsource.product.as_deref(), None, "{query}");
+        assert_eq!(r.prefilter, shaped_records(), "{query}");
     }
 }
 
@@ -380,4 +391,35 @@ fn projections_that_keep_rows_do_not_end_the_filter() {
     ] {
         assert_eq!(rule(widening).prefilter, Predicate::Always, "{widening}");
     }
+}
+
+#[test]
+fn syslog_rules_apply_to_syslog_records_of_any_product() {
+    let r = rule("Syslog | where Facility == 'authpriv' and SyslogMessage has 'Failed password'");
+    assert_eq!(r.logsource.product, None);
+    assert_eq!(
+        r.prefilter,
+        Predicate::all([
+            super::extract::present("SyslogMessage"),
+            Predicate::Field(FieldTest {
+                field: "Facility".into(),
+                op: MatchOp::Equals,
+                values: vec!["authpriv".into()],
+                case_sensitive: true,
+            }),
+        ])
+    );
+    let RequiredFields::Known(fields) = &r.fields else {
+        panic!("known fields")
+    };
+    assert!(fields.contains("SyslogMessage") && fields.contains("Facility"));
+    let rules = SentinelRules::parse([(
+        "s.yaml",
+        "id: s\nquery: Syslog | where ProcessName == 'sshd'\n",
+    )]);
+    assert_eq!(
+        rules.queries().len(),
+        1,
+        "the emulator runs Syslog rules too"
+    );
 }
