@@ -124,5 +124,8 @@ not. 63 rules call ASIM parsers, which read the tables indirectly.
    `SyslogMessage` present). Rules on Windows tables only keep `product: windows`.
    **`CommonSecurityLog` the same day**, bounded by `DeviceVendor`, which the shape always sets,
    **`ASimNetworkSessionLogs`**, bounded by `EventSchemaVersion`, and **`ASimDnsActivityLogs`**,
-   bounded by `DnsQuery`. Every ASIM record has `EventSchemaVersion`, so network session rules
-   also apply to DNS records: a superset, sound but less precise.
+   bounded by `DnsQuery`, and **`ASimWebSessionLogs`**, bounded by `Url`. Every ASIM record has
+   `EventSchemaVersion`, so network session rules also apply to DNS and web records: a superset,
+   sound but less precise. Authentication and process events get no table of their own:
+   Microsoft's ASIM parsers already read them from `Syslog` (`ASimAuthenticationSshd`),
+   `SecurityEvent` and Sysmon's `WindowsEvent`, so a second copy would only duplicate data.

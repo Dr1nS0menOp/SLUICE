@@ -108,7 +108,7 @@ impl SentinelRules {
 
     /// The query of every rule that may read a table Sluice shapes records for
     /// (`SecurityEvent`, `WindowsEvent`, `Syslog`, `CommonSecurityLog`,
-    /// `ASimNetworkSessionLogs`, `ASimDnsActivityLogs`), for running the rules themselves on full and
+    /// `ASimNetworkSessionLogs`, `ASimDnsActivityLogs`, `ASimWebSessionLogs`), for running the rules themselves on full and
     /// on forwarded records (the emulator proof).
     #[must_use]
     pub fn queries(&self) -> &[(RuleId, String)] {
@@ -148,6 +148,7 @@ fn requirement(id: &str, reads: extract::Reads, problems: &mut Vec<String>) -> R
                 extract::present("DeviceVendor"),
                 extract::present("EventSchemaVersion"),
                 extract::present("DnsQuery"),
+                extract::present("Url"),
             ])
         } else if modeled {
             reads.prefilter

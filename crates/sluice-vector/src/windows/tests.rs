@@ -95,6 +95,43 @@ fn data_values_become_typed_columns_and_all_stay_in_event_data() {
 }
 
 #[test]
+fn account_columns_are_derived_as_the_agent_derives_them() {
+    let out = shaped(&failed_logon());
+    assert_eq!(out["TargetAccount"], "CORP\\admin");
+    assert_eq!(
+        out["Account"], "CORP\\admin",
+        "the target when there is one"
+    );
+    assert_eq!(out["AccountType"], "User");
+    assert!(
+        !out.contains_key("SubjectAccount"),
+        "no subject in this event"
+    );
+
+    let mut privileges = failed_logon();
+    privileges.insert("event_id".into(), json!(4672));
+    privileges.insert(
+        "event_data".into(),
+        json!({ "SubjectUserName": "WS01$", "SubjectDomainName": "CORP", "PrivilegeList": "SeDebugPrivilege" }),
+    );
+    let out = shaped(&privileges);
+    assert_eq!(out["SubjectAccount"], "CORP\\WS01$");
+    assert_eq!(
+        out["Account"], "CORP\\WS01$",
+        "the subject without a target"
+    );
+    assert_eq!(out["AccountType"], "Machine");
+
+    let mut anonymous = failed_logon();
+    anonymous.insert(
+        "event_data".into(),
+        json!({ "TargetUserName": "-", "TargetDomainName": "-" }),
+    );
+    let out = shaped(&anonymous);
+    assert!(!out.contains_key("Account") && !out.contains_key("TargetAccount"));
+}
+
+#[test]
 fn every_output_column_is_a_security_event_column() {
     let out = shaped(&failed_logon());
     let known = |name: &str| {

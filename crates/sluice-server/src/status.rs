@@ -50,6 +50,24 @@ pub struct Status {
     /// Sources whose log source leaves an attribute unknown, so extra rules apply.
     #[serde(default)]
     pub scope_hints: Vec<String>,
+    /// What operators decided for this profile (ADR 0016).
+    #[serde(default)]
+    pub operator: OperatorStatus,
+}
+
+/// Operator decisions in force for a profile.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct OperatorStatus {
+    /// Whether recipes need an operator's approval before they are enforced.
+    pub approval_required: bool,
+    /// Held templates: forwarded unchanged until released.
+    pub held: Vec<String>,
+    /// Recipes approved, waiting for their next proof.
+    pub approved: Vec<String>,
+    /// Kept fields, as `source:field`.
+    pub kept: Vec<String>,
+    /// Rollbacks no operator acknowledged yet.
+    pub unacknowledged_rollbacks: usize,
 }
 
 /// One template of the last window and what Sluice does to it.
@@ -168,15 +186,25 @@ pub struct TemplateStatus {
     pub proofs: Option<u32>,
 }
 
-/// A transition with its time.
+/// A transition or an operator action, with its time.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransitionRecord {
     /// When (Unix seconds).
     pub at: i64,
-    /// `shadowing`, `promoted`, `demoted` or `rolled_back`.
+    /// `shadowing`, `promoted`, `demoted`, `rolled_back`, `paused`, `held`, or an operator action
+    /// (`hold`, `release`, `approve`, `keep`, `unkeep`, `acknowledge`).
     pub kind: String,
-    /// Template id.
+    /// Template id, or `source:field` for kept fields.
     pub template: String,
+    /// Who acted, for operator actions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor: Option<String>,
+    /// The reason an operator gave.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// For rollbacks: whether an operator acknowledged it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub acknowledged: bool,
 }
 
 /// How many transitions the status keeps.
@@ -229,11 +257,15 @@ impl Status {
                 Transition::Demoted(id) => ("demoted", id),
                 Transition::RolledBack(id) => ("rolled_back", id),
                 Transition::Paused(id) => ("paused", id),
+                Transition::Held(id) => ("held", id),
             };
             TransitionRecord {
                 at,
                 kind: kind.to_owned(),
                 template: template.to_string(),
+                actor: None,
+                reason: None,
+                acknowledged: false,
             }
         }));
         let excess = self.history.len().saturating_sub(HISTORY);

@@ -47,3 +47,5 @@ security team's browser. The control plane may listen beyond loopback with a tok
   Actions such as pausing a recipe would need write routes and their own review.
 - Archive search runs on a blocking thread and is bounded by the line budget, but a narrow time
   range is still the way to keep searches fast on large archives.
+
+Update 2026-10-11: the console is no longer read-only; operator actions are added by [ADR 0016](0016-operator-actions.md).

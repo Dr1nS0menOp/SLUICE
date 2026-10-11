@@ -123,13 +123,14 @@ Sluice is a Rust workspace with one crate per responsibility. Dependencies point
 | [MCP](https://modelcontextprotocol.io) via rmcp 3.5 | Letting AI assistants query status and the archive | Over stdio or HTTP with a mandatory bearer token ([notes](notes/mcp.md)). |
 | gzip NDJSON (flate2) | The archive | Plain files any tool can read; streaming search without a database (ADR 0006). |
 | Vector secret backends | SIEM credentials | Credentials stay in files, never in the configuration (ADR 0010). |
+| OIDC with [ring](https://github.com/briansmith/ring) | Single sign-on for the console; ID token signatures (RS256, ES256) | Any standard identity provider; `ring` is already in the tree through rustls (ADR 0016, [notes](notes/oidc.md)). |
 
 ### SIEM integration
 
 | Technology | What Sluice uses it for |
 |---|---|
 | Splunk HEC, Elasticsearch, Google SecOps, Wazuh, plain HTTP | Destinations, printed by `sluice connect` and validated against Vector. |
-| Azure Monitor Logs Ingestion API and data collection rules | Sending to Microsoft Sentinel: standard tables (`SecurityEvent`, `WindowsEvent`, `Syslog`, `CommonSecurityLog`, `ASimNetworkSessionLogs`, `ASimDnsActivityLogs`) or a custom `_CL` table derived from a sample. Verified in a real workspace ([notes](notes/sentinel-dcr.md)). |
+| Azure Monitor Logs Ingestion API and data collection rules | Sending to Microsoft Sentinel: standard tables (`SecurityEvent`, `WindowsEvent`, `Syslog`, `CommonSecurityLog`, `ASimNetworkSessionLogs`, `ASimDnsActivityLogs`, `ASimWebSessionLogs`) or a custom `_CL` table derived from a sample. Verified in a real workspace ([notes](notes/sentinel-dcr.md)). |
 
 ### AI (optional)
 

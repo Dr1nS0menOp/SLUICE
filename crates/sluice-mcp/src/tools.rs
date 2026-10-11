@@ -100,6 +100,26 @@ struct ReplayRequest {
     url: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ActionToolRequest {
+    /// `hold` (forward a template unchanged until released), `release`, `approve` (enforce a
+    /// template's recipe in shadow at its next proof), `keep` or `unkeep` (a field of a source),
+    /// or `acknowledge` (a rollback).
+    action: String,
+    /// The template id, for `hold`, `release`, `approve` and `acknowledge`.
+    template: Option<String>,
+    /// The source id, for `keep` and `unkeep`.
+    source: Option<String>,
+    /// The field, for `keep` and `unkeep`.
+    field: Option<String>,
+    /// The rollback's time (Unix seconds, from the history), for `acknowledge`.
+    at: Option<i64>,
+    /// Why, for the audit log. Give the user's own words.
+    reason: Option<String>,
+    /// The rule profile, such as `sigma` or `sigma+wazuh` (default: the first).
+    profile: Option<String>,
+}
+
 #[tool_router]
 impl Sluice {
     /// A server for `config`. Archive tools are offered only with an archive, and `replay` only
@@ -112,6 +132,9 @@ impl Sluice {
         }
         if config.archive.is_none() || !config.allow_replay {
             tool_router.remove_route("replay");
+        }
+        if !config.allow_actions {
+            tool_router.remove_route("operator_action");
         }
         Self {
             config: Arc::new(config),
@@ -291,6 +314,38 @@ impl Sluice {
     }
 
     #[tool(
+        description = "Steer Sluice for a rule profile: hold or release a template, approve a \
+                       recipe in shadow, keep or unkeep a field of a source, or acknowledge a \
+                       rollback. None of these can weaken the safety contract, but each changes \
+                       what the SIEM receives or when: confirm with the user first, and pass \
+                       their reason. Every action is audited."
+    )]
+    async fn operator_action(
+        &self,
+        Parameters(request): Parameters<ActionToolRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let mut body = serde_json::Map::new();
+        body.insert("action".into(), Value::String(request.action));
+        let optional = [
+            ("template", request.template.map(Value::String)),
+            ("source", request.source.map(Value::String)),
+            ("field", request.field.map(Value::String)),
+            ("at", request.at.map(Value::from)),
+            ("reason", request.reason.map(Value::String)),
+            ("profile", request.profile.map(Value::String)),
+        ];
+        for (key, value) in optional {
+            if let Some(value) = value {
+                body.insert(key.into(), value);
+            }
+        }
+        match self.post("actions", &Value::Object(body)).await {
+            Ok(answer) => reply(&json!({ "done": answer })),
+            Err(message) => Ok(failure(message)),
+        }
+    }
+
+    #[tool(
         description = "Send archived events, exactly as received, to an HTTP endpoint (for \
                        example the SIEM's ingest). Changes what the SIEM holds: confirm the \
                        selection and destination with the user first."
@@ -351,6 +406,38 @@ impl Sluice {
                     format!("cannot reach the control plane at {url}: {e}. Is `sluice up` running?")
                 })?;
             serde_json::from_str(&body).map_err(|e| format!("unexpected answer from {url}: {e}"))
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    /// `POST /<path>` on the control plane with a JSON body; the answer text, or why it failed.
+    async fn post(&self, path: &str, body: &Value) -> Result<String, String> {
+        let url = format!("http://{}/{path}", self.config.control_plane);
+        let token = self.config.control_token.clone();
+        let body = body.to_string();
+        tokio::task::spawn_blocking(move || {
+            let agent: ureq::Agent = ureq::Agent::config_builder()
+                .http_status_as_error(false)
+                .build()
+                .into();
+            let mut request = agent.post(&url).header("content-type", "application/json");
+            if let Some(token) = token {
+                request = request.header("authorization", format!("Bearer {token}"));
+            }
+            let mut answer = request.send(&body).map_err(|e| {
+                format!("cannot reach the control plane at {url}: {e}. Is `sluice up` running?")
+            })?;
+            let status = answer.status();
+            let text = answer
+                .body_mut()
+                .read_to_string()
+                .map_err(|e| e.to_string())?;
+            if status.is_success() {
+                Ok(text.trim().to_owned())
+            } else {
+                Err(format!("refused ({status}): {}", text.trim()))
+            }
         })
         .await
         .map_err(|e| e.to_string())?

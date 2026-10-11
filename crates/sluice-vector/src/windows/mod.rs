@@ -13,9 +13,9 @@
 //!   Monitor Agent writes;
 //! - every other channel becomes `WindowsEvent`, whose `EventData` is the data as an object.
 //!
-//! Columns the agent derives by rules Microsoft does not publish (`Account`, `AccountType`) are
-//! left out rather than guessed. Empty strings are kept, as the agent keeps them; only absent
-//! values are left out.
+//! The account columns the agent derives (`SubjectAccount`, `TargetAccount`, `Account`,
+//! `AccountType`) follow Microsoft's column reference; see `ACCOUNTS`. Empty strings are kept, as
+//! the agent keeps them; only absent values are left out.
 
 pub use columns::{
     SECURITY_EVENT_DATA_COLUMNS, SECURITY_EVENT_GUID_COLUMNS, SECURITY_EVENT_SYSTEM_COLUMNS,
@@ -93,10 +93,32 @@ for_each(_data) -> |_name, _raw| {{
   }}
 }}
 _out.EventData = _xml + "</EventData>"
-. = {COMPACT}
+{ACCOUNTS}. = {COMPACT}
 "#
     )
 }
+
+/// The account columns the agent derives from the event's data, as Microsoft's column reference
+/// describes them: `SubjectAccount` and `TargetAccount` as `DOMAIN\name`, `Account` as the target
+/// account when the event has one and the subject otherwise, and `AccountType` as `Machine` for a
+/// name ending in `$`. Anything else is `User`, which the rules that filter on it
+/// (`AccountType == "User"`) keep seeing: when in doubt, a rule sees more, never less.
+const ACCOUNTS: &str = r#"_su = string(_out.SubjectUserName) ?? ""
+_sd = string(_out.SubjectDomainName) ?? ""
+_tu = string(_out.TargetUserName) ?? ""
+_td = string(_out.TargetDomainName) ?? ""
+if _out.SubjectAccount == null && _su != "" && _su != "-" {
+  _out.SubjectAccount = if _sd == "" || _sd == "-" { _su } else { _sd + "\\" + _su }
+}
+if _out.TargetAccount == null && _tu != "" && _tu != "-" {
+  _out.TargetAccount = if _td == "" || _td == "-" { _tu } else { _td + "\\" + _tu }
+}
+_acct = if _out.TargetAccount != null { _out.TargetAccount } else { _out.SubjectAccount }
+if is_string(_acct) {
+  _out.Account = _acct
+  _out.AccountType = if ends_with(string!(_acct), "$") { "Machine" } else { "User" }
+}
+"#;
 
 /// The VRL that shapes an event of any other channel as a `WindowsEvent` record. Classic
 /// events with unnamed data keep it as `EventData.Data`, a list.

@@ -128,3 +128,4 @@ runs, so we pin `vrl` to the version used by the targeted Vector release (see
 `docs/compatibility.md`).
 
 - `to_int(null)` is `0`, not an error or null (vrl 0.36, found 2026-10-11 by a test of an ICMP`filterlog` line without ports): guard optional numbers with `if x == null { null } else { to_int(x) ?? null }`. An `if` expression cannot be a function argument directly; bind it to a variable first.
+- `parse_nginx_log(line, format: "combined")` returns the request line whole in `request` (`"POST /login HTTP/1.1"`), not split into method, path and protocol; split it yourself (vrl 0.36, 2026-10-11).

@@ -99,8 +99,9 @@ sluice status        # in another shell: lifecycle per template, last cycle
 
 Open `http://127.0.0.1:8686/` for the web console: whether the proof holds, what each source and
 template saves, why each field was kept, each recipe's lifecycle, and a search over the archive.
-It is read-only and built into the binary (ADR 0011); with `SLUICE_CONTROL_TOKEN` set it asks for
-the token.
+It is built into the binary (ADR 0011); with `SLUICE_CONTROL_TOKEN` set it asks for the token.
+From a template's page you can hold it (forward unchanged), approve its recipe, or keep a field
+that no rule reads; every action is audited and none can weaken the safety contract (ADR 0016).
 
 `--demo-traffic` posts synthetic traffic to the example's six local `http_server` sources. With
 your own sources, list them in the config (any Vector source that emits JSON objects) and point

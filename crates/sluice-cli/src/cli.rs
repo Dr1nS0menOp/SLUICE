@@ -53,6 +53,10 @@ pub(crate) struct McpArgs {
     /// Also offer the `replay` tool, which sends archived events to a destination.
     #[arg(long, requires = "archive")]
     pub(crate) allow_replay: bool,
+    /// Also offer the `operator_action` tool: hold, release, approve, keep fields and acknowledge
+    /// rollbacks, audited by the control plane (ADR 0016).
+    #[arg(long)]
+    pub(crate) allow_actions: bool,
     /// Serve MCP over HTTP at `http://ADDRESS/mcp` instead of stdio. Clients must send
     /// `Authorization: Bearer $SLUICE_MCP_TOKEN` (at least 32 characters).
     #[arg(long, value_name = "ADDRESS")]
@@ -90,7 +94,7 @@ pub(crate) struct ConnectArgs {
     #[arg(long, requires = "out", default_value = "westeurope")]
     pub(crate) location: String,
     /// Sentinel: records shaped as a standard table (`shape: sentinel_syslog`,
-    /// `sentinel_common_security_log`, `sentinel_asim_network_session` or `sentinel_asim_dns`): write the data
+    /// `sentinel_common_security_log`, `sentinel_asim_network_session`, `sentinel_asim_dns` or `sentinel_asim_web_session`): write the data
     /// collection rule that stores them there.
     #[arg(long, value_enum, requires = "out", conflicts_with = "sample")]
     pub(crate) standard_table: Option<StandardTable>,
@@ -147,6 +151,8 @@ pub(crate) enum StandardTable {
     AsimNetworkSession,
     /// `ASimDnsActivityLogs`.
     AsimDns,
+    /// `ASimWebSessionLogs`.
+    AsimWebSession,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]

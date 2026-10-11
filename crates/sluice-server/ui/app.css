@@ -157,3 +157,12 @@ pre.json { margin: 8px 0 0; padding: 14px; background: var(--code-bg); color: va
   .nav-meta { margin: 0; flex-basis: 100%; }
   .main { padding: 16px 16px 40px; }
 }
+/* Operator actions (ADR 0016) */
+.small-button { min-height: 32px; padding: 0 10px; font-size: 13px; margin-left: 8px; }
+.refusal { color: var(--cut-ink); font-size: 13px; }
+form.inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+form.inline input, #op-reason { min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; }
+#op-reason { width: 100%; box-sizing: border-box; margin: 4px 0 12px; }
+form.inline input { flex: 1 1 200px; }
+a.button { display: inline-flex; align-items: center; text-decoration: none; color: var(--ink); box-sizing: border-box; }
+a.button:hover { background: var(--hover); }

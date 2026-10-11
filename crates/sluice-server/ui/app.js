@@ -16,6 +16,8 @@ const state = {
   searching: false,
   searchError: null,
   timer: null,
+  oidc: false,
+  actor: null,
 };
 
 // ---------- small helpers ----------
@@ -98,7 +100,48 @@ async function api(path) {
   return response.json();
 }
 
+/** Sends an operator action (ADR 0016) and refreshes; resolves to an error text or null. */
+async function act(action) {
+  const headers = { "Content-Type": "application/json" };
+  if (memoryToken) headers.Authorization = "Bearer " + memoryToken;
+  const body = Object.assign({ profile: state.status && state.status.profile }, action);
+  try {
+    const response = await fetch("/actions", { method: "POST", headers, body: JSON.stringify(body), cache: "no-store" });
+    if (response.status === 401) { state.needsToken = true; render(); return "token required"; }
+    if (!response.ok) return (await response.text()).trim() || response.statusText;
+    await refresh();
+    return null;
+  } catch (error) {
+    return error.message;
+  }
+}
+
 // ---------- data ----------
+
+/** Whether single sign-on is offered, and who this console is signed in as. */
+async function loadIdentity() {
+  try {
+    const info = await fetch("/auth/info", { cache: "no-store" });
+    if (info.ok) state.oidc = Boolean((await info.json()).oidc);
+  } catch { /* the control plane is unreachable; refresh reports that */ }
+  try {
+    state.actor = (await api("/auth/me")).actor;
+  } catch { state.actor = null; }
+  const who = document.getElementById("identity");
+  if (!who) return;
+  who.replaceChildren();
+  if (state.actor && state.actor !== "local") {
+    who.append("Signed in as ", h("span", { class: "mono" }, state.actor));
+    if (state.oidc) {
+      who.append(" · ", h("button", { type: "button", class: "small-button", onclick: async () => {
+        await fetch("/auth/logout", { method: "POST" });
+        writeToken("");
+        state.actor = null;
+        location.reload();
+      } }, "Sign out"));
+    }
+  }
+}
 
 async function refresh() {
   const hadStatus = state.status !== null;
@@ -166,19 +209,22 @@ function render() {
 function tokenView() {
   const input = h("input", { id: "token", type: "password", autocomplete: "off", spellcheck: "false" });
   return [
-    h("div", { class: "head" }, h("div", {}, h("h1", {}, "Control token"),
-      h("p", { class: "sub" }, "This control plane requires a bearer token (SLUICE_CONTROL_TOKEN)."))),
+    h("div", { class: "head" }, h("div", {}, h("h1", {}, state.oidc ? "Sign in" : "Control token"),
+      h("p", { class: "sub" }, state.oidc
+        ? "Sign in with your organization's account, or with your operator token."
+        : "This control plane requires a bearer token (SLUICE_CONTROL_TOKEN)."))),
     h("form", {
       class: "card token search",
       onsubmit: (event) => {
         event.preventDefault();
         writeToken(input.value.trim());
-        refresh();
+        loadIdentity().then(refresh);
       },
     },
     h("div", {}, h("label", { for: "token" }, "Token"), input,
       h("p", { class: "hint" }, "Kept in this browser tab only, and sent only to this control plane.")),
-    h("div", { class: "actions" }, h("button", { type: "submit", class: "primary" }, "Connect"))),
+    h("div", { class: "actions" }, h("button", { type: "submit", class: "primary" }, "Connect"),
+      state.oidc ? h("a", { class: "button", href: "/auth/login" }, "Sign in with single sign-on") : null)),
   ];
 }
 
@@ -240,6 +286,8 @@ function overviewView() {
       kpi("Templates", `${counts.enforced} / ${cycle.templates}`, `enforced · ${counts.shadow} in shadow`),
       kpi("Rollbacks", num(counts.rolled_back), counts.rolled_back ? "see the template's history" : "no failed proof in recent history")));
   }
+  const decisions = decisionsCard(s);
+  if (decisions) view.push(decisions);
   view.push(sourcesCard(s), templatesCard(s, counts));
   const notes = [
     ["Coverage gaps", "Rules no source can feed: they cannot fire on this traffic.", s.coverage_gaps],
@@ -352,7 +400,91 @@ const TRANSITION = {
   demoted: "Returned to shadow.",
   rolled_back: "Rolled back: a proof failed, so the template passes through unchanged again.",
   paused: "Paused: the template became rare in this window, and rare is never cut. It starts over once it is clearly frequent again.",
+  held: "Recipe stopped by an operator's hold.",
+  hold: "Held by an operator: forwarded unchanged until released.",
+  release: "Released by an operator: the recipe starts over in shadow when next proven.",
+  approve: "Approved by an operator: enforced at its next proof.",
+  keep: "Field kept by an operator.",
+  unkeep: "Field no longer kept.",
+  acknowledge: "Rollback acknowledged.",
 };
+
+/** One history entry, with who acted and why for operator actions. */
+function historyItem(t) {
+  const who = t.actor ? ` (${t.actor}${t.reason ? ": " + t.reason : ""})` : "";
+  const ack = t.kind === "rolled_back" && !t.acknowledged
+    ? h("button", { type: "button", class: "small-button", onclick: (event) => actButton(event, { action: "acknowledge", template: t.template, at: t.at }) }, "Acknowledge")
+    : null;
+  return h("li", {},
+    h("time", { datetime: new Date(t.at * 1000).toISOString() }, utc(t.at)),
+    h("span", {}, (TRANSITION[t.kind] || t.kind) + who), ack);
+}
+
+/** Runs an action from a button, showing a refusal next to it. */
+async function actButton(event, action) {
+  const button = event.currentTarget;
+  button.disabled = true;
+  const error = await act(action);
+  if (error && button.isConnected) {
+    button.disabled = false;
+    button.after(h("span", { class: "refusal", role: "alert" }, " " + error));
+  }
+}
+
+/** The operator's controls for one template (ADR 0016). None can override the safety contract. */
+function operatorCard(id, source, stage, fields) {
+  const op = state.status.operator || { held: [], approved: [], kept: [] };
+  const held = op.held.includes(id);
+  const approved = op.approved.includes(id);
+  const reason = h("input", { id: "op-reason", type: "text", placeholder: "Reason (for the audit log)", autocomplete: "off" });
+  const why = () => reason.value.trim() || undefined;
+  const buttons = [
+    held
+      ? h("button", { type: "button", class: "primary", onclick: (e) => actButton(e, { action: "release", template: id, reason: why() }) }, "Release")
+      : h("button", { type: "button", onclick: (e) => actButton(e, { action: "hold", template: id, reason: why() }) }, "Hold: forward unchanged"),
+    stage === "shadow" && !held && !approved
+      ? h("button", { type: "button", onclick: (e) => actButton(e, { action: "approve", template: id, reason: why() }) }, "Approve: enforce at next proof")
+      : null,
+  ];
+  const kept = source ? op.kept.filter((k) => k.startsWith(source + ":")).map((k) => k.slice(source.length + 1)) : [];
+  const fieldInput = h("input", { id: "op-field", type: "text", list: "op-fields", placeholder: "Field to keep", autocomplete: "off" });
+  const keepForm = source ? h("form", {
+    class: "inline",
+    onsubmit: (event) => {
+      event.preventDefault();
+      const field = fieldInput.value.trim();
+      if (field) actButton({ currentTarget: event.submitter || event.target }, { action: "keep", source, field, reason: why() });
+    },
+  }, fieldInput, h("datalist", { id: "op-fields" }, (fields || []).map((f) => h("option", { value: f }))),
+  h("button", { type: "submit" }, "Keep field")) : null;
+  return h("section", { class: "card", "aria-labelledby": "op-h" },
+    h("h2", { id: "op-h" }, "Operator"),
+    h("p", { class: "sub" }, held ? "Held: this template is forwarded unchanged until released."
+      : approved ? "Approved: the recipe is enforced at its next proof."
+      : "Steer this template. Every action is recorded with your reason; none can weaken the safety contract."),
+    reason,
+    h("div", { class: "actions" }, buttons),
+    source ? h("h3", {}, `Kept fields of ${source}`) : null,
+    kept.length ? h("ul", { class: "plain small" }, kept.map((f) => h("li", {}, h("span", { class: "mono" }, f), " ",
+      h("button", { type: "button", class: "small-button", onclick: (e) => actButton(e, { action: "unkeep", source, field: f, reason: why() }) }, "Unkeep"))))
+      : source ? h("p", { class: "muted small" }, "None. A kept field is never removed from this source's events.") : null,
+    keepForm);
+}
+
+/** Operator decisions in force for the profile, when there are any. */
+function decisionsCard(s) {
+  const op = s.operator;
+  if (!op || !(op.approval_required || op.held.length || op.kept.length || op.approved.length || op.unacknowledged_rollbacks)) return null;
+  const link = (id) => h("a", { class: "mono", href: "#/template/" + encodeURIComponent(id) }, id);
+  return h("section", { class: "card", "aria-labelledby": "decisions-h" },
+    h("h2", { id: "decisions-h" }, "Operator decisions"),
+    op.approval_required ? h("p", { class: "sub" }, "Conservative mode: no recipe is enforced without an operator's approval.") : null,
+    h("ul", { class: "plain small" },
+      op.held.length ? h("li", {}, "Held: ", op.held.flatMap((id, i) => [i ? ", " : "", link(id)])) : null,
+      op.approved.length ? h("li", {}, "Approved, waiting for a proof: ", op.approved.flatMap((id, i) => [i ? ", " : "", link(id)])) : null,
+      op.kept.length ? h("li", {}, "Kept fields: ", h("span", { class: "mono" }, op.kept.join(", "))) : null,
+      op.unacknowledged_rollbacks ? h("li", {}, `${op.unacknowledged_rollbacks} rollback(s) to acknowledge, in the template's lifecycle`) : null));
+}
 
 function templateView(id) {
   const s = state.status;
@@ -362,7 +494,9 @@ function templateView(id) {
   const crumbs = h("div", { class: "crumbs" }, h("a", { href: "#/" }, "Overview"), " / ", h("span", { class: "mono" }, id));
   if (!d) {
     return [crumbs, h("h1", { class: "mono" }, id),
-      h("p", { class: "notice" }, "This template was not in the last window. It may have gone quiet; its recipe stays as it was.")];
+      h("p", { class: "notice" }, "This template was not in the last window. It may have gone quiet; its recipe stays as it was."),
+      operatorCard(id, null, life ? life.stage : "none", []),
+      history.length ? h("section", { class: "card" }, h("h2", {}, "Lifecycle"), h("ol", { class: "timeline" }, history.map(historyItem))) : null];
   }
   const v = d.volume;
   const badges = h("div", { class: "tabs" },
@@ -393,12 +527,11 @@ function templateView(id) {
              h("ul", { class: "plain small" }, d.adjustments.map((a) => h("li", {}, a)))]
           : h("p", { class: "sub" }, "No guardrail had to change this recipe."))),
     d.example ? exampleCard(d.example) : null,
+    operatorCard(id, d.source, life ? life.stage : "none", d.example ? [...leaves(d.example.before, "", new Set())].sort() : []),
     h("section", { class: "card", "aria-labelledby": "life-h" },
       h("h2", { id: "life-h" }, "Lifecycle"),
       history.length
-        ? h("ol", { class: "timeline" }, history.map((t) => h("li", {},
-            h("time", { datetime: new Date(t.at * 1000).toISOString() }, utc(t.at)),
-            h("span", {}, TRANSITION[t.kind] || t.kind))))
+        ? h("ol", { class: "timeline" }, history.map(historyItem))
         : h("p", { class: "muted small" }, "No transitions in recent history."),
       h("p", { class: "hint" }, "Originals of every event, including summarized ones, are in the ",
         h("a", { href: "#/archive" }, "archive"), ".")),
@@ -533,5 +666,5 @@ window.addEventListener("hashchange", () => {
   document.getElementById("main").focus();
 });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
-refresh();
+loadIdentity().then(refresh);
 startPolling();

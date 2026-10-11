@@ -34,6 +34,13 @@ First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
 - Per-destination proofs: `sluice_rules` on a destination names the rules its SIEM runs; each
   rule profile gets its own proof, lifecycle and Vector pipeline, so dual-shipping to Wazuh and
   Sentinel saves on the Sentinel side (ADR 0012).
+- Operator actions (ADR 0016): hold or release a template, approve a recipe, keep a field of a
+  source, acknowledge a rollback, from the console or `POST /actions`. Each is audited
+  (`audit.ndjson`) and in the history; holds and kept fields survive restarts. Conservative mode
+  (`promotion.approval: true`) enforces nothing without approval. `sluice mcp --allow-actions`
+  offers the same actions to AI assistants. Named operator tokens (`operators_file`) and single
+  sign-on with any OIDC provider (`oidc`, verified against Keycloak) let the audit log name who
+  acted.
 - A read-only web console at the control plane's address: overview with the proof, sources and
   templates by stage, per-template recipe, guardrail reasons, lifecycle and one real event before
   and after its recipe, and archive search
@@ -60,6 +67,11 @@ First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
   rule that fills it, for sources without a standard Sentinel table; checked end to end with
   firewall, Linux auth and DNS records in a real workspace.
 
+- `SecurityEvent` records carry `Account`, `AccountType`, `SubjectAccount` and `TargetAccount`
+  (`DOMAIN\name`, `Machine` for names ending in `$`), which many Microsoft rules filter on.
+- `shape: sentinel_asim_web_session` for web server access logs (combined-format lines or ECS)
+  into `ASimWebSessionLogs`, for nginx, which has no Microsoft ASIM parser;
+  `--standard-table asim-web-session`.
 - `shape: sentinel_asim_dns` for DNS query records (ECS fields) into `ASimDnsActivityLogs`
   and `--standard-table asim-dns`; rules on the table apply and run in the emulator.
 - `shape: sentinel_asim_network_session` for the same firewall records into the normalized

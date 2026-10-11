@@ -31,6 +31,8 @@ pub struct McpConfig {
     pub archive: Option<PathBuf>,
     /// Offer the `replay` tool.
     pub allow_replay: bool,
+    /// Offer the `operator_action` tool (ADR 0016).
+    pub allow_actions: bool,
 }
 
 /// Serves MCP over stdin and stdout until the client disconnects.

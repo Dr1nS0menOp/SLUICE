@@ -29,12 +29,14 @@ sluice-synth = { path = "crates/sluice-synth" }
 # Third-party (pin young / fast-moving crates exactly; see CLAUDE.md)
 anyhow = "1"
 axum = "0.8"
+base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["alloc", "std"] }
 clap = { version = "4", features = ["derive"] }
 flate2 = "1"
 proptest = "1"
 quick-xml = "0.42"
 regex = "1"
+ring = "0.17"
 # MCP Rust SDK: young and fast-moving, pinned (see docs/notes/mcp.md).
 rmcp = { version = "=3.5.1", default-features = false, features = ["macros", "server", "transport-io"] }
 rsigma-eval = "=0.24.0"
