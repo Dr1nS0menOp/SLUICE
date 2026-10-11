@@ -171,13 +171,10 @@ impl Predicate {
             Self::Any(children) => children.iter().any(|c| c.may_match_with(fixed, paths)),
             Self::All(children) => children.iter().all(|c| c.may_match_with(fixed, paths)),
             Self::Field(test) => {
-                // `exists` also passes on an empty object, which a key set does not list.
+                // `exists` also passes on an empty object, which a key set does not list. A
+                // field may also be stored nested under an object (`EventData.X`).
                 let present = test.op == MatchOp::Exists
-                    || paths.is_none_or(|paths| {
-                        paths
-                            .iter()
-                            .any(|p| p.covers(&test.field) || test.field.covers(p))
-                    });
+                    || paths.is_none_or(|paths| paths.iter().any(|p| test.field.may_denote(p)));
                 present
                     && fixed
                         .iter()

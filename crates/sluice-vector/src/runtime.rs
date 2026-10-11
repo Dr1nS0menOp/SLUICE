@@ -67,7 +67,10 @@ impl CompiledProgram {
     }
 
     /// Runs the program on an event body; returns the body and metadata it produced.
-    fn run(&self, fields: &serde_json::Map<String, Json>) -> Result<(Value, Value), String> {
+    pub(crate) fn run(
+        &self,
+        fields: &serde_json::Map<String, Json>,
+    ) -> Result<(Value, Value), String> {
         let mut target = TargetValue {
             value: Value::from(Json::Object(fields.clone())),
             metadata: Value::Object(ObjectMap::new()),

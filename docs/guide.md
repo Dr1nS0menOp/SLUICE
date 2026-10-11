@@ -97,6 +97,10 @@ vector_secrets:                 # Vector secret backends for destination credent
 - A destination may carry `sluice_formats: [json]` or `[text]` to take only events of those
   source formats; Sluice removes the key before Vector sees it. `sluice connect wazuh` uses this
   to write JSON sources to one file and raw text lines to another.
+- A destination may carry `sluice_sources: [id, …]` to take only those sources. A SIEM table
+  takes one shape of record: Windows hosts running `sluice agent windows` send Sentinel
+  `SecurityEvent` and `WindowsEvent` records to two sources, and each Sentinel destination names
+  its own (`examples/up/sluice-windows.yaml`).
 - A destination may carry `sluice_rules: [sigma]`, `[wazuh]` or both: the rules its SIEM runs.
   Without it, every loaded rule set applies. Each distinct set is a *rule profile* with its own
   proof, recipes and pipeline, so a Sentinel destination is not held back by Wazuh rules that

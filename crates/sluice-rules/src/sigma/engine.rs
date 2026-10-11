@@ -62,7 +62,7 @@ fn fresh_engine(collection: &SigmaCollection) -> Result<CorrelationEngine, Rules
 }
 
 impl RuleEngine for SigmaEngine {
-    fn alerts(&self, events: &[Event]) -> Result<BTreeSet<Alert>, EngineError> {
+    fn alerts_refs(&self, events: &[&Event]) -> Result<BTreeSet<Alert>, EngineError> {
         let mut engine = fresh_engine(&self.collection).map_err(|e| EngineError(e.to_string()))?;
         let unknown = LogSource::default();
         let mut alerts = BTreeSet::new();

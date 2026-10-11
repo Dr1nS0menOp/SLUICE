@@ -3,6 +3,7 @@
 // Printing to the terminal is this binary's job.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
+mod agent;
 mod ai;
 mod archive;
 mod cli;
@@ -30,6 +31,7 @@ fn main() -> ExitCode {
         Command::Search(args) => archive::search(&args),
         Command::Replay(args) => archive::replay(&args),
         Command::Connect(args) => connect::connect(&args),
+        Command::Agent(args) => agent::agent(&args),
         Command::Mcp(args) => live::mcp(args),
     };
     match result {

@@ -53,6 +53,30 @@ pub struct LiveSourceConfig {
     pub source: Source,
     /// The Vector source configuration (must produce JSON objects).
     pub vector: Value,
+    /// How events are shaped as the SIEM stores them, after the archive keeps the original.
+    #[serde(default)]
+    pub shape: Option<Shape>,
+}
+
+/// A shaping of raw events into a SIEM table's record (ADR 0014).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Shape {
+    /// Vector `windows_event_log` events of the Security channel as Sentinel's `SecurityEvent`.
+    SentinelSecurityEvent,
+    /// Vector `windows_event_log` events of other channels as Sentinel's `WindowsEvent`.
+    SentinelWindowsEvent,
+}
+
+impl Shape {
+    /// The VRL that shapes an event.
+    #[must_use]
+    pub fn program(self) -> String {
+        match self {
+            Self::SentinelSecurityEvent => sluice_vector::windows::security_event_program(),
+            Self::SentinelWindowsEvent => sluice_vector::windows::windows_event_program(),
+        }
+    }
 }
 
 /// Bounds of the rolling window, per source.

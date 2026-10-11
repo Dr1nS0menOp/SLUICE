@@ -238,6 +238,45 @@ fn c3_a_text_lines_only_rule_protects_nothing_in_json_but_everything_in_text() {
 }
 
 #[test]
+fn c3_a_bare_rule_field_protects_the_same_field_nested_in_a_table_column() {
+    // Sentinel's WindowsEvent keeps a provider's data under `EventData`; Sigma names it bare.
+    let paths = [
+        "EventID",
+        "EventData.ScriptBlockText",
+        "EventData.Path",
+        "Computer",
+    ];
+    let mut nested = template();
+    nested.shape = TemplateShape::Keyset {
+        discriminators: vec![("EventID".into(), "4104".into())],
+        paths: paths.into_iter().map(FieldPath::from).collect(),
+    };
+    nested.fields = paths.into_iter().map(FieldPath::from).collect();
+    let rule = rule(
+        "script",
+        &["ScriptBlockText"],
+        Predicate::Field(FieldTest {
+            field: "ScriptBlockText".into(),
+            op: MatchOp::Contains,
+            values: vec!["Invoke-Mimikatz".into()],
+            case_sensitive: false,
+        }),
+    );
+    for proposed in [&["EventData.ScriptBlockText"][..], &["EventData"][..]] {
+        let effective = guard(
+            &nested,
+            Some(&recipe(vec![drop(proposed)])),
+            ctx(std::slice::from_ref(&rule)),
+        );
+        assert_eq!(
+            effective.keep_whole_when,
+            Some(rule.prefilter.clone()),
+            "{proposed:?}: events the rule may match keep the field"
+        );
+    }
+}
+
+#[test]
 fn c3_rule_guided_forwards_union_of_rule_prefilters() {
     let rules = [
         rule("r1", &["EventID"], eq("EventID", "4625")),

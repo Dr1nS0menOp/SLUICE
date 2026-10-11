@@ -369,6 +369,15 @@ author of the config rather than another hop:
   format, so those events can only be shaped on the agent side.
 - An `agents` view in the console: which hosts send what, which collected data no detection
   uses, and the config that fixes it.
+- Status 2026-10-11 (ADR 0014): `sluice agent windows` generates the Vector configuration for a
+  Windows host (Vector's `windows_event_log` source, shaping as Sentinel's `SecurityEvent`, a
+  disk-buffered send to `sluice up`) and, with `--dcr`, the Sentinel DCR that stores the records
+  unchanged. Checked with the official Vector 0.59.0 Windows build on this machine (193 real
+  events, all valid `SecurityEvent` columns). Later the same day: other channels shaped as
+  `WindowsEvent`, `sluice_sources` on destinations, nested-field protection in the guardrails,
+  and an end-to-end run agent → `sluice up` → per-table destinations on real events. Open:
+  Security channel events from an elevated run, `Account`/`AccountType` compared with AMA
+  records, community recipes for the two table shapes, and a send into a real workspace.
 
 **M8 — Operate without the CLI.** Write actions in the console and MCP, behind the token and an
 audit log: pause or force a recipe, keep-list a field or template per destination, approve

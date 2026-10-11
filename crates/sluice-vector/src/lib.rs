@@ -14,6 +14,7 @@ mod predicate;
 mod program;
 mod runtime;
 mod syntax;
+pub mod windows;
 
 use std::collections::BTreeMap;
 
@@ -23,7 +24,8 @@ pub use crate::config::{Paths, vector_config};
 pub use crate::connect::{SECRET_BACKEND, Target};
 pub use crate::error::VectorError;
 pub use crate::live::{
-    FORMATS_KEY, LiveProfile, LiveSettings, LiveSource, RULES_KEY, destination_profile, live_config,
+    FORMATS_KEY, LiveProfile, LiveSettings, LiveSource, RULES_KEY, SOURCES_KEY,
+    destination_profile, live_config,
 };
 pub use crate::program::{
     FORWARD, Plan, ROUTE_METADATA, SUMMARIZE, TEMPLATE_METADATA, source_program,
