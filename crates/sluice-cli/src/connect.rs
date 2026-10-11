@@ -111,6 +111,12 @@ fn standard_table_dcr(
                 workspace(args),
             ),
         ),
+        StandardTable::AsimDns => (
+            "ASimDnsActivityLogs.dcr.json",
+            "sentinel_asim_dns",
+            sluice_vector::asim_dns::ASIM_DNS_STREAM,
+            sluice_vector::asim_dns::asim_dns_dcr(&args.location, workspace(args)),
+        ),
     };
     std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
     let path = out.join(file);

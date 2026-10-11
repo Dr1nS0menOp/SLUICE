@@ -174,3 +174,9 @@ The same 131 firewall records as raw `filterlog` lines inside syslog, through
 `NetworkProtocol`, addresses, ports, the interface and `NetworkRuleNumber`, with `EventType`
 `NetworkSession` and `EventSchemaVersion` `0.2.6` (2026-10-11). That run showed
 `NetworkProtocolVersion` empty for raw lines; the parser now passes the IP version on.
+DNS the same way (2026-10-11): 61 query records (ECS fields, synthetic) through
+`shape: sentinel_asim_dns` and `--standard-table asim-dns` (stream `Custom-SluiceASimDns` →
+`Microsoft-ASimDnsActivityLogs`) arrived with `DnsQuery`, `DnsQueryType`/`DnsQueryTypeName`
+(`A` 1, `AAAA` 28, `HTTPS` 65), `DnsResponseCode` 0 with `EventResult` `Success` and
+`EventResultDetails` `NOERROR`, the client address and port, the answers in `DnsResponseName`,
+`DnsFlags` and `TransactionIdHex`, with `EventType` `Query` and `EventSchemaVersion` `0.1.7`.

@@ -200,6 +200,7 @@ fn sentinel(args: &UpArgs, config: &ServerConfig) -> Result<Option<SentinelRuleS
                 Shape::SentinelSyslog => Table::Syslog,
                 Shape::SentinelCommonSecurityLog => Table::CommonSecurityLog,
                 Shape::SentinelAsimNetworkSession => Table::ASimNetworkSessionLogs,
+                Shape::SentinelAsimDns => Table::ASimDnsActivityLogs,
             };
             Some((s.source.id.clone(), table))
         })

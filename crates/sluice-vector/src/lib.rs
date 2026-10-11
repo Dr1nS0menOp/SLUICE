@@ -5,6 +5,7 @@
 //! [`VrlReducer`] runs those programs with the `vrl` crate, the compiler and runtime Vector
 //! embeds, so the shadow proof tests the code that is enforced, not a reimplementation of it.
 
+pub mod asim_dns;
 pub mod asim_network_session;
 mod classify;
 pub mod common_security_log;

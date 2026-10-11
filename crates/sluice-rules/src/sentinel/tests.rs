@@ -25,6 +25,7 @@ fn shaped_records() -> Predicate {
         super::extract::present("SyslogMessage"),
         super::extract::present("DeviceVendor"),
         super::extract::present("EventSchemaVersion"),
+        super::extract::present("DnsQuery"),
     ])
 }
 
@@ -139,7 +140,7 @@ fn parsers_and_workspace_functions_may_read_every_windows_table() {
         assert_eq!(r.fields, RequiredFields::Unknown, "{query}");
     }
     for other in [
-        "ASimDnsActivityLogs | where DnsQuery has 'x'",
+        "ASimAuditEventLogs | where Operation has 'x'",
         "SigninLogs | join (_GetWatchlist('vip')) on UserPrincipalName",
     ] {
         assert_eq!(

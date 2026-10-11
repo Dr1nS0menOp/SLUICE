@@ -90,7 +90,7 @@ pub(crate) struct ConnectArgs {
     #[arg(long, requires = "out", default_value = "westeurope")]
     pub(crate) location: String,
     /// Sentinel: records shaped as a standard table (`shape: sentinel_syslog`,
-    /// `sentinel_common_security_log` or `sentinel_asim_network_session`): write the data
+    /// `sentinel_common_security_log`, `sentinel_asim_network_session` or `sentinel_asim_dns`): write the data
     /// collection rule that stores them there.
     #[arg(long, value_enum, requires = "out", conflicts_with = "sample")]
     pub(crate) standard_table: Option<StandardTable>,
@@ -145,6 +145,8 @@ pub(crate) enum StandardTable {
     CommonSecurityLog,
     /// `ASimNetworkSessionLogs`.
     AsimNetworkSession,
+    /// `ASimDnsActivityLogs`.
+    AsimDns,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]

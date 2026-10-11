@@ -123,5 +123,6 @@ not. 63 rules call ASIM parsers, which read the tables indirectly.
    bounded to records of the shapes Sluice sends to Sentinel (`EventID`, `Channel` or
    `SyslogMessage` present). Rules on Windows tables only keep `product: windows`.
    **`CommonSecurityLog` the same day**, bounded by `DeviceVendor`, which the shape always sets,
-   and **`ASimNetworkSessionLogs`**, bounded by `EventSchemaVersion` (the only ASIM table Sluice
-   shapes for so far; a second one needs its own marker).
+   **`ASimNetworkSessionLogs`**, bounded by `EventSchemaVersion`, and **`ASimDnsActivityLogs`**,
+   bounded by `DnsQuery`. Every ASIM record has `EventSchemaVersion`, so network session rules
+   also apply to DNS records: a superset, sound but less precise.
