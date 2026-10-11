@@ -11,7 +11,7 @@ use sluice_vector::{Plan, VrlReducer};
 
 use crate::analyze::{Analysis, Helpers, Input, Settings, analyze, prove};
 use crate::error::AutopilotError;
-use crate::lifecycle::{Lifecycle, Transition};
+use crate::lifecycle::{Evidence, Lifecycle, Transition};
 use crate::recipes::RecipeBook;
 
 /// What one cycle decided.
@@ -70,7 +70,26 @@ pub fn cycle(
         .filter(|r| !r.is_passthrough())
         .map(|r| r.template.clone())
         .collect();
-    let mut transitions = lifecycle.advance(now, &seen, &proven);
+    let guardrails = &settings.guardrails;
+    let rare: BTreeSet<TemplateId> = window
+        .iter()
+        .filter(|t| guardrails.is_rare(t))
+        .map(|t| t.id.clone())
+        .collect();
+    let near_rare: BTreeSet<TemplateId> = window
+        .iter()
+        .filter(|t| guardrails.is_near_rare(t))
+        .map(|t| t.id.clone())
+        .collect();
+    let mut transitions = lifecycle.advance(
+        now,
+        Evidence {
+            seen: &seen,
+            proven: &proven,
+            rare: &rare,
+            near_rare: &near_rare,
+        },
+    );
     for (template, recipe) in window.iter().zip(&analysis.selection.recipes) {
         lifecycle.remember(template, recipe);
     }

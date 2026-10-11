@@ -29,6 +29,24 @@ Machine: Intel Core i9-11900 (16 threads), WSL2 on Windows 11, demo scale 300.
 Roughly 16,000 events per second per vCPU for this source, scaling close to linearly up to four
 threads.
 
+## Soak run, 2026-10-10/11: 19 hours live
+
+`sluice up --config examples/up/sluice-dual.yaml --demo-traffic` (six demo sources, two rule
+profiles, 30-second cycles, demo promotion settings: 60 s shadow, 2 proofs), WSL2, Vector 0.59.0:
+
+- 2,086 cycles per profile, every one proven (last: 12,574 = 12,574 alerts), no failed cycle.
+- The `sigma` destination received 2.3 GB, the `wazuh` destination 7.4 GB (unchanged): 69% less
+  over the run; the last window, 135.4 → 49.1 MB.
+- Recipes flapped on three `sudo` templates holding 105–109 events in the window, right at the
+  rarity floor of 100: 44 "rollbacks" and 34 demotions, every one caused by contract rule 4, not
+  by a failed proof. Fixed since: such a stop is now `paused`, logged at info, and a new recipe
+  needs 125% of the floor (`ENTRY_MARGIN_PERCENT`) to enter shadow.
+- Memory: the control plane held 3.1 GB resident (6 sources × 20,000 events in the window, two
+  profiles), flat over the last five minutes sampled (+2 MB); Vector 208 MB. Size the window
+  (`window.max_events_per_source`) to the memory available; profiling the analysis' peak
+  allocation is open.
+- Disk: 632 MB of gzip archive for 19 hours of demo traffic.
+
 For scale: the demo's hour of traffic for a small company network (80,536 events at scale 100)
 is about 22 events per second, so one Vector process has three orders of magnitude of headroom
 for a network of that kind.

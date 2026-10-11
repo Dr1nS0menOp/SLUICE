@@ -46,6 +46,27 @@ The emulator runs full KQL, so it accepts functions a DCR rejects (`bag_remove_k
 there). Generated transformations must therefore stay inside the list above; the emulator only
 proves their semantics.
 
+## Ingest without the Azure Monitor Agent
+
+Checked 2026-10-11. The Logs Ingestion API (any HTTPS client, a DCR and an app registration)
+accepts the standard Sentinel tables, not only custom `_CL` tables: `SecurityEvent`,
+`WindowsEvent`, `Event`, `Syslog`, `CommonSecurityLog` and the ASIM tables
+(`ASimNetworkSessionLogs`, `ASimDnsActivityLogs`, `ASimProcessEventLogs`,
+`ASimAuthenticationEventLogs`, …) all have the API column checked in "Azure Monitor Logs table
+feature support". `SecurityEvent` also supports the Auxiliary plan, a low-cost archive target.
+So an open-source agent can feed built-in analytics rules, as long as its records match the
+table schema; the DCR transformation can then stay `source`.
+
+| Agent | License | Logs Ingestion API | Windows Event Log | Notes |
+|---|---|---|---|---|
+| Vector | MPL-2.0 | `azure_logs_ingestion` sink | `windows_event_log` source (beta) | what Sluice runs and proves |
+| Fluent Bit | Apache-2.0 | `azure_logs_ingestion` output | `winevtlog` input | small footprint |
+| Logstash + Microsoft plugin | plugin MIT | `microsoft-sentinel-log-analytics-logstash-output-plugin` | via Winlogbeat | Microsoft calls it public preview |
+| OpenTelemetry Collector | Apache-2.0 | no Log Analytics exporter found | `windowseventlog` receiver | `azuremonitor` exporter targets Application Insights |
+
+The legacy HTTP Data Collector API (used by older Fluentd/Logstash plugins) ended support on
+2026-09-14; do not build on it.
+
 ## Billing
 
 Not verified yet: whether an empty string or null column costs ingestion. The Log Analytics
