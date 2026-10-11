@@ -140,3 +140,37 @@ Ingestion API `2023-01-01`), for `sluice connect sentinel --sample`:
   six and a half minutes.
 - A DCR stream passes only the columns it declares: a field that was not in the sample does not
   reach the table. Generate from a sample that covers the source, and again when it changes.
+
+## Syslog into the standard table
+
+Verified 2026-10-11 end to end: a `sluice up` source with `shape: sentinel_syslog`, Vector's
+`azure_logs_ingestion` sink and the DCR from `sluice connect sentinel --standard-table syslog` (stream
+`Custom-SluiceSyslog` → `Microsoft-Syslog`, transformation `source`):
+
+- `Syslog` has 16 columns; Sluice fills `TimeGenerated`, `EventTime`, `Computer`, `HostName`,
+  `Facility`, `SeverityLevel`, `ProcessName`, `ProcessID` (`int`) and `SyslogMessage`.
+- Lines with a priority (`<86>…`) arrived with `Facility` (`authpriv`, `auth`, `cron`) and
+  `SeverityLevel` (`info`) as the Azure Monitor Agent writes them: VRL's `parse_syslog` uses the
+  same keyword names. Lines without one (Filebeat's `message`) have no facility or severity, so
+  rules that filter on `Facility` do not see them; send syslog with its priority.
+- An RFC 3164 line's own time and host win over the shipper's: `parse_syslog` read `bastion01`
+  and yesterday's `Oct 10 08:00:55` from Filebeat lines that were sent today.
+
+## Firewalls into CommonSecurityLog
+
+Verified 2026-10-11 the same way (`shape: sentinel_common_security_log`,
+`sluice connect sentinel --standard-table common-security-log`, stream
+`Custom-SluiceCommonSecurityLog` → `Microsoft-CommonSecurityLog`): 131 OPNsense filterlog
+records (synthetic) arrived with `DeviceVendor`/`DeviceProduct` (`Deciso`/`OPNsense`),
+`DeviceAction`, `CommunicationDirection` (`Inbound`/`Outbound`), `Protocol` (`TCP`, `UDP`),
+`SourceIP`/`SourcePort`/`DestinationIP`/`DestinationPort` (ports as `int`), the interface in
+`DeviceInboundInterface` or `DeviceOutboundInterface`, the rule number in
+`DeviceEventClassID` and the original line in `Message`. The table has 158 columns; Sluice fills
+the 18 a parsed firewall record carries.
+The same 131 firewall records as raw `filterlog` lines inside syslog, through
+`shape: sentinel_asim_network_session` and `--standard-table asim-network-session` (stream
+`Custom-SluiceASimNetworkSession` → `Microsoft-ASimNetworkSessionLogs`), arrived parsed:
+`DvcAction` `Allow`/`Deny` with `EventResult` `Success`/`Failure`, `NetworkDirection`,
+`NetworkProtocol`, addresses, ports, the interface and `NetworkRuleNumber`, with `EventType`
+`NetworkSession` and `EventSchemaVersion` `0.2.6` (2026-10-11). That run showed
+`NetworkProtocolVersion` empty for raw lines; the parser now passes the IP version on.

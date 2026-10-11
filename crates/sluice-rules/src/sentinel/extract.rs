@@ -7,11 +7,48 @@ use sluice_core::predicate::{FieldTest, MatchOp, Predicate};
 
 use super::lexer::Token;
 
-/// The Windows tables Sluice shapes records for, and what each query part needs from them.
-pub(super) const TABLES: [&str; 2] = ["SecurityEvent", "WindowsEvent"];
+/// The Sentinel tables Sluice shapes records for (`shape` on a source), and what each query part
+/// needs from them.
+pub(super) const TABLES: [&str; 5] = [
+    "SecurityEvent",
+    "WindowsEvent",
+    "Syslog",
+    "CommonSecurityLog",
+    "ASimNetworkSessionLogs",
+];
 
-/// Text columns of `SecurityEvent` and `WindowsEvent` that rules filter on besides `EventID`.
-const TEXT_COLUMNS: [&str; 3] = ["EventSourceName", "Channel", "Provider"];
+/// A field every record of the table has, which no other shape gives: `Syslog`,
+/// `CommonSecurityLog` and ASIM rows come from any product, so a reference to the table is bounded to
+/// records that have it.
+pub(super) fn table_marker(table: &str) -> Option<&'static str> {
+    match table {
+        "Syslog" => Some("SyslogMessage"),
+        "CommonSecurityLog" => Some("DeviceVendor"),
+        "ASimNetworkSessionLogs" => Some("EventSchemaVersion"),
+        _ => None,
+    }
+}
+
+/// Text columns rules filter on besides `EventID`: of `SecurityEvent` and `WindowsEvent`, and of
+/// `Syslog`.
+const TEXT_COLUMNS: [&str; 6] = [
+    "EventSourceName",
+    "Channel",
+    "Provider",
+    "Facility",
+    "ProcessName",
+    "SeverityLevel",
+];
+
+/// A test that `field` is present.
+pub(super) fn present(field: &str) -> Predicate {
+    Predicate::Field(FieldTest {
+        field: FieldPath::new(field),
+        op: MatchOp::Exists,
+        values: Vec::new(),
+        case_sensitive: true,
+    })
+}
 
 /// Operators after which a query only aggregates, joins or orders rows over time.
 const STATEFUL: [&str; 8] = [
@@ -84,7 +121,11 @@ pub(super) fn reads(tokens: &[Token], known: &dyn Fn(&str) -> bool) -> Reads {
                 .any(|(table, range)| table == name && range.contains(&i))
         {
             reads.tables.insert(name.clone());
-            prefilters.push(first_wheres(&tokens[i + 1..], &lists));
+            let rows = first_wheres(&tokens[i + 1..], &lists);
+            prefilters.push(match table_marker(name) {
+                Some(marker) => Predicate::all([present(marker), rows]),
+                None => rows,
+            });
         }
         if STATEFUL.contains(&name.as_str()) && is_symbol(previous, "|") {
             reads.stateful = true;

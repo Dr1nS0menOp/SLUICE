@@ -393,9 +393,12 @@ author of the config rather than another hop:
   --sample FILE --table NAME --out DIR` writes a `NAME_CL` table and its DCR, checked end to end
   with firewall, Linux auth and DNS records (docs/notes/sentinel-dcr.md). Open: deriving the
   sample from `sluice up`'s discovered templates instead of a file, real OPNsense data, and
-  mapping to standard tables where Sentinel has one, as for Windows: firewall logs to
-  `CommonSecurityLog` or `ASimNetworkSessionLogs`, Linux syslog to `Syslog`, so Microsoft's own
-  rules and workbooks apply.
+  mapping to standard tables where Sentinel has one, as for Windows: Linux syslog to `Syslog` is
+  done (`shape: sentinel_syslog`), and parsed firewall records to `CommonSecurityLog`
+  (`shape: sentinel_common_security_log`) or `ASimNetworkSessionLogs`
+  (`shape: sentinel_asim_network_session`); rules on each apply and run in the emulator. Left:
+  the other ASIM tables (DNS, authentication, process). Raw `filterlog` lines (CSV over syslog) are
+  parsed by the shape itself; other firewall vendors need a parsed record or their own parser.
 - **`Account` and `AccountType` in `SecurityEvent`.** Compare with records the Azure Monitor
   Agent collected on the same machine before deriving them.
 - **The 14 Sentinel rules that read `EventData` without an `EventID` bound** (ADR 0015): most

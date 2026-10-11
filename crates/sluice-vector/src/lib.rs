@@ -5,7 +5,9 @@
 //! [`VrlReducer`] runs those programs with the `vrl` crate, the compiler and runtime Vector
 //! embeds, so the shadow proof tests the code that is enforced, not a reimplementation of it.
 
+pub mod asim_network_session;
 mod classify;
+pub mod common_security_log;
 mod config;
 mod connect;
 mod custom_table;
@@ -15,6 +17,7 @@ mod predicate;
 mod program;
 mod runtime;
 mod syntax;
+pub mod syslog;
 pub mod windows;
 
 use std::collections::BTreeMap;

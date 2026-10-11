@@ -97,6 +97,13 @@ vector_secrets:                 # Vector secret backends for destination credent
 - A destination may carry `sluice_formats: [json]` or `[text]` to take only events of those
   source formats; Sluice removes the key before Vector sees it. `sluice connect wazuh` uses this
   to write JSON sources to one file and raw text lines to another.
+- A source may carry `shape` to send its records as a Sentinel table's rows, after the archive
+  keeps them as they arrived: `sentinel_security_event` and `sentinel_windows_event` for Windows
+  hosts running `sluice agent windows`, `sentinel_syslog` for Linux hosts and network devices
+  (Vector's `syslog` source or raw lines), `sentinel_common_security_log` or
+  `sentinel_asim_network_session` for firewall records (raw `filterlog` lines or parsed).
+  `sluice connect sentinel --standard-table syslog|common-security-log|asim-network-session
+  --out DIR` writes the data collection rule for the table.
 - A destination may carry `sluice_sources: [id, …]` to take only those sources. A SIEM table
   takes one shape of record: Windows hosts running `sluice agent windows` send Sentinel
   `SecurityEvent` and `WindowsEvent` records to two sources, and each Sentinel destination names

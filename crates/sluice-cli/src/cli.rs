@@ -84,13 +84,18 @@ pub(crate) struct ConnectArgs {
     #[arg(long, requires = "sample")]
     pub(crate) time_field: Option<String>,
     /// Sentinel: the workspace's resource ID, for the data collection rule.
-    #[arg(long, requires = "sample")]
+    #[arg(long, requires = "out")]
     pub(crate) workspace: Option<String>,
     /// Sentinel: the Azure region of the workspace.
-    #[arg(long, requires = "sample", default_value = "westeurope")]
+    #[arg(long, requires = "out", default_value = "westeurope")]
     pub(crate) location: String,
-    /// Sentinel: directory to write `<TABLE>_CL.table.json` and `<TABLE>.dcr.json` to.
-    #[arg(long, requires = "sample")]
+    /// Sentinel: records shaped as a standard table (`shape: sentinel_syslog`,
+    /// `sentinel_common_security_log` or `sentinel_asim_network_session`): write the data
+    /// collection rule that stores them there.
+    #[arg(long, value_enum, requires = "out", conflicts_with = "sample")]
+    pub(crate) standard_table: Option<StandardTable>,
+    /// Sentinel: directory to write the table and data collection rule JSON to.
+    #[arg(long)]
     pub(crate) out: Option<PathBuf>,
 }
 
@@ -131,7 +136,18 @@ pub(crate) enum AgentPlatform {
     Windows,
 }
 
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+/// A standard Sentinel table Sluice can shape records for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum StandardTable {
+    /// `Syslog`.
+    Syslog,
+    /// `CommonSecurityLog`.
+    CommonSecurityLog,
+    /// `ASimNetworkSessionLogs`.
+    AsimNetworkSession,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum ConnectTarget {
     Splunk,
     Elastic,

@@ -66,6 +66,12 @@ pub enum Shape {
     SentinelSecurityEvent,
     /// Vector `windows_event_log` events of other channels as Sentinel's `WindowsEvent`.
     SentinelWindowsEvent,
+    /// Syslog (Vector's `syslog` source, or a raw line) as Sentinel's `Syslog`.
+    SentinelSyslog,
+    /// Firewall records as Sentinel's `CommonSecurityLog`.
+    SentinelCommonSecurityLog,
+    /// Firewall records as Sentinel's normalized `ASimNetworkSessionLogs`.
+    SentinelAsimNetworkSession,
 }
 
 impl Shape {
@@ -75,6 +81,13 @@ impl Shape {
         match self {
             Self::SentinelSecurityEvent => sluice_vector::windows::security_event_program(),
             Self::SentinelWindowsEvent => sluice_vector::windows::windows_event_program(),
+            Self::SentinelSyslog => sluice_vector::syslog::syslog_program(),
+            Self::SentinelCommonSecurityLog => {
+                sluice_vector::common_security_log::common_security_log_program()
+            }
+            Self::SentinelAsimNetworkSession => {
+                sluice_vector::asim_network_session::asim_network_session_program()
+            }
         }
     }
 }

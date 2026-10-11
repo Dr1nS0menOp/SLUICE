@@ -90,8 +90,10 @@ impl SentinelRules {
             .get("id")
             .and_then(Value::as_str)
             .map_or_else(|| format!("unnamed:{place}"), str::to_owned);
-        let requirement = requirement(&id, functions.reads(query), &mut self.problems);
-        if requirement.logsource.product.as_deref() == Some("windows") {
+        let reads = functions.reads(query);
+        let modeled = !reads.tables.is_empty() || reads.any_table;
+        let requirement = requirement(&id, reads, &mut self.problems);
+        if modeled {
             self.queries
                 .push((requirement.rule.clone(), query.to_owned()));
         }
@@ -104,8 +106,10 @@ impl SentinelRules {
         &self.requirements
     }
 
-    /// The query of every rule that reads `SecurityEvent` or `WindowsEvent`, for running the
-    /// rules themselves on full and on forwarded records (the emulator proof).
+    /// The query of every rule that may read a table Sluice shapes records for
+    /// (`SecurityEvent`, `WindowsEvent`, `Syslog`, `CommonSecurityLog`,
+    /// `ASimNetworkSessionLogs`), for running the rules themselves on full and
+    /// on forwarded records (the emulator proof).
     #[must_use]
     pub fn queries(&self) -> &[(RuleId, String)] {
         &self.queries
@@ -123,7 +127,7 @@ fn requirement(id: &str, reads: extract::Reads, problems: &mut Vec<String>) -> R
     if let Some(why) = &reads.any_field {
         problems.push(format!("{rule}: {why}; treated as reading every column"));
     }
-    let windows = !reads.tables.is_empty() || reads.any_table;
+    let modeled = !reads.tables.is_empty() || reads.any_table;
     RuleRequirements {
         logsource: logsource(&reads.tables, reads.any_table),
         fields: if reads.any_field.is_some() {
@@ -134,8 +138,17 @@ fn requirement(id: &str, reads: extract::Reads, problems: &mut Vec<String>) -> R
         matches_raw_text: reads.any_field.is_some(),
         stateful: reads.stateful,
         text_lines_only: false,
-        // A parser or function may read any row of a Windows table.
-        prefilter: if windows && !reads.any_table {
+        prefilter: if reads.any_table {
+            // A parser or function may read any row of any table Sluice shapes for: bounded to
+            // records of those shapes.
+            Predicate::any([
+                extract::present("EventID"),
+                extract::present("Channel"),
+                extract::present("SyslogMessage"),
+                extract::present("DeviceVendor"),
+                extract::present("EventSchemaVersion"),
+            ])
+        } else if modeled {
             reads.prefilter
         } else {
             Predicate::Always
@@ -144,17 +157,24 @@ fn requirement(id: &str, reads: extract::Reads, problems: &mut Vec<String>) -> R
     }
 }
 
-/// The log source of a rule: Windows Security for `SecurityEvent` alone, Windows for
-/// `WindowsEvent` or for a rule that may read Windows tables through a parser or function, and a
-/// product no Windows source has for queries on other tables only.
+/// The log source of a rule. `SecurityEvent` alone is Windows Security and `WindowsEvent` is
+/// Windows. `Syslog` rows come from any product, and a parser or function may read any table, so
+/// those rules apply to every product; their pre-filter bounds them to records of the table's
+/// shape. Queries on other tables only get a product no source has.
 fn logsource(tables: &std::collections::BTreeSet<String>, any_table: bool) -> LogSource {
-    let only_security = !any_table && tables.len() == 1 && tables.contains("SecurityEvent");
+    let windows_only = !any_table
+        && !tables.is_empty()
+        && tables.iter().all(|t| extract::table_marker(t).is_none());
+    let only_security = windows_only && tables.len() == 1 && tables.contains("SecurityEvent");
+    let product = if tables.is_empty() && !any_table {
+        Some("sentinel-other-tables".to_owned())
+    } else if windows_only {
+        Some("windows".to_owned())
+    } else {
+        None
+    };
     LogSource {
-        product: Some(if tables.is_empty() && !any_table {
-            "sentinel-other-tables".to_owned()
-        } else {
-            "windows".to_owned()
-        }),
+        product,
         service: only_security.then(|| "security".to_owned()),
         category: None,
         complete: false,

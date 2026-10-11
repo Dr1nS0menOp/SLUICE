@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value, json};
 use sluice_vector::{CustomTable, Target};
 
-use crate::cli::{ConnectArgs, ConnectTarget};
+use crate::cli::{ConnectArgs, ConnectTarget, StandardTable};
 
 pub(crate) fn connect(args: &ConnectArgs) -> Result<()> {
     let target = match args.target {
@@ -24,6 +24,10 @@ pub(crate) fn connect(args: &ConnectArgs) -> Result<()> {
     let table = custom_table(args, target)?;
     if let Some(table) = &table {
         destinations[name]["stream_name"] = json!(table.stream_name());
+    }
+    if let Some(table) = args.standard_table {
+        let stream = standard_table_dcr(args, target, table)?;
+        destinations[name]["stream_name"] = json!(stream);
     }
     let mut config = json!({ "destinations": destinations });
     if let Some((backend, settings)) = target.secret_backend() {
@@ -66,6 +70,67 @@ pub(crate) fn connect(args: &ConnectArgs) -> Result<()> {
     Ok(())
 }
 
+/// With `--standard-table`, writes the data collection rule that stores records of that shape
+/// in the table. Returns the stream to send them to.
+fn standard_table_dcr(
+    args: &ConnectArgs,
+    target: Target,
+    table: StandardTable,
+) -> Result<&'static str> {
+    if target != Target::Sentinel {
+        bail!(
+            "--standard-table writes a Sentinel data collection rule; it only applies to `sentinel`"
+        );
+    }
+    let out = args
+        .out
+        .as_deref()
+        .context("--standard-table needs --out")?;
+    let (file, shape, stream, dcr) = match table {
+        StandardTable::Syslog => (
+            "Syslog.dcr.json",
+            "sentinel_syslog",
+            sluice_vector::syslog::SYSLOG_STREAM,
+            sluice_vector::syslog::syslog_dcr(&args.location, workspace(args)),
+        ),
+        StandardTable::CommonSecurityLog => (
+            "CommonSecurityLog.dcr.json",
+            "sentinel_common_security_log",
+            sluice_vector::common_security_log::COMMON_SECURITY_LOG_STREAM,
+            sluice_vector::common_security_log::common_security_log_dcr(
+                &args.location,
+                workspace(args),
+            ),
+        ),
+        StandardTable::AsimNetworkSession => (
+            "ASimNetworkSessionLogs.dcr.json",
+            "sentinel_asim_network_session",
+            sluice_vector::asim_network_session::ASIM_NETWORK_SESSION_STREAM,
+            sluice_vector::asim_network_session::asim_network_session_dcr(
+                &args.location,
+                workspace(args),
+            ),
+        ),
+    };
+    std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
+    let path = out.join(file);
+    std::fs::write(&path, serde_json::to_string_pretty(&dcr)? + "\n")
+        .with_context(|| format!("writing {}", path.display()))?;
+    println!(
+        "# Create the data collection rule from {}; set `dcr_immutable_id` and the endpoint \
+         from it. Give the sources `shape: {shape}`.",
+        path.display()
+    );
+    Ok(stream)
+}
+
+/// The workspace resource ID given, or a placeholder.
+fn workspace(args: &ConnectArgs) -> &str {
+    args.workspace.as_deref().unwrap_or(
+        "/subscriptions/<subscription>/resourceGroups/<group>/providers/Microsoft.OperationalInsights/workspaces/<workspace>",
+    )
+}
+
 /// With `--sample`, derives the Sentinel custom table and writes it and its DCR to `--out`.
 fn custom_table(args: &ConnectArgs, target: Target) -> Result<Option<CustomTable>> {
     let (Some(sample), Some(table), Some(out)) = (&args.sample, &args.table, &args.out) else {
@@ -86,9 +151,7 @@ fn custom_table(args: &ConnectArgs, target: Target) -> Result<Option<CustomTable
         })
         .collect::<Result<_>>()?;
     let custom = CustomTable::infer(table, &records)?;
-    let workspace = args.workspace.as_deref().unwrap_or(
-        "/subscriptions/<subscription>/resourceGroups/<group>/providers/Microsoft.OperationalInsights/workspaces/<workspace>",
-    );
+    let workspace = workspace(args);
     std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
     let write = |file: String, value: &Value| -> Result<()> {
         let path = out.join(file);
