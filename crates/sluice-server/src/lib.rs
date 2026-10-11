@@ -25,8 +25,8 @@ use tokio::net::TcpListener;
 use tokio::process::{Child, Command};
 
 pub use crate::config::{LiveSourceConfig, PromotionConfig, ServerConfig, Shape, WindowConfig};
-pub use crate::control::Rules;
 use crate::control::Shared;
+pub use crate::control::{Rules, SentinelRuleSet};
 pub use crate::error::ServerError;
 pub use crate::status::{
     CycleStatus, Example, RuleInfo, SourceHealth, Status, TemplateDetail, TemplateStatus,

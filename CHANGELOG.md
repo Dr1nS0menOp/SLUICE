@@ -50,8 +50,28 @@ First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
   are archived as they arrive, then shaped as the Sentinel table's record before the tap and
   the reductions.
 - `sluice_sources` on a destination: only those sources reach it.
+- The control plane needs about half the memory per windowed event: a cycle no longer copies
+  the window, and the proof borrows events the data plane leaves unchanged.
 - Guardrails: a rule's bare field also protects the same field nested under an object
   (`EventData.ScriptBlockText`), as Sentinel's `WindowsEvent` stores it.
+
+### Sentinel analytics rules (in progress)
+
+- `SentinelRules`: Microsoft Sentinel analytics rules (KQL) as requirements: tables, fields,
+  `EventID` pre-filters and statefulness, widening wherever the query is not understood
+  (`sluice rules requirements --sentinel-rules`, ADR 0015).
+- The proof runs Sentinel rules themselves: `sluice up --sentinel-rules DIR --kusto URL` loads
+  each window, full and forwarded, into the Kusto emulator with the real `SecurityEvent` and
+  `WindowsEvent` schemas and compares every rule's result rows. Destinations name the rule set
+  `sentinel` in `sluice_rules`; rules the emulator cannot run (other tables, watchlists) are
+  listed and still constrain cuts through their requirements.
+- Sentinel rule files with several YAML documents are read per document, and problems name the
+  file (a leading byte order mark is skipped); `EventID`s written as strings, and equality on
+  `EventSourceName`, `Channel` and `Provider`, bound a rule.
+- A Sentinel rule that reads an ASIM parser or calls a workspace function applies to every
+  Windows source with unknown fields; it was treated as a rule on other tables (fail open).
+- Recipes that drop `SecurityEvent`'s `EventData` XML for 4672 and 4798, where every data item
+  has its own column.
 
 ### Native transformations (in progress)
 

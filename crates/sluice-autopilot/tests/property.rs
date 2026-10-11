@@ -116,6 +116,7 @@ fn any_proposals_yield_an_alert_preserving_data_plane() {
                 events: &sample().events,
                 sigma: rules(),
                 wazuh: None,
+                sentinel: None,
             };
             let analysis = analyze_proposals(
                 input,

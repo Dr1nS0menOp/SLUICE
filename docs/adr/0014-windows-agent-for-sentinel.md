@@ -57,6 +57,11 @@ runs and proves, has a `windows_event_log` source (beta) that runs on Windows
   PowerShell events to `sluice up` (`examples/up/sluice-windows.yaml`) with all of SigmaHQ; the
   archive held all 747 originals (with `event_data`, `message`, `user_name`), and only the
   `WindowsEvent` destination received them, as table records, proven 12 = 12 alerts.
+- Into a real workspace (2026-10-11, Sentinel on): the DCR `sluice agent windows --dcr`
+  generates was accepted after typing five GUID columns (docs/notes/sentinel-dcr.md), and 154
+  real Security events and 267 other-channel events sent through the Logs Ingestion API
+  arrived in `SecurityEvent` and `WindowsEvent` as sent (`Activity`, `LogonType` as int,
+  `EventData` as XML and as an object).
 - Replaying from the archive sends originals: replay them through a source with the same
   `shape` to reach a Sentinel table. No
   recipe matches the table shapes yet, so they passed through unchanged: recipes for

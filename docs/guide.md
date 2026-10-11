@@ -101,7 +101,9 @@ vector_secrets:                 # Vector secret backends for destination credent
   takes one shape of record: Windows hosts running `sluice agent windows` send Sentinel
   `SecurityEvent` and `WindowsEvent` records to two sources, and each Sentinel destination names
   its own (`examples/up/sluice-windows.yaml`).
-- A destination may carry `sluice_rules: [sigma]`, `[wazuh]` or both: the rules its SIEM runs.
+- A destination may carry `sluice_rules`: the rules its SIEM runs, any of `sigma`, `wazuh` and
+  `sentinel` (Microsoft Sentinel analytics rules, loaded with `--sentinel-rules DIR`, such as a
+  clone of Azure/Azure-Sentinel).
   Without it, every loaded rule set applies. Each distinct set is a *rule profile* with its own
   proof, recipes and pipeline, so a Sentinel destination is not held back by Wazuh rules that
   only the Wazuh destination runs. The archive and the tap stay one per source.
@@ -114,6 +116,14 @@ vector_secrets:                 # Vector secret backends for destination credent
     sentinel: { type: azure_logs_ingestion, …, sluice_rules: [sigma] }
     wazuh:    { type: file, path: /var/log/sluice/wazuh.ndjson, encoding: { codec: json }, sluice_rules: [wazuh] }
   ```
+- **Sentinel rules in the proof.** With `--kusto URL` (a Kusto emulator; `scripts/kql-check.sh`
+  starts one in Docker), each cycle loads the window, full and forwarded, into the emulator as
+  `SecurityEvent` and `WindowsEvent` records (from the sources' `shape`) and runs every rule's
+  query on both. Any difference in the result rows fails the proof. Rules that cannot run in
+  the emulator are listed at startup; without `--kusto`, their requirements still constrain
+  every cut, but the proof covers Sigma and Wazuh only. Point `--sentinel-rules` at the rules
+  your workspace actually runs: a rule that reads `EventData` on every event keeps it on every
+  event ([ADR 0015](adr/0015-sentinel-analytics-rules.md)).
 - Credentials go in secret files, referenced as `SECRET[backend.key]` through `vector_secrets`
   ([ADR 0010](adr/0010-secrets-and-control-plane-access.md)). Vector 0.59 does not expand
   `${VAR}` in its configuration, so environment references do not work.

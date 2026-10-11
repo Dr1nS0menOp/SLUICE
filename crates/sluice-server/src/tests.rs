@@ -40,6 +40,26 @@ fn build(
     destinations: Map<String, Value>,
     wazuh: bool,
 ) -> Result<Shared, crate::ServerError> {
+    let rules = Rules {
+        sigma: SigmaRules::parse([include_str!("../../../examples/rules/sigma/windows.yml")])
+            .unwrap(),
+        wazuh: wazuh.then(|| {
+            sluice_rules::WazuhRules::parse([include_str!(
+                "../../../examples/rules/wazuh/local_rules.xml"
+            )])
+            .unwrap()
+        }),
+        sentinel: None,
+    };
+    build_with(dir, token, destinations, rules)
+}
+
+fn build_with(
+    dir: &std::path::Path,
+    token: Option<&str>,
+    destinations: Map<String, Value>,
+    rules: Rules,
+) -> Result<Shared, crate::ServerError> {
     let sample = generate(&SynthConfig {
         scale_percent: 1,
         ..SynthConfig::default()
@@ -69,16 +89,6 @@ fn build(
             shadow_secs: 0,
             min_proofs: 2,
         },
-    };
-    let rules = Rules {
-        sigma: SigmaRules::parse([include_str!("../../../examples/rules/sigma/windows.yml")])
-            .unwrap(),
-        wazuh: wazuh.then(|| {
-            sluice_rules::WazuhRules::parse([include_str!(
-                "../../../examples/rules/wazuh/local_rules.xml"
-            )])
-            .unwrap()
-        }),
     };
     Shared::new(
         config,
@@ -295,6 +305,73 @@ async fn c5_each_destination_is_proven_against_its_own_siems_rules() {
     assert_eq!(
         get(&shared, "/status?profile=nope", None).await.status(),
         StatusCode::NOT_FOUND
+    );
+}
+
+/// Alerts on every field of every event: any cut changes its alerts.
+struct EveryField;
+
+impl sluice_core::alert::RuleEngine for EveryField {
+    fn alerts_refs(
+        &self,
+        events: &[&sluice_core::event::Event],
+    ) -> Result<
+        std::collections::BTreeSet<sluice_core::alert::Alert>,
+        sluice_core::alert::EngineError,
+    > {
+        Ok(events
+            .iter()
+            .flat_map(|e| {
+                e.fields.keys().map(|k| sluice_core::alert::Alert {
+                    rule: sluice_core::ids::RuleId::new(format!("sentinel:{k}")),
+                    event: e.id,
+                })
+            })
+            .collect())
+    }
+}
+
+#[tokio::test]
+async fn c5_a_sentinel_engine_takes_part_in_its_profiles_proof() {
+    let dir = scratch("sentinel");
+    let mut destinations = Map::new();
+    destinations.insert(
+        "sentinel".into(),
+        json!({"type": "blackhole", "sluice_rules": ["sigma", "sentinel"]}),
+    );
+    destinations.insert(
+        "other".into(),
+        json!({"type": "blackhole", "sluice_rules": ["sigma"]}),
+    );
+    let rules = Rules {
+        sigma: SigmaRules::parse([include_str!("../../../examples/rules/sigma/windows.yml")])
+            .unwrap(),
+        wazuh: None,
+        sentinel: Some(crate::SentinelRuleSet {
+            rules: sluice_rules::SentinelRules::parse(std::iter::empty::<(&str, &str)>()),
+            engine: Some(Box::new(EveryField)),
+        }),
+    };
+    let shared = Arc::new(build_with(&dir, None, destinations, rules).unwrap());
+    let names: Vec<&str> = shared.profiles.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["sentinel+sigma", "sigma"]);
+
+    post(
+        &shared,
+        "/tap/windows-security",
+        ndjson("windows-security", 10),
+    )
+    .await;
+    let now = 1_791_622_800;
+    shared.run_cycle(now).unwrap();
+    let report = shared.run_cycle(now + 60).unwrap();
+    assert!(report.transitions.iter().any(|(p, _)| p == "sigma"));
+    assert!(
+        !report
+            .transitions
+            .iter()
+            .any(|(p, _)| p == "sigma+sentinel"),
+        "every cut changes the Sentinel engine's alerts"
     );
 }
 

@@ -143,6 +143,10 @@ pub(crate) enum RulesCommand {
         /// Directory of Wazuh decoder files (`*.xml`), to bound rules by `<decoded_as>`.
         #[arg(long, requires = "wazuh_rules")]
         wazuh_decoders: Option<PathBuf>,
+        /// Directory of Microsoft Sentinel analytics rules (`*.yaml` with a KQL `query`),
+        /// searched recursively, such as a clone of Azure/Azure-Sentinel.
+        #[arg(long)]
+        sentinel_rules: Option<PathBuf>,
     },
 }
 
@@ -224,6 +228,15 @@ pub(crate) struct UpArgs {
     /// (for example a copy of `/var/ossec/ruleset/decoders` and `/var/ossec/etc/decoders`).
     #[arg(long, requires = "wazuh_rules")]
     pub(crate) wazuh_decoders: Option<PathBuf>,
+    /// Directory of Microsoft Sentinel analytics rules (`*.yaml` with a KQL `query`), searched
+    /// recursively, for destinations whose `sluice_rules` name `sentinel`.
+    #[arg(long)]
+    pub(crate) sentinel_rules: Option<PathBuf>,
+    /// URL of a Kusto emulator (`scripts/kql-check.sh` starts one). The proof then runs the
+    /// Sentinel rules themselves on full and forwarded records; without it, their requirements
+    /// still constrain every cut, but the proof covers the other rule sets only.
+    #[arg(long, requires = "sentinel_rules")]
+    pub(crate) kusto: Option<String>,
     /// Feed synthetic traffic into the configured `http_server` sources (for trying it out).
     #[arg(long)]
     pub(crate) demo_traffic: bool,

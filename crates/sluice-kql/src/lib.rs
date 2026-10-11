@@ -9,8 +9,15 @@
 //! VRL that Vector runs (and the proof checks) matches an event, the KQL matches it too. Where
 //! KQL cannot decide exactly the same way, the test widens to `true`. A keep-whole condition can
 //! then only keep more of an event, never less.
+//!
+//! [`KustoEngine`] runs Sentinel analytics rules themselves in the Kusto emulator, so the proof
+//! for a Sentinel destination compares what Microsoft's engine raises on full and on forwarded
+//! records (ADR 0015).
 
+mod engine;
 mod predicate;
+mod schema;
 mod syntax;
 
+pub use crate::engine::{KustoEngine, KustoError, Table};
 pub use crate::predicate::compile;

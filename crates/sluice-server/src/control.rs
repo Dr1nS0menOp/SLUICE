@@ -7,11 +7,12 @@ use std::sync::{Mutex, PoisonError, RwLock};
 
 use serde_json::{Value, json};
 use sluice_autopilot::{
-    Helpers, Input, Lifecycle, RecipeBook, Report, Settings, Transition, cycle,
+    Helpers, Input, Lifecycle, RecipeBook, Report, Sentinel, Settings, Transition, cycle,
 };
+use sluice_core::alert::RuleEngine;
 use sluice_core::event::{Event, Timestamp};
 use sluice_core::source::Source;
-use sluice_rules::{SigmaRules, WazuhRules};
+use sluice_rules::{SentinelRules, SigmaRules, WazuhRules};
 use sluice_vector::{
     LiveProfile, LiveSettings, LiveSource, Plan, destination_profile, live_config,
 };
@@ -32,6 +33,18 @@ pub struct Rules {
     pub sigma: SigmaRules,
     /// Wazuh rules, constraining the guardrails.
     pub wazuh: Option<WazuhRules>,
+    /// Microsoft Sentinel analytics rules, for destinations that name `sentinel`.
+    pub sentinel: Option<SentinelRuleSet>,
+}
+
+/// Sentinel analytics rules and, if available, the engine that runs them for the proof
+/// (ADR 0015).
+pub struct SentinelRuleSet {
+    /// The rules; their requirements constrain the guardrails.
+    pub rules: SentinelRules,
+    /// Runs the rules' queries (the Kusto emulator). Without it, the proof of a profile with
+    /// Sentinel covers its other rule sets only.
+    pub engine: Option<Box<dyn RuleEngine + Send + Sync>>,
 }
 
 /// What one control cycle did.
@@ -50,6 +63,7 @@ pub(crate) struct Profile {
     pub(crate) name: String,
     sigma: bool,
     wazuh: bool,
+    sentinel: bool,
     lifecycle: Mutex<Lifecycle>,
     pub(crate) status: RwLock<Status>,
 }
@@ -96,6 +110,7 @@ impl Shared {
             .map(|name| Profile {
                 sigma: name.split('+').any(|r| r == "sigma"),
                 wazuh: name.split('+').any(|r| r == "wazuh"),
+                sentinel: name.split('+').any(|r| r == "sentinel"),
                 lifecycle: Mutex::new(Lifecycle::new(config.promotion.into())),
                 status: RwLock::new(Status {
                     profile: name.clone(),
@@ -118,6 +133,15 @@ impl Shared {
                     .requirements()
                     .iter()
                     .map(|r| RuleInfo::new("wazuh", r)),
+            );
+        }
+        if let Some(sentinel) = &rules.sentinel {
+            rule_info.extend(
+                sentinel
+                    .rules
+                    .requirements()
+                    .iter()
+                    .map(|r| RuleInfo::new("sentinel", r)),
             );
         }
         Ok(Self {
@@ -202,13 +226,7 @@ impl Shared {
         let mut lifecycles: Vec<_> = self.profiles.iter().map(|p| lock(&p.lifecycle)).collect();
         let mut results = Vec::with_capacity(self.profiles.len());
         for (profile, lifecycle) in self.profiles.iter().zip(&mut lifecycles) {
-            let (sigma, wazuh) = self.rules_of(profile);
-            let input = Input {
-                sources: &self.sources,
-                events,
-                sigma,
-                wazuh,
-            };
+            let input = self.input(profile, events);
             let result = cycle(
                 input,
                 &self.book,
@@ -243,8 +261,8 @@ impl Shared {
         }
         let mut transitions = Vec::new();
         for ((profile, lifecycle), result) in self.profiles.iter().zip(&lifecycles).zip(&results) {
-            let (sigma, wazuh) = self.rules_of(profile);
-            let report = Report::new(&result.analysis, sigma, wazuh);
+            let input = self.input(profile, events);
+            let report = Report::new(&result.analysis, input.sigma, input.wazuh);
             let mut status = profile
                 .status
                 .write()
@@ -264,15 +282,28 @@ impl Shared {
         })
     }
 
-    /// The rules a profile runs.
-    fn rules_of(&self, profile: &Profile) -> (&SigmaRules, Option<&WazuhRules>) {
+    /// The analysis input of a profile: the events with the rules it runs.
+    fn input<'a>(&'a self, profile: &Profile, events: &'a [Event]) -> Input<'a> {
         let sigma = if profile.sigma {
             &self.rules.sigma
         } else {
             &self.no_sigma
         };
-        let wazuh = self.rules.wazuh.as_ref().filter(|_| profile.wazuh);
-        (sigma, wazuh)
+        Input {
+            sources: &self.sources,
+            events,
+            sigma,
+            wazuh: self.rules.wazuh.as_ref().filter(|_| profile.wazuh),
+            sentinel: self
+                .rules
+                .sentinel
+                .as_ref()
+                .filter(|_| profile.sentinel)
+                .map(|s| Sentinel {
+                    rules: &s.rules,
+                    engine: s.engine.as_deref().map(|e| e as &dyn RuleEngine),
+                }),
+        }
     }
 
     fn render(&self, profiles: &[LiveProfile<'_>]) -> Result<String, ServerError> {
@@ -330,11 +361,15 @@ impl Shared {
     }
 }
 
-/// The rule sets a destination can name: Sigma always (it may be empty), Wazuh when loaded.
+/// The rule sets a destination can name: Sigma always (it may be empty), Wazuh and Sentinel
+/// when loaded.
 fn loaded(rules: &Rules) -> Vec<&'static str> {
     let mut loaded = vec!["sigma"];
     if rules.wazuh.is_some() {
         loaded.push("wazuh");
+    }
+    if rules.sentinel.is_some() {
+        loaded.push("sentinel");
     }
     loaded
 }

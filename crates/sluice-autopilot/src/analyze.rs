@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use sluice_core::advice::Advisor;
-use sluice_core::alert::EventRules;
+use sluice_core::alert::{Engines, EventRules, RuleEngine};
 use sluice_core::event::Event;
 use sluice_core::guard::{EffectiveRecipe, GuardContext, GuardrailConfig, guard};
 use sluice_core::ids::TemplateId;
@@ -13,7 +13,7 @@ use sluice_core::rules::RuleRequirements;
 use sluice_core::source::Source;
 use sluice_core::template::{LineHeader, Template, TemplateShape};
 use sluice_discover::{DiscoverConfig, Discovery, discover};
-use sluice_rules::{SigmaRules, WazuhRules};
+use sluice_rules::{SentinelRules, SigmaRules, WazuhRules};
 use sluice_vector::{Plan, VrlReducer, compile_reducer};
 
 use crate::error::AutopilotError;
@@ -52,6 +52,28 @@ pub struct Input<'a> {
     pub sigma: &'a SigmaRules,
     /// Wazuh rules, if any. They constrain the guardrails; exact verification needs `logtest`.
     pub wazuh: Option<&'a WazuhRules>,
+    /// Microsoft Sentinel analytics rules, if any.
+    pub sentinel: Option<Sentinel<'a>>,
+}
+
+/// Sentinel analytics rules (ADR 0015). Their requirements constrain the guardrails; with an
+/// engine (the rules run in the Kusto emulator) the proof also evaluates them. Without one, the
+/// proof covers the other rule sets only.
+#[derive(Clone, Copy)]
+pub struct Sentinel<'a> {
+    /// The rules.
+    pub rules: &'a SentinelRules,
+    /// Runs the rules' queries on full and on forwarded records.
+    pub engine: Option<&'a dyn RuleEngine>,
+}
+
+impl std::fmt::Debug for Sentinel<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Sentinel")
+            .field("rules", &self.rules.requirements().len())
+            .field("engine", &self.engine.is_some())
+            .finish()
+    }
 }
 
 /// Optional helpers that make an analysis smarter or stricter.
@@ -212,6 +234,7 @@ pub fn analyze_proposals(
         .requirements()
         .iter()
         .chain(input.wazuh.map_or(&[][..], WazuhRules::requirements))
+        .chain(input.sentinel.map_or(&[][..], |s| s.rules.requirements()))
         .cloned()
         .collect();
     let context = GuardContext {
@@ -260,7 +283,10 @@ pub(crate) fn prove(
     templates: &[Template],
     candidates: Vec<EffectiveRecipe>,
 ) -> Result<(Selection, VrlReducer), AutopilotError> {
-    let engine = input.sigma.engine(input.sources)?;
+    let sigma = input.sigma.engine(input.sources)?;
+    let mut engines: Vec<&dyn RuleEngine> = vec![&sigma];
+    engines.extend(input.sentinel.and_then(|s| s.engine));
+    let engine = Engines(engines);
     let build = |recipes: &[EffectiveRecipe]| {
         let plans = templates
             .iter()

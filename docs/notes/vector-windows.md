@@ -51,6 +51,14 @@ not read without elevation: the Security path is so far covered by the unit test
 The shaping runs centrally, in the `sluice up` source (`shape:`), after the archive keeps the
 original; the agent only routes the Security channel and the others to two sources.
 
+**Security channel, elevated run (2026-10-11):** run as administrator, the source read the
+Security channel without warnings: 154 events of the last two hours (4624, 4672, 4798, 5379).
+Shaped with the real Vector (Linux) using the program `sluice up` generates, all 154 were valid
+`SecurityEvent` records: 44 distinct columns, data columns filled where the events carry them
+(`TargetUserName` on 77, `LogonType`, `IpAddress` and `ProcessName` on the 43 logons), every
+`EventData` value parsed as XML (5 to 28 items), and `Activity` in the agent's form
+(`4624 - An account was successfully logged on.`).
+
 `SecurityEvent` is the table for the **Security** channel. System, Application and other
 channels go to `WindowsEvent` (`windows_event_program`): 267 real events from System,
 Application and PowerShell shaped with every column valid, and an end-to-end run through

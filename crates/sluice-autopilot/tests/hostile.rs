@@ -169,6 +169,7 @@ fn odd_names_and_values_compile_and_keep_every_alert() {
                     events: &events,
                     sigma: &rules,
                     wazuh: None,
+                    sentinel: None,
                 };
                 // Any error here (a generated program that does not compile) fails the property.
                 let analysis = analyze_proposals(
@@ -276,6 +277,7 @@ fn odd_text_lines_compile_and_keep_every_alert() {
                 events: &events,
                 sigma: &rules,
                 wazuh: None,
+                sentinel: None,
             };
             let analysis = analyze_proposals(
                 input,

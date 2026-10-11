@@ -74,6 +74,7 @@ fn eager_advice_is_guarded_and_proven() {
         events: &sample.events,
         sigma: &rules,
         wazuh: None,
+        sentinel: None,
     };
     let book = RecipeBook::embedded().expect("recipes");
     let advisor = Eager::default();
@@ -132,6 +133,7 @@ fn a_failing_advisor_is_reported_not_fatal() {
         events: &sample.events,
         sigma: &rules,
         wazuh: None,
+        sentinel: None,
     };
     let book = RecipeBook::embedded().expect("recipes");
     let analysis = analyze(

@@ -1,6 +1,6 @@
 [package]
 name = "sluice-rules"
-description = "Rule awareness for Sluice: Sigma and Wazuh rules as engine-neutral requirements"
+description = "Rule awareness for Sluice: Sigma, Wazuh and Microsoft Sentinel rules as engine-neutral requirements"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,7 +11,9 @@ publish.workspace = true
 quick-xml.workspace = true
 rsigma-eval.workspace = true
 rsigma-parser.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+serde_yaml_ng.workspace = true
 sluice-core.workspace = true
 thiserror.workspace = true
 

@@ -209,7 +209,15 @@ fn the_dcr_declares_every_column_the_programs_write() {
     let flows = dcr["properties"]["dataFlows"].as_array().expect("flows");
     assert_eq!(flows[0]["outputStream"], "Microsoft-SecurityEvent");
     assert_eq!(flows[1]["outputStream"], "Microsoft-WindowsEvent");
-    assert!(flows.iter().all(|f| f["transformKql"] == "source"));
+    assert_eq!(flows[1]["transformKql"], "source");
+    // The SecurityEvent GUID columns arrive as strings and are typed in the DCR.
+    let typing = flows[0]["transformKql"].as_str().expect("a transformation");
+    for column in SECURITY_EVENT_GUID_COLUMNS {
+        assert!(
+            typing.contains(&format!("{column} = toguid({column})")),
+            "{column}"
+        );
+    }
     // Column names must start with a letter and hold at most 45 letters, digits or `_`.
     for name in security.iter().chain(&windows) {
         assert!(name.len() <= 45 && name.starts_with(|c: char| c.is_ascii_alphabetic()));

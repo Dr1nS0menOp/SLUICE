@@ -2821,6 +2821,7 @@ dependencies = [
  "sluice-archive",
  "sluice-autopilot",
  "sluice-core",
+ "sluice-kql",
  "sluice-mcp",
  "sluice-rules",
  "sluice-server",
@@ -2860,6 +2861,7 @@ dependencies = [
  "sluice-rules",
  "sluice-synth",
  "sluice-vector",
+ "thiserror",
  "ureq",
 ]
 
@@ -2889,7 +2891,9 @@ dependencies = [
  "quick-xml",
  "rsigma-eval",
  "rsigma-parser",
+ "serde",
  "serde_json",
+ "serde_yaml_ng",
  "sluice-core",
  "sluice-synth",
  "thiserror",
