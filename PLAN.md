@@ -389,14 +389,13 @@ author of the config rather than another hop:
 
 **Backlog (added 2026-10-11, from testing in a real Sentinel workspace):**
 
-- **Any source to Sentinel.** Windows events have their tables and DCR (ADR 0014); other sources
-  do not yet. Generate a custom table (`<Source>_CL`) and its DCR from a source's discovered
-  templates (one column per top-level field, typed from the samples), print them with
-  `sluice connect sentinel --source <id>`, and test end to end in the test workspace with
-  OPNsense filterlog, Linux auth and DNS. Where Sentinel has a standard table for the data, map
-  to it instead, as for Windows: firewall logs to `CommonSecurityLog` or
-  `ASimNetworkSessionLogs`, Linux syslog to `Syslog`, so Microsoft's own rules and workbooks
-  apply.
+- **Any source to Sentinel.** Done for custom tables (2026-10-11): `sluice connect sentinel
+  --sample FILE --table NAME --out DIR` writes a `NAME_CL` table and its DCR, checked end to end
+  with firewall, Linux auth and DNS records (docs/notes/sentinel-dcr.md). Open: deriving the
+  sample from `sluice up`'s discovered templates instead of a file, real OPNsense data, and
+  mapping to standard tables where Sentinel has one, as for Windows: firewall logs to
+  `CommonSecurityLog` or `ASimNetworkSessionLogs`, Linux syslog to `Syslog`, so Microsoft's own
+  rules and workbooks apply.
 - **`Account` and `AccountType` in `SecurityEvent`.** Compare with records the Azure Monitor
   Agent collected on the same machine before deriving them.
 - **The 14 Sentinel rules that read `EventData` without an `EventID` bound** (ADR 0015): most

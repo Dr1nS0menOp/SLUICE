@@ -1,8 +1,9 @@
 //! ASIM parsers and other workspace functions whose source was read (ADR 0015, step 3).
 //!
 //! A rule that uses a parser reads whatever the parser reads. Parser files from
-//! Azure/Azure-Sentinel (`Parsers/ASim*/Parsers/*.yaml`) carry the function's names and its KQL;
-//! a unifying parser such as `imProcessCreate` calls source parsers, which read the tables.
+//! Azure/Azure-Sentinel (`Parsers/ASim*/Parsers/*.yaml`, helpers in `ASIM/lib/functions`) carry
+//! the function's names and its KQL; a unifying parser such as `imProcessCreate` calls source
+//! parsers, which read the tables.
 //! Resolution follows those calls. A function that is not known, or that calls itself, keeps
 //! the fail-closed reading: any Windows table, any column.
 
@@ -22,13 +23,22 @@ pub(super) struct Functions {
 }
 
 impl Functions {
-    /// Registers a parser document (`ParserName`, `EquivalentBuiltInParser`, `ParserQuery`).
-    /// Returns whether the document was one.
+    /// Registers a parser document (`ParserName`, `EquivalentBuiltInParser`, `ParserQuery`) or
+    /// an ASIM helper function (`ASIM/lib/functions`: `FunctionName`,
+    /// `EquivalentBuiltInFunction`, `FunctionQuery`). Returns whether the document was one.
     pub(super) fn add(&mut self, doc: &Value) -> bool {
-        let Some(query) = doc.get("ParserQuery").and_then(Value::as_str) else {
+        let (query_key, name_keys) = if doc.get("ParserQuery").is_some() {
+            ("ParserQuery", ["ParserName", "EquivalentBuiltInParser"])
+        } else {
+            (
+                "FunctionQuery",
+                ["FunctionName", "EquivalentBuiltInFunction"],
+            )
+        };
+        let Some(query) = doc.get(query_key).and_then(Value::as_str) else {
             return false;
         };
-        for key in ["ParserName", "EquivalentBuiltInParser"] {
+        for key in name_keys {
             if let Some(name) = doc.get(key).and_then(Value::as_str) {
                 self.queries.insert(name.to_owned(), query.to_owned());
             }

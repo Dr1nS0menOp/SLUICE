@@ -61,7 +61,7 @@ sources:
 | `sluice status` | The live control plane's status: savings, proof, stage per template, recent transitions. |
 | `sluice search --archive DIR [--source S] [--from T] [--to T] [--where C]…` | Prints archived events (full fidelity) as NDJSON; `--count`, `--limit`. |
 | `sluice replay … --url URL` | Sends archived events to an HTTP endpoint as NDJSON. |
-| `sluice connect TARGET` | Prints a destination for `sluice up`: `splunk`, `elastic`, `sentinel`, `chronicle`, `wazuh`, `http`. |
+| `sluice connect TARGET` | Prints a destination for `sluice up`: `splunk`, `elastic`, `sentinel`, `chronicle`, `wazuh`, `http`. For `sentinel`, `--sample FILE --table NAME --out DIR` also writes a custom table and its data collection rule for a source without a standard table. |
 | `sluice mcp [--archive DIR] [--allow-replay] [--http ADDR]` | An MCP server for AI assistants, over stdio or bearer-token HTTP. |
 | `sluice recipes [schema \| export --out DIR]` | Lists the built-in recipes, prints their JSON Schema, or exports them to edit. |
 | `sluice rules requirements --rules DIR` | Prints, as JSON, what each rule needs: log source, fields, raw text, state. |
@@ -123,7 +123,9 @@ vector_secrets:                 # Vector secret backends for destination credent
   the emulator are listed at startup; without `--kusto`, their requirements still constrain
   every cut, but the proof covers Sigma and Wazuh only. Point `--sentinel-rules` at the rules
   your workspace actually runs: a rule that reads `EventData` on every event keeps it on every
-  event ([ADR 0015](adr/0015-sentinel-analytics-rules.md)).
+  event. Include the ASIM parsers (`Parsers/ASim*/Parsers` and `ASIM/lib/functions` from
+  Azure/Azure-Sentinel) in the same directory: rules that use a parser are then bounded by what
+  the parser reads, instead of by every Windows table ([ADR 0015](adr/0015-sentinel-analytics-rules.md)).
 - Credentials go in secret files, referenced as `SECRET[backend.key]` through `vector_secrets`
   ([ADR 0010](adr/0010-secrets-and-control-plane-access.md)). Vector 0.59 does not expand
   `${VAR}` in its configuration, so environment references do not work.

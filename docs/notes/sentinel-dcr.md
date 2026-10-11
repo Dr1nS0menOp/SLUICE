@@ -116,3 +116,27 @@ Verified 2026-10-11 on the same emulator image, for `sluice_kql::KustoEngine` (A
   and two planted ones (a cleared log, a base64 PE command line), proved 5 = 5 alerts; Microsoft's
   `NRT_SecurityEventLogCleared` and `NRT_base64_encoded_pefile` each returned their row on the
   forwarded `SecurityEvent` records.
+
+## Custom tables for other sources
+
+Verified 2026-10-11 in the test workspace (tables API `2022-10-01`, DCR API `2023-03-11`, Logs
+Ingestion API `2023-01-01`), for `sluice connect sentinel --sample`:
+
+- A column name must start with a letter, have at least two characters, and use only ASCII
+  letters, digits and `_`. Refused: `src-ip`, `event.code`, `1abc`, `with space`, `_hidden`,
+  `Ünïcode`, one-letter names (`S`), and `Type`. Accepted: `Message`, `Computer`, `id`,
+  `TenantId`, a 50-character name. All of `string`, `int`, `long`, `real`, `boolean`,
+  `dynamic`, `guid` and `datetime` are valid types.
+- A DCR stream declaration accepts the field names as they are (`@timestamp`), so the
+  transformation renames them: `project-rename F_timestamp = ['@timestamp']`. Sluice keeps the
+  name of every field that is already a valid column and renames only the others, into names
+  nobody holds, so one rename never moves a column another one needs.
+- `TimeGenerated` can come from a record field: `extend TimeGenerated = todatetime(['@timestamp'])`.
+- A DCR that targets a table created a moment earlier may be refused for a short while; retrying
+  after 20 seconds worked.
+- End to end: 131 OPNsense filterlog, 71 Linux auth and 61 DNS records (synthetic, `sluice
+  demo`) went into `SluiceFirewall_CL`, `SluiceLinuxAuth_CL` and `SluiceDns_CL` with every
+  column filled as sent; nested objects arrived as `dynamic`. They were queryable after about
+  six and a half minutes.
+- A DCR stream passes only the columns it declares: a field that was not in the sample does not
+  reach the table. Generate from a sample that covers the source, and again when it changes.

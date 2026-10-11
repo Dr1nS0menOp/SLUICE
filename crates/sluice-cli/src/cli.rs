@@ -73,6 +73,25 @@ pub(crate) struct ConnectArgs {
     /// The destination's name in the configuration (default: the target's name).
     #[arg(long)]
     pub(crate) name: Option<String>,
+    /// Sentinel: sample records of a source (NDJSON, as forwarded) to derive a custom table
+    /// `<TABLE>_CL` and its data collection rule from.
+    #[arg(long, requires_all = ["table", "out"])]
+    pub(crate) sample: Option<PathBuf>,
+    /// Sentinel: the custom table's name, without `_CL`.
+    #[arg(long, requires = "sample")]
+    pub(crate) table: Option<String>,
+    /// Sentinel: the field `TimeGenerated` is read from (default: the time of ingestion).
+    #[arg(long, requires = "sample")]
+    pub(crate) time_field: Option<String>,
+    /// Sentinel: the workspace's resource ID, for the data collection rule.
+    #[arg(long, requires = "sample")]
+    pub(crate) workspace: Option<String>,
+    /// Sentinel: the Azure region of the workspace.
+    #[arg(long, requires = "sample", default_value = "westeurope")]
+    pub(crate) location: String,
+    /// Sentinel: directory to write `<TABLE>_CL.table.json` and `<TABLE>.dcr.json` to.
+    #[arg(long, requires = "sample")]
+    pub(crate) out: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

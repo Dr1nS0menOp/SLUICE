@@ -3,9 +3,11 @@
 //! Sentinel stores Windows events in `SecurityEvent` (Security channel) and `WindowsEvent`
 //! (other channels), the shapes Sluice sends (ADR 0014). A rule's query is read for the tables it
 //! references, every identifier it names (a superset of the columns it reads) and, per table
-//! reference, the `EventID`s its first `where` clauses keep. Anything not understood widens:
-//! a call to a workspace function or ASIM parser, `search`, `union *` or `pack_all()` means the
-//! rule may read any column, and a condition that is not about `EventID` keeps every row.
+//! reference, the `EventID`s (and `EventSourceName`, `Channel`, `Provider`) its first `where`
+//! clauses keep. ASIM parsers and helper functions whose source is among the files are resolved
+//! (`functions`). Anything not understood widens: an unknown parser or function, `search` or
+//! `union *` means the rule may read any column of any Windows table, `pack_all()` any column,
+//! and any other condition keeps every row.
 
 mod extract;
 mod functions;
