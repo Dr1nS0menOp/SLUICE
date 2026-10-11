@@ -60,6 +60,8 @@ First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
   rule that fills it, for sources without a standard Sentinel table; checked end to end with
   firewall, Linux auth and DNS records in a real workspace.
 
+- `shape: sentinel_asim_dns` for DNS query records (ECS fields) into `ASimDnsActivityLogs`
+  and `--standard-table asim-dns`; rules on the table apply and run in the emulator.
 - `shape: sentinel_asim_network_session` for the same firewall records into the normalized
   `ASimNetworkSessionLogs` (ASIM values as Microsoft's parsers set them) and
   `--standard-table asim-network-session`; rules on the table apply and run in the emulator.
@@ -115,6 +117,14 @@ First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
 - `sluice up --check`: validates a configuration and prints the Vector configuration it starts
   with, without starting anything.
 - AGPL-3.0-only (ADR 0008).
+
+### Documentation
+
+- [Using Sluice](docs/usage.md): step-by-step paths from the demo to running in front of a SIEM,
+  Microsoft Sentinel (Windows, syslog, firewalls, DNS, custom tables, proving against its rules),
+  several SIEMs at once, the archive, MCP, AI recipes and deployment.
+- [Architecture and technologies](docs/architecture.md): the parts, how an event travels through
+  them, and what each is built on and why.
 
 ### Verification
 

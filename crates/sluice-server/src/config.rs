@@ -72,6 +72,8 @@ pub enum Shape {
     SentinelCommonSecurityLog,
     /// Firewall records as Sentinel's normalized `ASimNetworkSessionLogs`.
     SentinelAsimNetworkSession,
+    /// DNS query records as Sentinel's normalized `ASimDnsActivityLogs`.
+    SentinelAsimDns,
 }
 
 impl Shape {
@@ -88,6 +90,7 @@ impl Shape {
             Self::SentinelAsimNetworkSession => {
                 sluice_vector::asim_network_session::asim_network_session_program()
             }
+            Self::SentinelAsimDns => sluice_vector::asim_dns::asim_dns_program(),
         }
     }
 }

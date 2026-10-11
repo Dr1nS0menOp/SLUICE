@@ -9,12 +9,13 @@ use super::lexer::Token;
 
 /// The Sentinel tables Sluice shapes records for (`shape` on a source), and what each query part
 /// needs from them.
-pub(super) const TABLES: [&str; 5] = [
+pub(super) const TABLES: [&str; 6] = [
     "SecurityEvent",
     "WindowsEvent",
     "Syslog",
     "CommonSecurityLog",
     "ASimNetworkSessionLogs",
+    "ASimDnsActivityLogs",
 ];
 
 /// A field every record of the table has, which no other shape gives: `Syslog`,
@@ -25,6 +26,7 @@ pub(super) fn table_marker(table: &str) -> Option<&'static str> {
         "Syslog" => Some("SyslogMessage"),
         "CommonSecurityLog" => Some("DeviceVendor"),
         "ASimNetworkSessionLogs" => Some("EventSchemaVersion"),
+        "ASimDnsActivityLogs" => Some("DnsQuery"),
         _ => None,
     }
 }

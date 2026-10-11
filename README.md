@@ -156,7 +156,11 @@ scripts/install-zig.sh && scripts/build-release.sh   # static binaries for both 
 
 ## Documentation
 
+- [Using Sluice](docs/usage.md): step by step, from a first look to running it in front of your
+  SIEM, including Microsoft Sentinel
 - [User guide](docs/guide.md): concepts, source descriptions, every command and setting
+- [Architecture and technologies](docs/architecture.md): the parts, how an event travels through
+  them, and what each is built on
 - [Architecture decisions](docs/adr/)
 - [Compatibility](docs/compatibility.md)
 - [Contributing](CONTRIBUTING.md)
