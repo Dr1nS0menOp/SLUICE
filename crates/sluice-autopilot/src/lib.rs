@@ -17,7 +17,7 @@ mod spot;
 
 pub use crate::analyze::{Analysis, Helpers, Input, Settings, analyze, analyze_proposals};
 pub use crate::error::AutopilotError;
-pub use crate::lifecycle::{Lifecycle, Policy, Stage, Transition};
+pub use crate::lifecycle::{Evidence, Lifecycle, Policy, Stage, Transition};
 pub use crate::live::{Cycle, cycle};
 pub use crate::recipes::{RecipeBook, Resolution};
 pub use crate::report::{Report, TemplateRow, render_html};

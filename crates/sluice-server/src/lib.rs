@@ -260,6 +260,9 @@ fn log_transitions(transitions: &[(String, Transition)]) {
             Transition::RolledBack(t) => {
                 tracing::warn!(%profile, template = %t, "enforced recipe ROLLED BACK");
             }
+            Transition::Paused(t) => {
+                tracing::info!(%profile, template = %t, "recipe paused: template is rare now");
+            }
         }
     }
 }

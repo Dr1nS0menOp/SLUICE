@@ -351,6 +351,7 @@ const TRANSITION = {
   promoted: "Enforced. Vector reloaded with the recipe.",
   demoted: "Returned to shadow.",
   rolled_back: "Rolled back: a proof failed, so the template passes through unchanged again.",
+  paused: "Paused: the template became rare in this window, and rare is never cut. It starts over once it is clearly frequent again.",
 };
 
 function templateView(id) {

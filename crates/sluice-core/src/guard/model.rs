@@ -216,7 +216,24 @@ impl GuardrailConfig {
             < u128::from(self.rarity_min_share_ppm) * u128::from(stats.source_events);
         stats.events < self.rarity_min_events || share_too_small
     }
+
+    /// Whether `template` is too close to the rarity floor for a new recipe to start: below
+    /// [`ENTRY_MARGIN_PERCENT`] of either threshold. A template hovering at the floor would
+    /// otherwise start and stop its recipe every few cycles. The margin only delays cutting, so
+    /// it is always safe.
+    #[must_use]
+    pub fn is_near_rare(&self, template: &Template) -> bool {
+        let raised = Self {
+            rarity_min_events: self.rarity_min_events * ENTRY_MARGIN_PERCENT / 100,
+            rarity_min_share_ppm: self.rarity_min_share_ppm * ENTRY_MARGIN_PERCENT / 100,
+        };
+        raised.is_rare(template)
+    }
 }
+
+/// How far above the rarity floor, in percent of it, a template must be for a new recipe to
+/// enter shadow.
+pub const ENTRY_MARGIN_PERCENT: u64 = 125;
 
 /// Everything the guardrails need besides the recipe and template.
 #[derive(Debug, Clone, Copy)]

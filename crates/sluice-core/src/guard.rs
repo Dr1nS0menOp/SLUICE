@@ -17,7 +17,8 @@ mod protection;
 
 use crate::template::{Template, TemplateShape};
 pub use model::{
-    Adjustment, ContractRule, EffectiveRecipe, GuardContext, GuardrailConfig, Reason, Route,
+    Adjustment, ContractRule, ENTRY_MARGIN_PERCENT, EffectiveRecipe, GuardContext, GuardrailConfig,
+    Reason, Route,
 };
 use protection::Protection;
 

@@ -228,6 +228,7 @@ impl Status {
                 Transition::Promoted(id) => ("promoted", id),
                 Transition::Demoted(id) => ("demoted", id),
                 Transition::RolledBack(id) => ("rolled_back", id),
+                Transition::Paused(id) => ("paused", id),
             };
             TransitionRecord {
                 at,

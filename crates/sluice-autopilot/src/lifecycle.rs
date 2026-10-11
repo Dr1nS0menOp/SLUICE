@@ -57,6 +57,23 @@ pub enum Transition {
     Demoted(TemplateId),
     /// An enforced recipe failed a proof and was removed from the data plane.
     RolledBack(TemplateId),
+    /// The template became rare in this window, so its recipe stopped (contract rule 4, not a
+    /// failed proof). It starts over in shadow once the template is clearly frequent again.
+    Paused(TemplateId),
+}
+
+/// What one window says about the tracked templates.
+#[derive(Debug, Clone, Copy)]
+pub struct Evidence<'a> {
+    /// Templates present in the window.
+    pub seen: &'a BTreeSet<TemplateId>,
+    /// Templates whose recipe was proven on it.
+    pub proven: &'a BTreeSet<TemplateId>,
+    /// Templates below the rarity floor in it: never cut, but nothing failed.
+    pub rare: &'a BTreeSet<TemplateId>,
+    /// Templates too close to the floor for a new recipe to start
+    /// ([`GuardrailConfig::is_near_rare`](sluice_core::guard::GuardrailConfig::is_near_rare)).
+    pub near_rare: &'a BTreeSet<TemplateId>,
 }
 
 /// The stages of all templates with a proven recipe, and the last proven recipe of every enforced
@@ -109,32 +126,33 @@ impl Lifecycle {
             .collect()
     }
 
-    /// Advances one cycle. `seen` are the templates present in this window, `proven` those whose
-    /// recipe was proven on it. A template absent from the window keeps its stage: no traffic is
-    /// no evidence either way.
-    pub fn advance(
-        &mut self,
-        now: Timestamp,
-        seen: &BTreeSet<TemplateId>,
-        proven: &BTreeSet<TemplateId>,
-    ) -> Vec<Transition> {
+    /// Advances one cycle on a window's evidence. A template absent from the window keeps its
+    /// stage: no traffic is no evidence either way. A tracked template that was not proven stops:
+    /// paused if it became rare, otherwise demoted (shadow) or rolled back (enforced). A new
+    /// recipe only enters shadow when its template is clearly above the rarity floor.
+    pub fn advance(&mut self, now: Timestamp, evidence: Evidence<'_>) -> Vec<Transition> {
         let mut transitions = Vec::new();
-        let failed: Vec<TemplateId> = self
+        let stopped: Vec<TemplateId> = self
             .stages
             .keys()
-            .filter(|t| seen.contains(*t) && !proven.contains(*t))
+            .filter(|t| evidence.seen.contains(*t) && !evidence.proven.contains(*t))
             .cloned()
             .collect();
-        for template in failed {
+        for template in stopped {
             self.deployed.remove(&template);
-            match self.stages.remove(&template) {
+            let stage = self.stages.remove(&template);
+            match stage {
+                Some(_) if evidence.rare.contains(&template) => {
+                    transitions.push(Transition::Paused(template));
+                }
                 Some(Stage::Enforced { .. }) => transitions.push(Transition::RolledBack(template)),
                 Some(Stage::Shadow { .. }) => transitions.push(Transition::Demoted(template)),
                 None => {}
             }
         }
-        for template in proven {
+        for template in evidence.proven {
             let next = match self.stages.get(template) {
+                None if evidence.near_rare.contains(template) => continue,
                 None => {
                     transitions.push(Transition::Shadowing(template.clone()));
                     Stage::Shadow {
@@ -189,8 +207,26 @@ mod tests {
 
     /// One cycle in which every template named so far was seen; `proven` of them were proven.
     fn step(l: &mut Lifecycle, at: i64, proven: &[&str]) -> Vec<Transition> {
+        step_with(l, at, proven, &[], &[])
+    }
+
+    fn step_with(
+        l: &mut Lifecycle,
+        at: i64,
+        proven: &[&str],
+        rare: &[&str],
+        near_rare: &[&str],
+    ) -> Vec<Transition> {
         let seen = ids(&["a", "b", "c"]);
-        l.advance(Timestamp(at), &seen, &ids(proven))
+        l.advance(
+            Timestamp(at),
+            Evidence {
+                seen: &seen,
+                proven: &ids(proven),
+                rare: &ids(rare),
+                near_rare: &ids(near_rare),
+            },
+        )
     }
 
     fn lifecycle() -> Lifecycle {
@@ -243,7 +279,16 @@ mod tests {
         for hour in [0, 12, 24] {
             step(&mut l, hour * HOUR, &["a"]);
         }
-        let quiet = l.advance(Timestamp(30 * HOUR), &ids(&[]), &ids(&[]));
+        let none = ids(&[]);
+        let quiet = l.advance(
+            Timestamp(30 * HOUR),
+            Evidence {
+                seen: &none,
+                proven: &none,
+                rare: &none,
+                near_rare: &none,
+            },
+        );
         assert_eq!(quiet, []);
         assert_eq!(l.enforced(), ids(&["a"]));
     }
@@ -265,5 +310,36 @@ mod tests {
             [Transition::RolledBack("b".into())]
         );
         assert!(l.enforced().is_empty());
+    }
+
+    #[test]
+    fn c4_a_template_that_turns_rare_pauses_instead_of_rolling_back() {
+        let mut l = lifecycle();
+        for hour in [0, 12, 24] {
+            step(&mut l, hour * HOUR, &["a"]);
+        }
+        assert_eq!(
+            step_with(&mut l, 25 * HOUR, &[], &["a"], &["a"]),
+            [Transition::Paused("a".into())]
+        );
+        assert!(l.enforced().is_empty(), "rare is never cut");
+    }
+
+    #[test]
+    fn c4_a_new_recipe_waits_until_its_template_is_clearly_frequent() {
+        let mut l = lifecycle();
+        // Proven, but just above the floor: it does not enter shadow, so it cannot flap.
+        assert_eq!(step_with(&mut l, 0, &["a"], &[], &["a"]), []);
+        assert!(l.stages().is_empty());
+        assert_eq!(
+            step(&mut l, HOUR, &["a"]),
+            [Transition::Shadowing("a".into())]
+        );
+        // Once in shadow, being near the floor does not stop it; being below it does.
+        assert_eq!(step_with(&mut l, 2 * HOUR, &["a"], &[], &["a"]), []);
+        assert!(matches!(
+            l.stages()[&TemplateId::new("a")],
+            Stage::Shadow { proofs: 2, .. }
+        ));
     }
 }
