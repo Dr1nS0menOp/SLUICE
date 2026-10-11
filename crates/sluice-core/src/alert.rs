@@ -56,11 +56,21 @@ pub trait EventRules {
 /// time order, and stateful rules (correlations, frequencies) see exactly those events, starting
 /// from empty state on every call.
 pub trait RuleEngine {
-    /// All alerts the rules raise on `events`.
+    /// All alerts the rules raise on `events`, given by reference so a caller can mix events it
+    /// owns with ones it borrows (the proof forwards most events unchanged).
     ///
     /// # Errors
     ///
     /// Returns [`EngineError`] if evaluation is impossible. It must never return a partial or
     /// empty set in place of an error.
-    fn alerts(&self, events: &[Event]) -> Result<BTreeSet<Alert>, EngineError>;
+    fn alerts_refs(&self, events: &[&Event]) -> Result<BTreeSet<Alert>, EngineError>;
+
+    /// All alerts the rules raise on `events`.
+    ///
+    /// # Errors
+    ///
+    /// As [`RuleEngine::alerts_refs`].
+    fn alerts(&self, events: &[Event]) -> Result<BTreeSet<Alert>, EngineError> {
+        self.alerts_refs(&events.iter().collect::<Vec<_>>())
+    }
 }

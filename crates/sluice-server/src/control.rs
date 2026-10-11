@@ -9,14 +9,14 @@ use serde_json::{Value, json};
 use sluice_autopilot::{
     Helpers, Input, Lifecycle, RecipeBook, Report, Settings, Transition, cycle,
 };
-use sluice_core::event::Timestamp;
+use sluice_core::event::{Event, Timestamp};
 use sluice_core::source::Source;
 use sluice_rules::{SigmaRules, WazuhRules};
 use sluice_vector::{
     LiveProfile, LiveSettings, LiveSource, Plan, destination_profile, live_config,
 };
 
-use crate::config::ServerConfig;
+use crate::config::{ServerConfig, Shape};
 
 /// Name of Sluice's own Vector secret backend; reserved in `vector_secrets`.
 pub(crate) const SECRET_BACKEND: &str = "sluice";
@@ -188,17 +188,24 @@ impl Shared {
     /// and advanced against its own rules only. The configuration is written once, with every
     /// profile's pipeline; if any profile fails, nothing changes.
     pub(crate) fn run_cycle(&self, now: i64) -> Result<CycleReport, ServerError> {
-        let events = lock(&self.windows).snapshot(now);
-        if events.is_empty() {
-            return Ok(CycleReport::default());
-        }
+        let events = lock(&self.windows).take(now);
+        let result = if events.is_empty() {
+            Ok(CycleReport::default())
+        } else {
+            self.cycle_on(&events, now)
+        };
+        lock(&self.windows).give_back(events);
+        result
+    }
+
+    fn cycle_on(&self, events: &[Event], now: i64) -> Result<CycleReport, ServerError> {
         let mut lifecycles: Vec<_> = self.profiles.iter().map(|p| lock(&p.lifecycle)).collect();
         let mut results = Vec::with_capacity(self.profiles.len());
         for (profile, lifecycle) in self.profiles.iter().zip(&mut lifecycles) {
             let (sigma, wazuh) = self.rules_of(profile);
             let input = Input {
                 sources: &self.sources,
-                events: &events,
+                events,
                 sigma,
                 wazuh,
             };
@@ -229,11 +236,11 @@ impl Shared {
         let yaml = self.render(&live)?;
         let config_changed = self.write_if_changed(&yaml)?;
 
-        let window: BTreeMap<String, usize> = lock(&self.windows)
-            .sizes()
-            .into_iter()
-            .map(|(s, n)| (s.to_string(), n))
-            .collect();
+        // The window this cycle analyzed, per source.
+        let mut window: BTreeMap<String, usize> = BTreeMap::new();
+        for event in events {
+            *window.entry(event.source.to_string()).or_default() += 1;
+        }
         let mut transitions = Vec::new();
         for ((profile, lifecycle), result) in self.profiles.iter().zip(&lifecycles).zip(&results) {
             let (sigma, wazuh) = self.rules_of(profile);
@@ -242,7 +249,7 @@ impl Shared {
                 .status
                 .write()
                 .unwrap_or_else(PoisonError::into_inner);
-            status.record(now, result, lifecycle, &report, &self.sources, &events);
+            status.record(now, result, lifecycle, &report, &self.sources, events);
             status.window.clone_from(&window);
             transitions.extend(
                 result
@@ -269,13 +276,21 @@ impl Shared {
     }
 
     fn render(&self, profiles: &[LiveProfile<'_>]) -> Result<String, ServerError> {
+        let shapes: Vec<Option<String>> = self
+            .config
+            .sources
+            .iter()
+            .map(|s| s.shape.map(Shape::program))
+            .collect();
         let sources: Vec<LiveSource<'_>> = self
             .config
             .sources
             .iter()
-            .map(|s| LiveSource {
+            .zip(&shapes)
+            .map(|(s, shape)| LiveSource {
                 source: &s.source,
                 vector: &s.vector,
+                shape: shape.as_deref(),
             })
             .collect();
         let mut secret_backends = self.config.vector_secrets.clone();

@@ -17,7 +17,7 @@ struct FakeEngine {
 }
 
 impl RuleEngine for FakeEngine {
-    fn alerts(&self, events: &[Event]) -> Result<BTreeSet<Alert>, EngineError> {
+    fn alerts_refs(&self, events: &[&Event]) -> Result<BTreeSet<Alert>, EngineError> {
         if self.fail {
             return Err(EngineError("boom".into()));
         }

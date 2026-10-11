@@ -1,0 +1,55 @@
+# `sluice up` receiving Windows hosts that run `sluice agent windows` (ADR 0014), with one
+# destination per Sentinel table. The hosts send events as Vector reads them; each source
+# archives the original, then shapes it as its table's record (`shape`), before the proof and
+# the reductions. The two file destinations stand in for Sentinel: replace them
+# with `sluice connect sentinel` sinks whose `stream_name` is Custom-SluiceSecurityEvent and
+# Custom-SluiceWindowsEvent, keeping the `sluice_sources` lines.
+#
+#   sluice agent windows --to http://<this host>:9110 --events-to http://<this host>:9111 \
+#     --channel Security --channel System --channel Application > agent.yaml   # on each host
+#   sluice up --config examples/up/sluice-windows.yaml --rules <SigmaHQ rules>
+#
+# The promotion settings are for trying it out; production defaults are 24 hours and 3 proofs.
+
+listen: 127.0.0.1:8686
+vector_config: out/windows/vector.yaml
+archive_dir: out/windows/archive
+data_dir: out/windows/vector-data
+tap_rate: 1
+cycle_secs: 30
+
+promotion:
+  shadow_secs: 60
+  min_proofs: 2
+
+sources:
+  # The Security channel, shaped as SecurityEvent: one service, so Sigma rules for other
+  # Windows services do not apply to it.
+  - id: windows-security
+    logsource: { product: windows, service: security }
+    format: { kind: json }
+    shape: sentinel_security_event   # after the archive, which keeps the event as sent
+    vector: &http
+      type: http_server
+      address: 127.0.0.1:9110
+      decoding: { codec: json }
+      framing: { method: newline_delimited }
+  # Every other channel, shaped as WindowsEvent. Several services arrive here, so the service
+  # stays open and every Windows rule keeps applying.
+  - id: windows-events
+    logsource: { product: windows }
+    format: { kind: json }
+    shape: sentinel_windows_event
+    vector: { <<: *http, address: 127.0.0.1:9111 }
+
+destinations:
+  security_event:
+    type: file
+    path: out/windows/sentinel/SecurityEvent-%Y-%m-%d-%H.ndjson
+    encoding: { codec: json }
+    sluice_sources: [windows-security]
+  windows_event:
+    type: file
+    path: out/windows/sentinel/WindowsEvent-%Y-%m-%d-%H.ndjson
+    encoding: { codec: json }
+    sluice_sources: [windows-events]

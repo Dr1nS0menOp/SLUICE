@@ -112,7 +112,7 @@ pub(crate) fn what_breaks(
                     let used = fields
                         .iter()
                         .map(FieldPath::new)
-                        .find(|f| f.covers(field) || field.covers(f))?;
+                        .find(|f| f.may_denote(field))?;
                     format!("it reads {used}")
                 }
             };

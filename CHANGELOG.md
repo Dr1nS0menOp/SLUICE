@@ -41,6 +41,18 @@ First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
 - `sluice connect` for Splunk, Elastic, Microsoft Sentinel, Google SecOps, Wazuh (JSON and raw-line
   files) and HTTP, validated against Vector 0.59.
 
+### Collection agents
+
+- `sluice agent windows`: the Vector configuration for a Windows host that sends Security
+  channel events and every other channel to their own `sluice up` source; with `--dcr`, the
+  Sentinel data collection rule that stores them unchanged (ADR 0014).
+- `shape` on a `sluice up` source (`sentinel_security_event`, `sentinel_windows_event`): events
+  are archived as they arrive, then shaped as the Sentinel table's record before the tap and
+  the reductions.
+- `sluice_sources` on a destination: only those sources reach it.
+- Guardrails: a rule's bare field also protects the same field nested under an object
+  (`EventData.ScriptBlockText`), as Sentinel's `WindowsEvent` stores it.
+
 ### Native transformations (in progress)
 
 - `sluice-kql`: pre-filters as KQL for Azure Monitor DCR transformations (Sentinel), compiled to

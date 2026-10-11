@@ -45,6 +45,27 @@ impl FieldPath {
                 .strip_prefix(&self.0)
                 .is_some_and(|rest| rest.starts_with('.'))
     }
+
+    /// Returns true if a rule's field `self` may denote the event path `other`: the same path,
+    /// an ancestor or a descendant of it, or any of those nested under an object
+    /// (`ScriptBlockText` and `EventData.ScriptBlockText`).
+    ///
+    /// Rules name a provider's fields bare, while some SIEM tables keep them under one column:
+    /// Sentinel's `WindowsEvent` stores them in `EventData`. Comparing only exact paths would
+    /// let the guardrails believe such a rule reads nothing of the event, and cut what it reads.
+    /// Matching more paths only keeps more, so this errs on the safe side.
+    #[must_use]
+    pub fn may_denote(&self, other: &FieldPath) -> bool {
+        let related = |path: &str| {
+            let candidate = FieldPath::new(path);
+            self.covers(&candidate) || candidate.covers(self)
+        };
+        related(&other.0)
+            || other
+                .0
+                .match_indices('.')
+                .any(|(at, _)| related(&other.0[at + 1..]))
+    }
 }
 
 /// Lets sets and maps keyed by `FieldPath` be queried with a `&str`. Sound because ordering,
@@ -79,6 +100,26 @@ mod tests {
         assert!(!parent.covers(&"process_name".into()));
         assert!(!parent.covers(&"proc".into()));
         assert!(!FieldPath::from("process.name").covers(&parent));
+    }
+
+    #[test]
+    fn c3_a_rule_field_denotes_the_same_field_nested_under_an_object() {
+        let rule = FieldPath::from("ScriptBlockText");
+        assert!(rule.may_denote(&"ScriptBlockText".into()));
+        assert!(rule.may_denote(&"EventData.ScriptBlockText".into()));
+        assert!(rule.may_denote(&"EventData.ScriptBlockText.part".into()));
+        assert!(!rule.may_denote(&"EventData.ScriptBlockTextLength".into()));
+        assert!(!rule.may_denote(&"MyScriptBlockText".into()));
+        // Not the containing object by itself: the guardrails protect that object through the
+        // template's leaf paths, which they expand claims to.
+        assert!(!rule.may_denote(&"EventData".into()));
+        let nested = FieldPath::from("process.name");
+        assert!(nested.may_denote(&"event.process.name".into()));
+        assert!(
+            nested.may_denote(&"process".into()),
+            "dropping the parent drops it"
+        );
+        assert!(!nested.may_denote(&"name".into()));
     }
 
     #[test]

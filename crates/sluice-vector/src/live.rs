@@ -20,6 +20,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value, json};
+use sluice_core::ids::SourceId;
 use sluice_core::source::{Source, SourceFormat};
 
 use crate::config::{Components, Pipeline};
@@ -34,6 +35,10 @@ pub struct LiveSource<'a> {
     pub source: &'a Source,
     /// The Vector source configuration, used verbatim.
     pub vector: &'a Value,
+    /// VRL that shapes each event as the SIEM stores it (such as Sentinel's `SecurityEvent`,
+    /// [`crate::windows`]). It runs after the archive, which keeps the original (contract rule
+    /// 2), and before the tap and the reductions, so Sluice proves on what the SIEM stores.
+    pub shape: Option<&'a str>,
 }
 
 /// Deployment settings.
@@ -132,50 +137,9 @@ pub fn live_config(
     let tagged = profiles.len() > 1;
     for live in sources {
         let c = Components::for_source(&live.source.id);
-        pipeline
-            .sources
-            .insert(c.input.clone(), live.vector.clone());
+        let entry = add_intake(&mut pipeline, live, &c, settings);
 
-        let sample = format!("sluice_{}_tap_sample", c.stem);
-        pipeline.transforms.insert(
-            sample.clone(),
-            // No `sample_rate` field: the control plane must see events exactly as the
-            // pipeline does, or its templates (key sets) would never match live traffic.
-            json!({
-                "type": "sample",
-                "inputs": [c.input],
-                "rate": settings.tap_rate,
-                "sample_rate_key": "",
-            }),
-        );
-        let mut tap = json!({
-            "type": "http",
-            "inputs": [sample],
-            "uri": format!("{}/tap/{}", settings.control_plane.trim_end_matches('/'), live.source.id),
-            "method": "post",
-            "encoding": { "codec": "json" },
-            "framing": { "method": "newline_delimited" },
-            "batch": { "max_events": 500, "timeout_secs": 1 },
-        });
-        if let Some(token) = settings.tap_token {
-            tap["auth"] = json!({ "strategy": "bearer", "token": token });
-        }
-        pipeline.sinks.insert(format!("sluice_{}_tap", c.stem), tap);
-        pipeline.sinks.insert(
-            c.archive_sink(),
-            json!({
-                "type": "file",
-                "inputs": [c.input],
-                "path": format!("{}/{}/%Y-%m-%d/%H.ndjson.gz", settings.archive_dir, live.source.id),
-                "encoding": { "codec": "json" },
-                "compression": "gzip",
-                // `sluice search` and `sluice replay` read the hour from the path: pin it to UTC
-                // whatever the operator's global `timezone` is.
-                "timezone": "UTC",
-            }),
-        );
-
-        unreduced.add_events(live.source, [c.input.clone()]);
+        unreduced.add_events(live.source, [entry.clone()]);
         for profile in profiles {
             let p = if tagged {
                 c.for_profile(profile.name)
@@ -187,7 +151,7 @@ pub fn live_config(
                 Some(program) => {
                     pipeline.add_transforms(
                         &p,
-                        &c.input,
+                        &entry,
                         &live.source.id,
                         program.source(),
                         profile.plans,
@@ -200,20 +164,15 @@ pub fn live_config(
                             format!("{}.dropped", p.program),
                         ],
                     );
-                    out.summaries.push(p.summaries.clone());
+                    out.summaries
+                        .push((live.source.id.clone(), p.summaries.clone()));
                 }
-                None => out.add_events(live.source, [c.input.clone()]),
+                None => out.add_events(live.source, [entry.clone()]),
             }
         }
     }
     for (name, sink) in settings.destinations {
-        let profile = destination_profile(name, sink, loaded)?;
-        let mut sink = sink.clone();
-        let (formats, _) = sink.as_object_mut().map_or((None, None), |s| {
-            (s.remove(FORMATS_KEY), s.remove(RULES_KEY))
-        });
-        let feeds = outputs.get(profile.as_str()).unwrap_or(&unreduced);
-        sink["inputs"] = json!(feeds.select(name, formats.as_ref(), sources)?);
+        let sink = destination(name, sink, &outputs, &unreduced, loaded, sources)?;
         pipeline.sinks.insert(name.clone(), sink);
     }
 
@@ -238,34 +197,48 @@ pub fn live_config(
 /// syslog rules) and JSON sources as JSON; summaries are JSON records and go with `json`.
 pub const FORMATS_KEY: &str = "sluice_formats";
 
-/// The component outputs that feed destinations, by kind.
+/// Destination key, removed before Vector sees the sink, that limits a destination to some
+/// sources by id, such as `[windows-security]`. A SIEM table takes one shape of record:
+/// Sentinel's `SecurityEvent` and `WindowsEvent` need one destination each.
+pub const SOURCES_KEY: &str = "sluice_sources";
+
+/// The component outputs that feed destinations, by kind, each with the source it carries.
 #[derive(Default)]
 struct Outputs {
-    json_events: Vec<String>,
-    text_events: Vec<String>,
-    summaries: Vec<String>,
+    json_events: Vec<(SourceId, String)>,
+    text_events: Vec<(SourceId, String)>,
+    summaries: Vec<(SourceId, String)>,
 }
 
 impl Outputs {
     fn add_events(&mut self, source: &Source, outputs: impl IntoIterator<Item = String>) {
+        let tagged = outputs.into_iter().map(|o| (source.id.clone(), o));
         match source.format {
-            SourceFormat::Json => self.json_events.extend(outputs),
-            SourceFormat::Text { .. } => self.text_events.extend(outputs),
+            SourceFormat::Json => self.json_events.extend(tagged),
+            SourceFormat::Text { .. } => self.text_events.extend(tagged),
         }
     }
 
-    /// The inputs of destination `name` given its `sluice_formats` (all outputs when absent).
+    /// The inputs of destination `name` given its `sluice_formats` and `sluice_sources` (all
+    /// outputs of all sources when absent).
     fn select(
         &self,
         name: &str,
         formats: Option<&Value>,
+        only: Option<&BTreeSet<SourceId>>,
         sources: &[LiveSource<'_>],
     ) -> Result<Vec<String>, VectorError> {
+        let wanted = |outputs: &[(SourceId, String)]| -> Vec<String> {
+            outputs
+                .iter()
+                .filter(|(source, _)| only.is_none_or(|o| o.contains(source)))
+                .map(|(_, output)| output.clone())
+                .collect()
+        };
         let Some(formats) = formats else {
             return Ok([&self.json_events, &self.text_events, &self.summaries]
                 .into_iter()
-                .flatten()
-                .cloned()
+                .flat_map(|o| wanted(o))
                 .collect());
         };
         let invalid = || {
@@ -277,13 +250,14 @@ impl Outputs {
         for format in formats.as_array().ok_or_else(invalid)? {
             match format.as_str() {
                 Some("json") => {
-                    inputs.extend(self.json_events.iter().cloned());
-                    inputs.extend(self.summaries.iter().cloned());
+                    inputs.extend(wanted(&self.json_events));
+                    inputs.extend(wanted(&self.summaries));
                 }
                 Some("text") => {
                     // A text codec writes Vector's `message` field, so the line must be there.
                     let elsewhere = sources.iter().find(|s| {
-                        matches!(&s.source.format, SourceFormat::Text { field } if field.as_str() != "message")
+                        only.is_none_or(|o| o.contains(&s.source.id))
+                            && matches!(&s.source.format, SourceFormat::Text { field } if field.as_str() != "message")
                     });
                     if let Some(live) = elsewhere {
                         return Err(VectorError::Config(format!(
@@ -292,7 +266,7 @@ impl Outputs {
                             live.source.id
                         )));
                     }
-                    inputs.extend(self.text_events.iter().cloned());
+                    inputs.extend(wanted(&self.text_events));
                 }
                 _ => return Err(invalid()),
             }
@@ -301,6 +275,130 @@ impl Outputs {
     }
 }
 
+/// One source's intake: the operator's Vector source, the archive of every event as it arrived,
+/// the optional shaping, and the sampled tap. Returns the component everything downstream
+/// reads: the shaping, or the source itself.
+fn add_intake(
+    pipeline: &mut Pipeline,
+    live: &LiveSource<'_>,
+    c: &Components,
+    settings: &LiveSettings<'_>,
+) -> String {
+    pipeline
+        .sources
+        .insert(c.input.clone(), live.vector.clone());
+    // Everything after the archive reads the shaped events, if the source has a shape.
+    let entry = match live.shape {
+        Some(program) => {
+            let shape = format!("sluice_{}_shape", c.stem);
+            pipeline.transforms.insert(
+                shape.clone(),
+                json!({
+                    "type": "remap",
+                    "inputs": [c.input],
+                    "source": program,
+                    // A failed shaping still forwards the event rather than losing it.
+                    "drop_on_error": false,
+                }),
+            );
+            shape
+        }
+        None => c.input.clone(),
+    };
+
+    let sample = format!("sluice_{}_tap_sample", c.stem);
+    pipeline.transforms.insert(
+        sample.clone(),
+        // No `sample_rate` field: the control plane must see events exactly as the
+        // pipeline does, or its templates (key sets) would never match live traffic.
+        json!({
+            "type": "sample",
+            "inputs": [entry],
+            "rate": settings.tap_rate,
+            "sample_rate_key": "",
+        }),
+    );
+    let mut tap = json!({
+        "type": "http",
+        "inputs": [sample],
+        "uri": format!("{}/tap/{}", settings.control_plane.trim_end_matches('/'), live.source.id),
+        "method": "post",
+        "encoding": { "codec": "json" },
+        "framing": { "method": "newline_delimited" },
+        "batch": { "max_events": 500, "timeout_secs": 1 },
+    });
+    if let Some(token) = settings.tap_token {
+        tap["auth"] = json!({ "strategy": "bearer", "token": token });
+    }
+    pipeline.sinks.insert(format!("sluice_{}_tap", c.stem), tap);
+    pipeline.sinks.insert(
+        c.archive_sink(),
+        json!({
+            "type": "file",
+            "inputs": [c.input],
+            "path": format!("{}/{}/%Y-%m-%d/%H.ndjson.gz", settings.archive_dir, live.source.id),
+            "encoding": { "codec": "json" },
+            "compression": "gzip",
+            // `sluice search` and `sluice replay` read the hour from the path: pin it to UTC
+            // whatever the operator's global `timezone` is.
+            "timezone": "UTC",
+        }),
+    );
+
+    entry
+}
+/// One destination's sink: Sluice's keys removed, its inputs set from its rule profile's
+/// outputs (or the unreduced sources), narrowed by its formats and sources.
+fn destination(
+    name: &str,
+    sink: &Value,
+    outputs: &BTreeMap<&str, Outputs>,
+    unreduced: &Outputs,
+    loaded: &[&str],
+    sources: &[LiveSource<'_>],
+) -> Result<Value, VectorError> {
+    let profile = destination_profile(name, sink, loaded)?;
+    let mut sink = sink.clone();
+    let (formats, only) = sink.as_object_mut().map_or((None, None), |s| {
+        s.remove(RULES_KEY);
+        (s.remove(FORMATS_KEY), s.remove(SOURCES_KEY))
+    });
+    let only = destination_sources(name, only.as_ref(), sources)?;
+    let feeds = outputs.get(profile.as_str()).unwrap_or(unreduced);
+    sink["inputs"] = json!(feeds.select(name, formats.as_ref(), only.as_ref(), sources)?);
+    Ok(sink)
+}
+
+/// The sources a destination's `sluice_sources` names; `None` without the key.
+fn destination_sources(
+    name: &str,
+    value: Option<&Value>,
+    sources: &[LiveSource<'_>],
+) -> Result<Option<BTreeSet<SourceId>>, VectorError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let invalid = || {
+        VectorError::Config(format!(
+            "destination {name}: {SOURCES_KEY} must be a non-empty list of configured source ids"
+        ))
+    };
+    let ids: BTreeSet<SourceId> = value
+        .as_array()
+        .ok_or_else(invalid)?
+        .iter()
+        .map(|id| {
+            id.as_str()
+                .filter(|id| sources.iter().any(|s| s.source.id.as_str() == *id))
+                .map(SourceId::new)
+                .ok_or_else(invalid)
+        })
+        .collect::<Result<_, _>>()?;
+    if ids.is_empty() {
+        return Err(invalid());
+    }
+    Ok(Some(ids))
+}
 #[cfg(test)]
 mod tests {
     use serde_json::{Map, Value, json};
@@ -332,6 +430,7 @@ mod tests {
             &[LiveSource {
                 source: &source,
                 vector: &vector,
+                shape: None,
             }],
             &[],
             &["sigma"],
@@ -385,10 +484,12 @@ mod tests {
             LiveSource {
                 source: &text,
                 vector: &vector,
+                shape: None,
             },
             LiveSource {
                 source: &json_source,
                 vector: &vector,
+                shape: None,
             },
         ];
         let yaml = live_config(&sources, &[], &["sigma"], &settings).unwrap();
@@ -425,9 +526,104 @@ mod tests {
         let sources = [LiveSource {
             source: &text,
             vector: &vector,
+            shape: None,
         }];
         assert!(live_config(&sources, &[], &["sigma"], &settings).is_err());
     }
+
+    #[test]
+    fn each_destination_takes_only_the_sources_it_names() {
+        let json_source = |id: &str| Source {
+            id: id.into(),
+            logsource: LogSource::default(),
+            format: SourceFormat::Json,
+        };
+        let (security, events) = (
+            json_source("windows-security"),
+            json_source("windows-events"),
+        );
+        let vector = json!({"type": "http_server", "address": "127.0.0.1:9000"});
+        let sources = [
+            LiveSource {
+                source: &security,
+                vector: &vector,
+                shape: Some(".shaped = true"),
+            },
+            LiveSource {
+                source: &events,
+                vector: &vector,
+                shape: None,
+            },
+        ];
+        let mut destinations = Map::new();
+        destinations.insert(
+            "security_event".into(),
+            json!({"type": "blackhole", "sluice_sources": ["windows-security"]}),
+        );
+        destinations.insert(
+            "windows_event".into(),
+            json!({"type": "blackhole", "sluice_sources": ["windows-events"]}),
+        );
+        destinations.insert("everything".into(), json!({"type": "blackhole"}));
+
+        let yaml = live_config(&sources, &[], &["sigma"], &settings(&destinations)).unwrap();
+        let config: Value = serde_yaml_ng::from_str(&yaml).unwrap();
+        let sinks = &config["sinks"];
+        // The archive keeps the original; the tap and the destinations read the shaped events.
+        assert_eq!(
+            sinks["security_event"]["inputs"],
+            json!(["sluice_windows_security_shape"])
+        );
+        assert_eq!(
+            sinks["sluice_windows_security_archive"]["inputs"],
+            json!(["sluice_windows_security_input"])
+        );
+        let transforms = &config["transforms"];
+        assert_eq!(
+            transforms["sluice_windows_security_tap_sample"]["inputs"],
+            json!(["sluice_windows_security_shape"])
+        );
+        assert_eq!(
+            transforms["sluice_windows_security_shape"]["source"],
+            ".shaped = true"
+        );
+        assert_eq!(
+            transforms["sluice_windows_security_shape"]["drop_on_error"],
+            false
+        );
+        assert_eq!(
+            sinks["windows_event"]["inputs"],
+            json!(["sluice_windows_events_input"])
+        );
+        assert_eq!(sinks["everything"]["inputs"].as_array().unwrap().len(), 2);
+        assert!(!yaml.contains(SOURCES_KEY));
+
+        for bad in [json!(["nope"]), json!([]), json!("windows-security")] {
+            let mut destinations = Map::new();
+            destinations.insert(
+                "d".into(),
+                json!({"type": "blackhole", "sluice_sources": bad}),
+            );
+            assert!(
+                live_config(&sources, &[], &["sigma"], &settings(&destinations)).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    fn settings(destinations: &Map<String, Value>) -> LiveSettings<'_> {
+        LiveSettings {
+            control_plane: "http://127.0.0.1:8686",
+            tap_rate: 10,
+            archive_dir: "/archive",
+            data_dir: "/data",
+            destinations,
+            tap_token: None,
+            secret_backends: &EMPTY,
+        }
+    }
+
+    static EMPTY: std::sync::LazyLock<Map<String, Value>> = std::sync::LazyLock::new(Map::new);
 
     #[test]
     fn each_destination_takes_the_profile_of_the_rules_its_siem_runs() {
@@ -478,6 +674,7 @@ mod tests {
         let sources = [LiveSource {
             source: &source,
             vector: &vector,
+            shape: None,
         }];
         let yaml = live_config(&sources, &[], &loaded, &settings).unwrap();
         let config: Value = serde_yaml_ng::from_str(&yaml).unwrap();

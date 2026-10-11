@@ -50,6 +50,7 @@ fn build(
         .map(|source| LiveSourceConfig {
             source: source.clone(),
             vector: json!({"type": "http_server", "address": "127.0.0.1:0", "decoding": {"codec": "json"}}),
+            shape: None,
         })
         .collect();
     let config = ServerConfig {

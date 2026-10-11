@@ -10,6 +10,7 @@
 //! result is always proven: in the worst case every recipe is rolled back, and pass-through
 //! trivially reproduces the full alert set.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::alert::{Alert, EngineError, RuleEngine};
@@ -111,16 +112,18 @@ pub fn prove(
     run.into_proof(full_alerts, engine)
 }
 
-/// The data plane's effect on a sample, before rules are evaluated on it.
-struct Run {
-    forwarded: Vec<Event>,
+/// The data plane's effect on a sample, before rules are evaluated on it. Forwarded events the
+/// data plane left unchanged are borrowed from the sample rather than copied: most events are,
+/// and a copy of every one doubled the proof's memory.
+struct Run<'a> {
+    forwarded: Vec<Cow<'a, Event>>,
     templates: BTreeMap<EventId, (SourceId, Option<TemplateId>)>,
     total: Volume,
     per_template: BTreeMap<Option<TemplateId>, Volume>,
 }
 
-impl Run {
-    fn new(events: &[Event], data_plane: &impl Reducer) -> Result<Self, ProofError> {
+impl<'a> Run<'a> {
+    fn new(events: &'a [Event], data_plane: &impl Reducer) -> Result<Self, ProofError> {
         let mut run = Self {
             forwarded: Vec::new(),
             templates: BTreeMap::new(),
@@ -138,9 +141,13 @@ impl Run {
             run.templates
                 .insert(event.id, (event.source.clone(), reduced.template));
             if let Outcome::Forwarded(body) = reduced.outcome {
-                run.forwarded.push(Event {
-                    fields: body,
-                    ..event.clone()
+                run.forwarded.push(if body == event.fields {
+                    Cow::Borrowed(event)
+                } else {
+                    Cow::Owned(Event {
+                        fields: body,
+                        ..event.clone()
+                    })
                 });
             }
         }
@@ -152,7 +159,8 @@ impl Run {
         full_alerts: BTreeSet<Alert>,
         engine: &impl RuleEngine,
     ) -> Result<Proof, ProofError> {
-        let forwarded_alerts = engine.alerts(&self.forwarded)?;
+        let forwarded: Vec<&Event> = self.forwarded.iter().map(AsRef::as_ref).collect();
+        let forwarded_alerts = engine.alerts_refs(&forwarded)?;
         Ok(Proof {
             missing: full_alerts.difference(&forwarded_alerts).cloned().collect(),
             extra: forwarded_alerts.difference(&full_alerts).cloned().collect(),

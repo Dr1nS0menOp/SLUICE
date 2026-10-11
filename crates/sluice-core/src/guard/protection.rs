@@ -52,7 +52,18 @@ impl<'a> Protection<'a> {
             };
             match &rule.fields {
                 RequiredFields::Known(known) => {
-                    claims.extend(known.iter().map(|f| claim(Some(f.clone()))));
+                    // A bare field may be stored nested (`EventData.ScriptBlockText`): claim
+                    // every path of the template it may denote, so its parents are kept too.
+                    for field in known {
+                        claims.push(claim(Some(field.clone())));
+                        claims.extend(
+                            template
+                                .fields
+                                .iter()
+                                .filter(|path| *path != field && field.may_denote(path))
+                                .map(|path| claim(Some(path.clone()))),
+                        );
+                    }
                 }
                 RequiredFields::Unknown => claims.push(claim(None)),
             }

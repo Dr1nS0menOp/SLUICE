@@ -34,6 +34,9 @@ pub(crate) enum Command {
     /// Print a destination for the `sluice up` configuration: the Vector sink for a SIEM and
     /// what else to set up.
     Connect(ConnectArgs),
+    /// Print the Vector configuration for a collection agent on a host, which sends its events
+    /// to `sluice up` shaped as the SIEM stores them.
+    Agent(AgentArgs),
     /// Serve MCP on stdin/stdout, so an AI assistant can ask what was cut, why, and whether it
     /// still holds (for example `claude mcp add sluice -- sluice mcp --archive DIR`).
     Mcp(McpArgs),
@@ -70,6 +73,43 @@ pub(crate) struct ConnectArgs {
     /// The destination's name in the configuration (default: the target's name).
     #[arg(long)]
     pub(crate) name: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct AgentArgs {
+    /// The kind of host.
+    pub(crate) platform: AgentPlatform,
+    /// URL of the `http_server` source of `sluice up` that receives Security channel events,
+    /// shaped as `SecurityEvent`.
+    #[arg(long)]
+    pub(crate) to: String,
+    /// URL of the `http_server` source that receives every other channel, shaped as
+    /// `WindowsEvent`. Required when reading channels other than Security.
+    #[arg(long)]
+    pub(crate) events_to: Option<String>,
+    /// Event log channels to read. Repeat for several, such as `--channel Security --channel
+    /// System`. Security needs Vector to run elevated or as a service.
+    #[arg(long = "channel", default_values_t = ["Security".to_owned()])]
+    pub(crate) channels: Vec<String>,
+    /// Vector's data directory on the host (read checkpoints and the send buffer).
+    #[arg(long, default_value = "C:/ProgramData/Vector/data")]
+    pub(crate) data_dir: String,
+    /// Also write the Sentinel data collection rule (JSON) that stores the records in
+    /// `SecurityEvent`, for this workspace resource id.
+    #[arg(long, value_name = "FILE", requires = "workspace")]
+    pub(crate) dcr: Option<PathBuf>,
+    /// The Log Analytics workspace resource id, for `--dcr`.
+    #[arg(long)]
+    pub(crate) workspace: Option<String>,
+    /// The Azure region of the workspace, for `--dcr`.
+    #[arg(long, default_value = "westeurope")]
+    pub(crate) location: String,
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub(crate) enum AgentPlatform {
+    /// Windows Event Log, shaped as Microsoft Sentinel's `SecurityEvent`.
+    Windows,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
