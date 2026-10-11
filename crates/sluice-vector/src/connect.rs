@@ -186,8 +186,10 @@ impl Target {
                 .to_owned(),
             Self::Sentinel => "Replace `dcr_immutable_id` and `stream_name` with your data \
                                collection rule's; the app registration needs `Monitoring Metrics \
-                               Publisher` on it. Detections: give `--rules` your Sigma rules \
-                               (KQL parsing is planned)."
+                               Publisher` on it. For a source without a standard table, `--sample \
+                               FILE --table NAME --out DIR` writes a custom table and its rule. \
+                               Detections: give `sluice up --sentinel-rules` the analytics rules \
+                               your workspace runs, and `--rules` your Sigma rules."
                 .to_owned(),
             Self::Chronicle => "Set `log_type` to the parser for this source. Detections: give \
                                 `--rules` your Sigma rules (YARA-L parsing is planned)."

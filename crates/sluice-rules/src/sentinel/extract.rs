@@ -1,6 +1,6 @@
 //! What one analytics rule's KQL query reads (ADR 0015).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sluice_core::field::FieldPath;
 use sluice_core::predicate::{FieldTest, MatchOp, Predicate};
@@ -59,6 +59,8 @@ pub(super) fn reads(tokens: &[Token], known: &dyn Fn(&str) -> bool) -> Reads {
         calls: BTreeSet::new(),
     };
     let local = let_names(tokens);
+    let lists = id_lists(tokens);
+    let shadowed = parameter_scopes(tokens);
     let mut prefilters = Vec::new();
     for (i, token) in tokens.iter().enumerate() {
         let next = tokens.get(i + 1);
@@ -74,9 +76,15 @@ pub(super) fn reads(tokens: &[Token], known: &dyn Fn(&str) -> bool) -> Reads {
         if is_symbol(previous, ".") {
             continue;
         }
-        if TABLES.contains(&name.as_str()) && !is_symbol(next, "(") {
+        if TABLES.contains(&name.as_str())
+            && !is_symbol(next, "(")
+            && !is_symbol(next, ":")
+            && !shadowed
+                .iter()
+                .any(|(table, range)| table == name && range.contains(&i))
+        {
             reads.tables.insert(name.clone());
-            prefilters.push(first_wheres(&tokens[i + 1..]));
+            prefilters.push(first_wheres(&tokens[i + 1..], &lists));
         }
         if STATEFUL.contains(&name.as_str()) && is_symbol(previous, "|") {
             reads.stateful = true;
@@ -130,14 +138,106 @@ impl Reads {
     }
 }
 
-/// Names the query defines itself (`let Name = …`): their body is part of the query.
+/// `let` names bound to `EventID` literals: `dynamic([…])`, `pack_array(…)` or one literal.
+/// `None` for a name with any other definition. A name defined more than once gets every value
+/// (a superset).
+type Lists = BTreeMap<String, Option<Vec<String>>>;
+
+fn id_lists(tokens: &[Token]) -> Lists {
+    let mut lists = Lists::new();
+    for (i, w) in tokens.windows(3).enumerate() {
+        let [Token::Ident(l), Token::Ident(name), Token::Symbol(eq)] = w else {
+            continue;
+        };
+        if l != "let" || eq != "=" {
+            continue;
+        }
+        let values = literal_ids(&tokens[i + 3..]);
+        let entry = lists
+            .entry(name.clone())
+            .or_insert_with(|| Some(Vec::new()));
+        match (entry.as_mut(), values) {
+            (Some(all), Some(values)) => all.extend(values),
+            _ => *entry = None,
+        }
+    }
+    lists
+}
+
+/// The literals of `dynamic([a, b])`, `pack_array(a, b)` or `a` followed by `;`.
+fn literal_ids(rest: &[Token]) -> Option<Vec<String>> {
+    let (start, close) = if is_ident(rest.first(), "dynamic")
+        && is_symbol(rest.get(1), "(")
+        && is_symbol(rest.get(2), "[")
+    {
+        (3, "]")
+    } else if is_ident(rest.first(), "pack_array") && is_symbol(rest.get(1), "(") {
+        (2, ")")
+    } else {
+        return (is_symbol(rest.get(1), ";") || rest.len() == 1)
+            .then(|| event_id(rest.first()))
+            .flatten()
+            .map(|id| vec![id]);
+    };
+    let mut values = Vec::new();
+    for token in &rest[start..] {
+        match token {
+            Token::Symbol(s) if s == "," => {}
+            Token::Symbol(s) if s == close => return Some(values),
+            other => values.push(event_id(Some(other))?),
+        }
+    }
+    None
+}
+
+/// Lambda bodies in which a table name is a tabular parameter
+/// (`let f = (SecurityEvent: (Col: string)) { SecurityEvent | … }`): there the name is the
+/// argument, whose rows the caller filtered, not the table.
+fn parameter_scopes(tokens: &[Token]) -> Vec<(&str, std::ops::Range<usize>)> {
+    let mut scopes = Vec::new();
+    for (p, token) in tokens.iter().enumerate() {
+        let Token::Ident(name) = token else { continue };
+        if !TABLES.contains(&name.as_str()) || !is_symbol(tokens.get(p + 1), ":") {
+            continue;
+        }
+        let Some(params_end) = closing(tokens, p, ")") else {
+            continue;
+        };
+        if !is_symbol(tokens.get(params_end + 1), "{") {
+            continue;
+        }
+        if let Some(body_end) = closing(tokens, params_end + 2, "}") {
+            scopes.push((name.as_str(), params_end + 1..body_end + 1));
+        }
+    }
+    scopes
+}
+
+/// The index of the `close` symbol that ends the group `start` is in.
+fn closing(tokens: &[Token], start: usize, close: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    for (i, token) in tokens.iter().enumerate().skip(start) {
+        match token {
+            Token::Symbol(s) if s == "(" || s == "[" || s == "{" => depth += 1,
+            Token::Symbol(s) if s == ")" || s == "]" || s == "}" => {
+                if depth == 0 {
+                    return (s == close).then_some(i);
+                }
+                depth -= 1;
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Names the query defines itself: `let Name = …`, and columns it assigns (`extend Name = …`,
+/// `summarize Name = …`). Their meaning is part of the query, so they are not parsers.
 fn let_names(tokens: &[Token]) -> BTreeSet<&str> {
     tokens
-        .windows(3)
+        .windows(2)
         .filter_map(|w| match w {
-            [Token::Ident(l), Token::Ident(name), Token::Symbol(eq)] if l == "let" && eq == "=" => {
-                Some(name.as_str())
-            }
+            [Token::Ident(name), Token::Symbol(eq)] if eq == "=" => Some(name.as_str()),
             _ => None,
         })
         .collect()
@@ -178,13 +278,15 @@ const WATCHLIST: &str = "_GetWatchlist";
 
 /// An ASIM parser (`imProcessCreate`, `_Im_Dns`, `ASimDns`, `_ASim_ProcessEvent`,
 /// `vimProcessCreateMicrosoftSysmon`). They may be used without parentheses. `ASim…Logs` names
-/// are tables, not parsers.
+/// are tables and `ASimMatching…` names are fields ASIM parsers output, not parsers.
 pub(super) fn is_asim_parser(name: &str) -> bool {
     ["_Im_", "_ASim_", "vim", "im", "ASim"]
         .iter()
         .find_map(|prefix| name.strip_prefix(prefix))
         .is_some_and(|rest| {
-            rest.starts_with(|c: char| c.is_ascii_uppercase()) && !rest.ends_with("Logs")
+            rest.starts_with(|c: char| c.is_ascii_uppercase())
+                && !rest.ends_with("Logs")
+                && !rest.starts_with("Matching")
         })
 }
 
@@ -201,21 +303,57 @@ fn is_ident(token: Option<&Token>, ident: &str) -> bool {
     matches!(token, Some(Token::Ident(s)) if s == ident)
 }
 
-/// The conjunction of the `where` (or `filter`) clauses directly after a table reference: the
-/// rows that reference passes on. Anything else after the table (no `where`, another operator
-/// first) keeps every row.
-fn first_wheres(after: &[Token]) -> Predicate {
+/// The conjunction of the `where` (or `filter`) clauses after a table reference, up to the first
+/// operator that may change rows or the filtered columns: the rows that reference passes on.
+/// Projections and `extend`s that leave `EventID` and the filtered text columns alone keep rows
+/// as they are, so `where`s after them still filter the table's rows. Anything else keeps every
+/// row from there on.
+fn first_wheres(after: &[Token], lists: &Lists) -> Predicate {
     let mut conditions = Vec::new();
     let mut i = 0;
-    while is_symbol(after.get(i), "|")
-        && (is_ident(after.get(i + 1), "where") || is_ident(after.get(i + 1), "filter"))
-    {
-        let start = i + 2;
-        let end = clause_end(after, start);
-        conditions.push(condition(&after[start..end]));
-        i = end;
+    while is_symbol(after.get(i), "|") {
+        let operator = i + 1;
+        if is_ident(after.get(operator), "where") || is_ident(after.get(operator), "filter") {
+            let end = clause_end(after, operator + 1);
+            conditions.push(condition(&after[operator + 1..end], lists));
+            i = end;
+        } else if let Some(start) = keeps_rows(after, operator) {
+            i = clause_end(after, start);
+        } else {
+            break;
+        }
     }
     Predicate::all(conditions)
+}
+
+/// If the operator at `at` keeps every row and every filtered column as it is, where its
+/// arguments start.
+fn keeps_rows(tokens: &[Token], at: usize) -> Option<usize> {
+    let projection = is_ident(tokens.get(at), "project");
+    let start = if projection && is_symbol(tokens.get(at + 1), "-") {
+        let kind = tokens.get(at + 2);
+        (is_ident(kind, "away") || is_ident(kind, "keep") || is_ident(kind, "reorder"))
+            .then_some(at + 3)?
+    } else if projection || is_ident(tokens.get(at), "extend") {
+        at + 1
+    } else {
+        return None;
+    };
+    let clause = &tokens[start..clause_end(tokens, start)];
+    let assigns_filtered = clause.windows(2).any(|w| {
+        matches!(w, [Token::Ident(name), Token::Symbol(eq)]
+            if eq == "=" && (name == "EventID" || TEXT_COLUMNS.contains(&name.as_str())))
+    });
+    let assigns = clause
+        .iter()
+        .any(|t| matches!(t, Token::Symbol(s) if s == "="));
+    // A projection that computes columns may also rename one into a filtered name.
+    let safe = if projection {
+        !assigns
+    } else {
+        !assigns_filtered
+    };
+    safe.then_some(start)
 }
 
 /// The end of a clause: the next `|` or `;` at depth 0, or a closing parenthesis below it.
@@ -239,8 +377,12 @@ fn clause_end(tokens: &[Token], start: usize) -> usize {
 
 /// A `where` condition as a superset over `EventID`: `and`, `or`, parentheses, `EventID == N`
 /// and `EventID in (…)` are kept; every other part is `true`.
-fn condition(tokens: &[Token]) -> Predicate {
-    let mut parser = Parser { tokens, at: 0 };
+fn condition(tokens: &[Token], lists: &Lists) -> Predicate {
+    let mut parser = Parser {
+        tokens,
+        at: 0,
+        lists,
+    };
     let parsed = parser.or();
     if parser.at == tokens.len() {
         parsed
@@ -252,6 +394,7 @@ fn condition(tokens: &[Token]) -> Predicate {
 struct Parser<'a> {
     tokens: &'a [Token],
     at: usize,
+    lists: &'a Lists,
 }
 
 impl Parser<'_> {
@@ -307,9 +450,9 @@ impl Parser<'_> {
             at + 2
         };
         let values: Vec<String> = if is_symbol(t.get(at + 1), "==") {
-            let value = event_id(t.get(at + 2))?;
+            let values = self.ids(t.get(at + 2))?;
             self.at = at + 3;
-            vec![value]
+            values
         } else if is_ident(t.get(at + 1), "in") && is_symbol(t.get(open), "(") {
             let mut values = Vec::new();
             let mut i = open + 1;
@@ -317,7 +460,7 @@ impl Parser<'_> {
                 match t.get(i) {
                     Some(Token::Symbol(s)) if s == "," => {}
                     Some(Token::Symbol(s)) if s == ")" => break,
-                    other => values.push(event_id(other)?),
+                    other => values.extend(self.ids(other)?),
                 }
                 i += 1;
             }
@@ -332,6 +475,14 @@ impl Parser<'_> {
             values,
             case_sensitive: true,
         }))
+    }
+
+    /// The `EventID`s a literal or a `let` list of literals denotes.
+    fn ids(&self, token: Option<&Token>) -> Option<Vec<String>> {
+        if let Some(Token::Ident(name)) = token {
+            return self.lists.get(name).cloned().flatten();
+        }
+        event_id(token).map(|id| vec![id])
     }
 
     /// `Column == "text"` or `Column =~ "text"` on a known text column of the Windows tables.

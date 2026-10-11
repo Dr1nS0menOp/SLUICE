@@ -86,9 +86,19 @@ not. 63 rules call ASIM parsers, which read the tables indirectly.
    the parser were not protected (fail open). `_GetWatchlist` reads a watchlist only, and
    `ASim…Logs` names are tables. On the whole repository 247 rules now apply to Windows sources
    (105 before), 146 of them with unknown fields, so nothing is cut there; the "Windows
-   Security Events" solution is unaffected. Next: read the parsers' source (Azure/Azure-Sentinel
-   `Parsers/`, not in the rules clone) and resolve each parser to the tables, `EventID`s and
-   columns it reads.
+   Security Events" solution is unaffected. **Resolution done the same day**: parser files
+   (`Parsers/ASim*/Parsers/*.yaml`: `ParserName`, `EquivalentBuiltInParser`, `ParserQuery`) and
+   ASIM helpers (`ASIM/lib/functions/*.yaml`: `FunctionName`, `EquivalentBuiltInFunction`,
+   `FunctionQuery`) among the rule files are read as functions, and a rule reads what the
+   functions it uses read, resolved recursively (an unknown or recursive one stays fail
+   closed). Getting there needed more of KQL: names a query assigns itself (`let`, `extend
+   X = …`) are not parsers, `ASimMatching…` names are output fields, `let` lists of `EventID`
+   literals resolve, a lambda's tabular parameter named `SecurityEvent` is not the table,
+   `where`s after projections and `extend`s that leave the filtered columns alone still
+   filter, and columns named as strings (`column_ifexists('X', …)`, `['X']`) are read. On the
+   whole repository with its parsers: 186 rules apply to Windows sources, 143 with a bounded
+   pre-filter, 21 with unknown fields (unknown helpers and workspace functions), and 21 read
+   `EventData` without a bound (most match threat intelligence against every event).
 4. Recipes for `SecurityEvent` and `WindowsEvent` that this makes safe (`EventData` per
    event type). Started 2026-10-11: recipes drop `EventData` for 4672 and 4798, whose every
    named data item has its own column (checked on real events; for 4624 and 5379 it does not

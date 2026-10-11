@@ -55,6 +55,11 @@ First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
 - Guardrails: a rule's bare field also protects the same field nested under an object
   (`EventData.ScriptBlockText`), as Sentinel's `WindowsEvent` stores it.
 
+- `sluice connect sentinel --sample FILE --table NAME --out DIR` derives a custom table
+  (`NAME_CL`, typed columns from the sample, invalid names made valid) and the data collection
+  rule that fills it, for sources without a standard Sentinel table; checked end to end with
+  firewall, Linux auth and DNS records in a real workspace.
+
 ### Sentinel analytics rules (in progress)
 
 - `SentinelRules`: Microsoft Sentinel analytics rules (KQL) as requirements: tables, fields,
@@ -70,6 +75,9 @@ First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
   `EventSourceName`, `Channel` and `Provider`, bound a rule.
 - A Sentinel rule that reads an ASIM parser or calls a workspace function applies to every
   Windows source with unknown fields; it was treated as a rule on other tables (fail open).
+  ASIM parsers and helpers whose source is among the rule files are resolved, so their callers
+  get the parsers' bounds. `search` and `union *` read every table; columns named as strings
+  (`column_ifexists`, `['X']`) are read.
 - Recipes that drop `SecurityEvent`'s `EventData` XML for 4672 and 4798, where every data item
   has its own column.
 

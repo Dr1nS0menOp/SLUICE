@@ -55,7 +55,7 @@ fn in_lists_and_alternatives_are_kept_and_everything_else_widens() {
         "SecurityEvent | where EventID == 4624 or Account has 'x'",
         "SecurityEvent | where not(EventID == 4624)",
         "SecurityEvent | where EventID in (events)",
-        "SecurityEvent | extend x = 1 | where EventID == 4624",
+        "SecurityEvent | extend EventID = 1 | where EventID == 4624",
         "let base = SecurityEvent; base | where EventID == 4624",
         "SecurityEvent | where EventID == '4624.0'",
         "SecurityEvent | where EventID in ('4624', 'x')",
@@ -314,5 +314,70 @@ fn union_star_and_search_may_read_every_windows_table() {
         let r = rule(query);
         assert_eq!(r.logsource.product.as_deref(), Some("windows"), "{query}");
         assert_eq!(r.prefilter, Predicate::Always, "{query}");
+    }
+}
+
+#[test]
+fn let_lists_of_event_ids_bound_the_rule() {
+    for (query, ids) in [
+        (
+            "let Logon = dynamic([4624, '4625']);\nSecurityEvent | where EventID in (Logon)",
+            &["4624", "4625"][..],
+        ),
+        (
+            "let Ids = pack_array(4720, 4722);\nSecurityEvent | where EventID in (Ids, 4738)",
+            &["4720", "4722", "4738"],
+        ),
+        (
+            "let Cleared = 1102;\nSecurityEvent | where EventID == Cleared",
+            &["1102"],
+        ),
+    ] {
+        assert_eq!(rule(query).prefilter, event_ids(ids), "{query}");
+    }
+    for widening in [
+        "let Ids = dynamic([4624, x]);\nSecurityEvent | where EventID in (Ids)",
+        "let Ids = toscalar(Other | take 1);\nSecurityEvent | where EventID in (Ids)",
+        "let Ids = dynamic([4624]);\nlet Ids = Other;\nSecurityEvent | where EventID in (Ids)",
+    ] {
+        assert_eq!(rule(widening).prefilter, Predicate::Always, "{widening}");
+    }
+}
+
+#[test]
+fn a_tabular_parameter_named_like_a_table_is_not_the_table() {
+    let query = "let Parse = (SecurityEvent: (SubjectUserName: string)) {\n  SecurityEvent | extend \
+                 User = SubjectUserName\n};\nSecurityEvent\n| where EventID == 4657\n| invoke \
+                 Parse()";
+    assert_eq!(rule(query).prefilter, event_ids(&["4657"]));
+    let outside = "let Parse = (SecurityEvent: (A: string)) { SecurityEvent };\nSecurityEvent | \
+                   invoke Parse()";
+    assert_eq!(
+        rule(outside).prefilter,
+        Predicate::Always,
+        "the real table stays a reference"
+    );
+}
+
+#[test]
+fn projections_that_keep_rows_do_not_end_the_filter() {
+    for query in [
+        "WindowsEvent | where not(disabled) | project EventID, EventData, Provider | where \
+         Provider == 'Microsoft-Windows-Sysmon' and EventID == 22",
+        "WindowsEvent | project-away Channel | extend Size = 1 | where EventID == 22",
+    ] {
+        let r = rule(query);
+        assert!(
+            matches!(&r.prefilter, Predicate::All(_)) || r.prefilter == event_ids(&["22"]),
+            "{query}: {:?}",
+            r.prefilter
+        );
+    }
+    for widening in [
+        "WindowsEvent | extend EventID = 22 | where EventID == 22",
+        "WindowsEvent | project EventID = toint(Other) | where EventID == 22",
+        "WindowsEvent | summarize count() by EventID | where EventID == 22",
+    ] {
+        assert_eq!(rule(widening).prefilter, Predicate::Always, "{widening}");
     }
 }

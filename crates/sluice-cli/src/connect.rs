@@ -1,8 +1,8 @@
 //! `sluice connect`: a destination block to paste into the `sluice up` configuration.
 
-use anyhow::Result;
-use serde_json::json;
-use sluice_vector::Target;
+use anyhow::{Context, Result, bail};
+use serde_json::{Map, Value, json};
+use sluice_vector::{CustomTable, Target};
 
 use crate::cli::{ConnectArgs, ConnectTarget};
 
@@ -20,7 +20,11 @@ pub(crate) fn connect(args: &ConnectArgs) -> Result<()> {
         .as_deref()
         .unwrap_or_else(|| target.example_endpoint());
     let name = args.name.as_deref().unwrap_or_else(|| target.name());
-    let destinations = target.destinations(name, endpoint);
+    let mut destinations = target.destinations(name, endpoint);
+    let table = custom_table(args, target)?;
+    if let Some(table) = &table {
+        destinations[name]["stream_name"] = json!(table.stream_name());
+    }
     let mut config = json!({ "destinations": destinations });
     if let Some((backend, settings)) = target.secret_backend() {
         config["vector_secrets"] = json!({ backend: settings });
@@ -46,6 +50,58 @@ pub(crate) fn connect(args: &ConnectArgs) -> Result<()> {
     for line in target.notes(endpoint).lines() {
         println!("# {line}");
     }
+    if let (Some(table), Some(out)) = (&table, &args.out) {
+        println!(
+            "# Create the table {} from {}/{}.table.json, then the data collection rule from \
+             {}/{}.dcr.json; set `dcr_immutable_id` and the endpoint from the rule. {} columns.",
+            table.table_name(),
+            out.display(),
+            table.table_name(),
+            out.display(),
+            args.table.as_deref().unwrap_or_default(),
+            table.columns().len()
+        );
+    }
     print!("{yaml}");
     Ok(())
+}
+
+/// With `--sample`, derives the Sentinel custom table and writes it and its DCR to `--out`.
+fn custom_table(args: &ConnectArgs, target: Target) -> Result<Option<CustomTable>> {
+    let (Some(sample), Some(table), Some(out)) = (&args.sample, &args.table, &args.out) else {
+        return Ok(None);
+    };
+    if target != Target::Sentinel {
+        bail!("--sample derives a Sentinel custom table; it only applies to `sentinel`");
+    }
+    let text =
+        std::fs::read_to_string(sample).with_context(|| format!("reading {}", sample.display()))?;
+    let records: Vec<Map<String, Value>> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .enumerate()
+        .map(|(n, line)| {
+            serde_json::from_str(line)
+                .with_context(|| format!("{} line {}: not a JSON object", sample.display(), n + 1))
+        })
+        .collect::<Result<_>>()?;
+    let custom = CustomTable::infer(table, &records)?;
+    let workspace = args.workspace.as_deref().unwrap_or(
+        "/subscriptions/<subscription>/resourceGroups/<group>/providers/Microsoft.OperationalInsights/workspaces/<workspace>",
+    );
+    std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
+    let write = |file: String, value: &Value| -> Result<()> {
+        let path = out.join(file);
+        std::fs::write(&path, serde_json::to_string_pretty(value)? + "\n")
+            .with_context(|| format!("writing {}", path.display()))
+    };
+    write(
+        format!("{}.table.json", custom.table_name()),
+        &custom.table(),
+    )?;
+    write(
+        format!("{table}.dcr.json"),
+        &custom.dcr(&args.location, workspace, args.time_field.as_deref()),
+    )?;
+    Ok(Some(custom))
 }
