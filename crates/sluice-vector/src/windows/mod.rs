@@ -18,7 +18,8 @@
 //! values are left out.
 
 pub use columns::{
-    SECURITY_EVENT_DATA_COLUMNS, SECURITY_EVENT_SYSTEM_COLUMNS, WINDOWS_EVENT_COLUMNS,
+    SECURITY_EVENT_DATA_COLUMNS, SECURITY_EVENT_GUID_COLUMNS, SECURITY_EVENT_SYSTEM_COLUMNS,
+    WINDOWS_EVENT_COLUMNS,
 };
 
 mod columns;
@@ -181,9 +182,10 @@ fn send(input: &str, url: &str) -> serde_json::Value {
 }
 
 /// A data collection rule (ARM resource body) with two input streams, [`SECURITY_EVENT_STREAM`]
-/// into `SecurityEvent` and [`WINDOWS_EVENT_STREAM`] into `WindowsEvent`, both stored unchanged
-/// (`transformKql: source`): Sluice already sent exactly the tables' columns, proven and reduced.
-/// `kind: Direct` gives the rule its own ingestion endpoint.
+/// into `SecurityEvent` and [`WINDOWS_EVENT_STREAM`] into `WindowsEvent`. Sluice already sent
+/// exactly the tables' columns, proven and reduced, so the only transformation types the
+/// `SecurityEvent` GUID columns ([`SECURITY_EVENT_GUID_COLUMNS`]); `WindowsEvent` is stored as
+/// sent (`source`). `kind: Direct` gives the rule its own ingestion endpoint.
 #[must_use]
 pub fn windows_dcr(location: &str, workspace_resource_id: &str) -> serde_json::Value {
     let column = |name: &str, kind: &str| serde_json::json!({ "name": name, "type": kind });
@@ -200,14 +202,19 @@ pub fn windows_dcr(location: &str, workspace_resource_id: &str) -> serde_json::V
         .iter()
         .map(|(name, kind)| column(name, kind))
         .collect();
-    let flow = |stream: &str, table: &str| {
+    let flow = |stream: &str, table: &str, transform: &str| {
         serde_json::json!({
             "streams": [stream],
             "destinations": ["sentinel"],
-            "transformKql": "source",
+            "transformKql": transform,
             "outputStream": table,
         })
     };
+    let guids: Vec<String> = SECURITY_EVENT_GUID_COLUMNS
+        .iter()
+        .map(|c| format!("{c} = toguid({c})"))
+        .collect();
+    let security_transform = format!("source | extend {}", guids.join(", "));
     serde_json::json!({
         "location": location,
         "kind": "Direct",
@@ -222,8 +229,8 @@ pub fn windows_dcr(location: &str, workspace_resource_id: &str) -> serde_json::V
                 ]
             },
             "dataFlows": [
-                flow(SECURITY_EVENT_STREAM, "Microsoft-SecurityEvent"),
-                flow(WINDOWS_EVENT_STREAM, "Microsoft-WindowsEvent"),
+                flow(SECURITY_EVENT_STREAM, "Microsoft-SecurityEvent", &security_transform),
+                flow(WINDOWS_EVENT_STREAM, "Microsoft-WindowsEvent", "source"),
             ],
         },
     })

@@ -9,9 +9,11 @@
 //! problem.
 
 mod error;
+mod sentinel;
 mod sigma;
 mod wazuh;
 
 pub use crate::error::RulesError;
+pub use crate::sentinel::SentinelRules;
 pub use crate::sigma::{SigmaEngine, SigmaRules};
 pub use crate::wazuh::WazuhRules;

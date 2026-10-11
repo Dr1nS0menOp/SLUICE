@@ -8,8 +8,10 @@ use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use sluice_autopilot::RecipeBook;
 use sluice_core::event::Timestamp;
+use sluice_kql::{KustoEngine, Table};
+use sluice_rules::SentinelRules;
 use sluice_rules::SigmaRules;
-use sluice_server::{Rules, ServerConfig, Status};
+use sluice_server::{Rules, SentinelRuleSet, ServerConfig, Shape, Status};
 use sluice_synth::{SynthConfig, generate};
 
 use crate::cli::{McpArgs, StatusArgs, UpArgs};
@@ -32,6 +34,7 @@ pub(crate) fn up(args: &UpArgs) -> Result<()> {
                 .map(String::as_str),
         )?,
         wazuh: input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?,
+        sentinel: sentinel(args, &config)?,
     };
     if args.check {
         let sources = config.sources.len();
@@ -160,6 +163,56 @@ fn utc(at: i64) -> String {
         || at.to_string(),
         |t| t.format("%Y-%m-%d %H:%M:%SZ").to_string(),
     )
+}
+
+/// The Sentinel rules, with the emulator that runs them if `--kusto` is given. Each source's
+/// `shape` says which Sentinel table its records land in.
+fn sentinel(args: &UpArgs, config: &ServerConfig) -> Result<Option<SentinelRuleSet>> {
+    let Some(dir) = &args.sentinel_rules else {
+        return Ok(None);
+    };
+    let files = input::files(dir, &["yaml", "yml"])?;
+    let rules = SentinelRules::parse(
+        files
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str())),
+    );
+    for problem in rules.problems() {
+        eprintln!("warning: {problem}");
+    }
+    let Some(url) = &args.kusto else {
+        eprintln!(
+            "note: without --kusto the proof does not run the Sentinel rules; their \
+             requirements still constrain every cut"
+        );
+        return Ok(Some(SentinelRuleSet {
+            rules,
+            engine: None,
+        }));
+    };
+    let tables = config
+        .sources
+        .iter()
+        .filter_map(|s| {
+            let table = match s.shape? {
+                Shape::SentinelSecurityEvent => Table::SecurityEvent,
+                Shape::SentinelWindowsEvent => Table::WindowsEvent,
+            };
+            Some((s.source.id.clone(), table))
+        })
+        .collect();
+    let engine = KustoEngine::connect(url, rules.queries(), tables)
+        .with_context(|| format!("connecting to the Kusto emulator at {url}"))?;
+    eprintln!(
+        "Sentinel: {} rules run in the emulator, {} cannot run there and are covered by their \
+         requirements only",
+        engine.rules().count(),
+        engine.skipped().len()
+    );
+    Ok(Some(SentinelRuleSet {
+        rules,
+        engine: Some(Box::new(engine)),
+    }))
 }
 
 fn read(dir: Option<&Path>, extensions: &[&str]) -> Result<Vec<String>> {

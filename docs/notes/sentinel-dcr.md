@@ -69,6 +69,50 @@ The legacy HTTP Data Collector API (used by older Fluentd/Logstash plugins) ende
 
 ## Billing
 
-Not verified yet: whether an empty string or null column costs ingestion. The Log Analytics
-`_BilledSize` of a record with emptied columns has to be measured in a real workspace before
-Sluice reports native savings as anything but an estimate.
+**Measured 2026-10-11** in a test workspace (`rg-sluice-test`/`sluice-test`, Sentinel on): the
+same 43 real logon records (EventID 4624, shaped by Sluice) sent three times through the Logs
+Ingestion API into `SecurityEvent`:
+
+| Variant | Average `_BilledSize` |
+|---|---|
+| full | 1,694 bytes |
+| `EventData` and four more columns set to `""` | 322 bytes |
+| the same five columns left out | 322 bytes |
+
+An empty string column is not billed: emptying a column per row (all a DCR transformation can
+do) saves exactly as much as removing it. It also shows how large the `EventData` XML is: most
+of a `SecurityEvent` record repeats, as XML, values the record already has as columns.
+
+## Writing into the real tables
+
+- In a workspace without Sentinel, `SecurityEvent` and `WindowsEvent` do not exist yet (the
+  tables API answers `SolutionNotActive`); onboarding Sentinel creates them (232 and 24
+  columns).
+- Azure validates a DCR's output types against the table: five `SecurityEvent` columns are
+  `guid` (`LogonGuid`, `TargetLogonGuid`, `SubcategoryGuid`, `InterfaceUuid`,
+  `SourceComputerId`). A stream cannot declare `guid`, so Sluice declares them `string` and the
+  DCR converts them with `toguid()`, which accepts Windows' braces (`{…}`) and turns anything
+  invalid into null. Verified: they arrive as GUIDs without braces.
+- Records sent through the API were queryable after about four minutes.
+
+## Running analytics rules in the emulator
+
+Verified 2026-10-11 on the same emulator image, for `sluice_kql::KustoEngine` (ADR 0015):
+
+- `.create database <name> volatile` works and `.drop database <name> ifexists` removes it. A
+  database per evaluation lets rule queries run unchanged on tables named `SecurityEvent` and
+  `WindowsEvent`, with no table renaming that could also rewrite a string literal.
+- `.ingest inline into table T with (format='multijson') <| …` takes one JSON object per line and
+  maps keys to columns by name. Keys that are not columns are ignored; `"4624"` is converted to
+  an `int` column; GUIDs with Windows' braces load as GUIDs; strings keep newlines and quotes
+  (CSV would need quoting for those). A missing string column reads as `""`, a missing typed
+  column as null.
+- The tables API leaves out `Type` and the hidden columns (`_ResourceId`, `_SubscriptionId`);
+  rules read them, so the engine adds them.
+- A rule that reads a table the database lacks fails with HTTP 400 even on empty tables. Of the
+  105 Microsoft rules on `SecurityEvent`/`WindowsEvent` (commit `55296e6`), 91 run and 14 do not
+  (other tables, watchlists, workspace functions).
+- End to end: `sluice up` with `--sentinel-rules` and `--kusto`, fed the 154 real Security events
+  and two planted ones (a cleared log, a base64 PE command line), proved 5 = 5 alerts; Microsoft's
+  `NRT_SecurityEventLogCleared` and `NRT_base64_encoded_pefile` each returned their row on the
+  forwarded `SecurityEvent` records.

@@ -47,6 +47,15 @@ profiles, 30-second cycles, demo promotion settings: 60 s shadow, 2 proofs), WSL
   allocation is open.
 - Disk: 632 MB of gzip archive for 19 hours of demo traffic.
 
+**Memory, after two fixes (2026-10-11).** A cycle used to copy the whole window, and the proof
+copied every forwarded event even when the data plane left it unchanged. Now a cycle takes the
+events out of the window and gives them back (events tapped meanwhile stay newest), and the
+proof borrows unchanged events. Same run, 32 minutes: 1,196 MB resident at 94,587 events in
+the window, 12.6 KB per event, growing linearly; about 1.5 GB for a full window of 120,000,
+half of the 3.1 GB before. `sluice demo` alone (no window): 1,372 → 1,291 MB at 120,761 events.
+What remains is mostly the event itself as a `serde_json` map (each key and value its own
+allocation) plus the analysis and proof of each profile.
+
 For scale: the demo's hour of traffic for a small company network (80,536 events at scale 100)
 is about 22 events per second, so one Vector process has three orders of magnitude of headroom
 for a network of that kind.

@@ -140,6 +140,7 @@ pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
         rules,
         wazuh_rules,
         wazuh_decoders,
+        sentinel_rules,
     } = &args.command;
     let mut requirements = Vec::new();
     let mut problems = Vec::new();
@@ -152,6 +153,16 @@ pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
     if let Some(wazuh) = input::wazuh(wazuh_rules.as_deref(), wazuh_decoders.as_deref())? {
         requirements.extend(wazuh.requirements().iter().cloned());
         problems.extend(wazuh.problems().iter().cloned());
+    }
+    if let Some(dir) = sentinel_rules {
+        let files = input::files(dir, &["yaml", "yml"])?;
+        let sentinel = sluice_rules::SentinelRules::parse(
+            files
+                .iter()
+                .map(|(path, text)| (path.as_str(), text.as_str())),
+        );
+        requirements.extend(sentinel.requirements().iter().cloned());
+        problems.extend(sentinel.problems().iter().cloned());
     }
     for problem in &problems {
         eprintln!("warning: {problem}");
@@ -189,6 +200,7 @@ fn run(
         events,
         sigma,
         wazuh,
+        sentinel: None,
     };
     let analysis = run_autopilot(input, book, &Settings::default(), helpers)
         .context("running the autopilot")?;

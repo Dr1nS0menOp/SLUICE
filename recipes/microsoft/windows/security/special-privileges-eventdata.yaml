@@ -1,0 +1,14 @@
+id: microsoft/windows/security/special-privileges-eventdata
+description: Special privileges assigned to a new logon (4672), as a Sentinel SecurityEvent record
+match:
+  logsource: { product: windows, service: security }
+  discriminators: { EventID: "4672" }
+reductions:
+  - op: drop_fields
+    fields: [EventData]
+rationale: >-
+  In a SecurityEvent record, EventData repeats the event's named data as XML. Every named data
+  item of 4672 (SubjectUserSid, SubjectUserName, SubjectDomainName, SubjectLogonId,
+  PrivilegeList) also has its own SecurityEvent column, so the XML adds nothing. Records without
+  an EventData field are unchanged. Rules that parse EventData for this event keep it through
+  the guardrails.

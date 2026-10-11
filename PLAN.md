@@ -356,6 +356,14 @@ fail-closed rule: anything not understood reads every field everywhere. Order by
 starting with KQL, which M5 needs anyway. Differential tests against each vendor's own parser
 where it is available offline (Kusto.Language for KQL).
 
+- Status 2026-10-11 (ADR 0015): Sentinel analytics rules are read into requirements (step 1) and
+  run in the Kusto emulator as part of the proof (step 2, `sluice up --sentinel-rules --kusto`):
+  91 of Microsoft's 105 Windows rules run there, and planted events fire them on the forwarded
+  records. Later the same day: callers of ASIM parsers and workspace functions apply to every
+  Windows source (fail closed), and `EventData` recipes for 4672 and 4798 were proven end to
+  end (window -11% against the "Windows Security Events" solution). Next: resolve ASIM parsers
+  from their source (`Parsers/` in Azure/Azure-Sentinel), so their callers get bounds again.
+
 **M7 — Ingest-agent builder.** Help operators build the collection side, with Sluice as the
 author of the config rather than another hop:
 
@@ -378,6 +386,21 @@ author of the config rather than another hop:
   and an end-to-end run agent → `sluice up` → per-table destinations on real events. Open:
   Security channel events from an elevated run, `Account`/`AccountType` compared with AMA
   records, community recipes for the two table shapes, and a send into a real workspace.
+
+**Backlog (added 2026-10-11, from testing in a real Sentinel workspace):**
+
+- **Any source to Sentinel.** Windows events have their tables and DCR (ADR 0014); other sources
+  do not yet. Generate a custom table (`<Source>_CL`) and its DCR from a source's discovered
+  templates (one column per top-level field, typed from the samples), print them with
+  `sluice connect sentinel --source <id>`, and test end to end in the test workspace with
+  OPNsense filterlog, Linux auth and DNS. Where Sentinel has a standard table for the data, map
+  to it instead, as for Windows: firewall logs to `CommonSecurityLog` or
+  `ASimNetworkSessionLogs`, Linux syslog to `Syslog`, so Microsoft's own rules and workbooks
+  apply.
+- **`Account` and `AccountType` in `SecurityEvent`.** Compare with records the Azure Monitor
+  Agent collected on the same machine before deriving them.
+- **The 14 Sentinel rules that read `EventData` without an `EventID` bound** (ADR 0015): most
+  filter through `let` lists or `union`s that step 1 does not resolve yet.
 
 **M8 — Operate without the CLI.** Write actions in the console and MCP, behind the token and an
 audit log: pause or force a recipe, keep-list a field or template per destination, approve

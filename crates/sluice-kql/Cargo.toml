@@ -1,6 +1,6 @@
 [package]
 name = "sluice-kql"
-description = "Reductions as KQL for Azure Monitor data collection rule transformations (Sentinel)"
+description = "KQL for Microsoft Sentinel: reductions as DCR transformations, and analytics rules run in the Kusto emulator"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,14 +8,15 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+serde_json.workspace = true
 sluice-core.workspace = true
+thiserror.workspace = true
+ureq.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
 sluice-rules.workspace = true
 sluice-synth.workspace = true
 sluice-vector.workspace = true
-ureq.workspace = true
 
 [lints]
 workspace = true

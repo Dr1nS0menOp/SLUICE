@@ -9,6 +9,11 @@
 #     --channel Security --channel System --channel Application > agent.yaml   # on each host
 #   sluice up --config examples/up/sluice-windows.yaml --rules <SigmaHQ rules>
 #
+# To prove cuts against Microsoft's own analytics rules as well, add `sluice_rules: [sigma,
+# sentinel]` to both destinations and start with
+#   --sentinel-rules <clone of Azure/Azure-Sentinel> --kusto http://127.0.0.1:8090
+# (scripts/kql-check.sh starts the Kusto emulator; ADR 0015).
+#
 # The promotion settings are for trying it out; production defaults are 24 hours and 3 proofs.
 
 listen: 127.0.0.1:8686

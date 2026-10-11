@@ -35,6 +35,7 @@ fn demo() -> &'static Demo {
             events: &sample.events,
             sigma: &rules,
             wazuh: None,
+            sentinel: None,
         };
         let analysis = analyze(input, &book, &Settings::default(), Helpers::default())
             .expect("analysis succeeds");

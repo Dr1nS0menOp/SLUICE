@@ -74,3 +74,63 @@ pub trait RuleEngine {
         self.alerts_refs(&events.iter().collect::<Vec<_>>())
     }
 }
+
+/// Several engines as one: the alerts of all of them. A destination's SIEM may run more than one
+/// rule set (Sigma and the SIEM's own rules); the proof must hold for every one. Rule ids of
+/// different engines must not collide, which their prefixes (`sentinel:`) ensure.
+pub struct Engines<'a>(pub Vec<&'a dyn RuleEngine>);
+
+impl RuleEngine for Engines<'_> {
+    fn alerts_refs(&self, events: &[&Event]) -> Result<BTreeSet<Alert>, EngineError> {
+        let mut alerts = BTreeSet::new();
+        for engine in &self.0 {
+            alerts.extend(engine.alerts_refs(events)?);
+        }
+        Ok(alerts)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::Timestamp;
+    use crate::ids::SourceId;
+
+    struct Fixed(Result<&'static str, &'static str>);
+
+    impl RuleEngine for Fixed {
+        fn alerts_refs(&self, events: &[&Event]) -> Result<BTreeSet<Alert>, EngineError> {
+            let rule = self.0.map_err(|e| EngineError(e.to_owned()))?;
+            Ok(events
+                .iter()
+                .map(|e| Alert {
+                    rule: RuleId::new(rule),
+                    event: e.id,
+                })
+                .collect())
+        }
+    }
+
+    fn event() -> Event {
+        Event {
+            id: EventId(7),
+            timestamp: Timestamp(0),
+            source: SourceId::new("s"),
+            fields: serde_json::Map::new(),
+        }
+    }
+
+    #[test]
+    fn engines_raise_the_alerts_of_every_engine() {
+        let (a, b) = (Fixed(Ok("a")), Fixed(Ok("b")));
+        let alerts = Engines(vec![&a, &b]).alerts(&[event()]).unwrap();
+        let rules: Vec<&str> = alerts.iter().map(|a| a.rule.as_str()).collect();
+        assert_eq!(rules, ["a", "b"]);
+    }
+
+    #[test]
+    fn engines_fail_when_any_engine_fails() {
+        let (a, b) = (Fixed(Ok("a")), Fixed(Err("down")));
+        assert!(Engines(vec![&a, &b]).alerts(&[event()]).is_err());
+    }
+}

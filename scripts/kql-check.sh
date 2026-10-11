@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Differential test of the KQL backend against the real KQL engine (Kusto emulator, ADR 0013).
-# Starts the emulator in Docker if it is not running, then runs the emulator test.
+# Tests against the real KQL engine (Kusto emulator): the KQL backend's differential test (ADR 0013)
+# and the proof on Sentinel analytics rules (ADR 0015). Starts the emulator in Docker if it is not
+# running, then runs both tests.
 # The image is about 4.5 GB; check.sh runs this only when the image is already present.
 set -euo pipefail
 
@@ -24,4 +25,4 @@ if ! ready; then
     ready || { echo "the Kusto emulator did not start" >&2; exit 1; }
 fi
 
-SLUICE_KUSTO_URL="$url" cargo test --locked -p sluice-kql --test emulator -- --nocapture
+SLUICE_KUSTO_URL="$url" cargo test --locked -p sluice-kql --test emulator --test rules -- --nocapture

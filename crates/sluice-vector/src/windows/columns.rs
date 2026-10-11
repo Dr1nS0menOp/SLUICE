@@ -225,6 +225,18 @@ pub const SECURITY_EVENT_SYSTEM_COLUMNS: &[(&str, &str)] = &[
     ("EventData", "string"),
 ];
 
+/// `SecurityEvent` data columns the table types as `guid`. A stream declaration has no GUID
+/// type, so they are declared `string` and converted by the DCR transformation (`toguid`
+/// accepts Windows' braces; an invalid value becomes null). Found by creating the DCR in a real
+/// workspace, which rejected the plain `string` columns (2026-10-11).
+pub const SECURITY_EVENT_GUID_COLUMNS: &[&str] = &[
+    "InterfaceUuid",
+    "LogonGuid",
+    "SourceComputerId",
+    "SubcategoryGuid",
+    "TargetLogonGuid",
+];
+
 /// The `WindowsEvent` columns this program sets, with their table types (Microsoft's table
 /// reference, 2026-07-27). `EventData` is `dynamic` here: the provider's named data as an object.
 pub const WINDOWS_EVENT_COLUMNS: &[(&str, &str)] = &[
