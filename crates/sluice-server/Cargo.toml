@@ -9,7 +9,9 @@ publish.workspace = true
 
 [dependencies]
 axum.workspace = true
+base64.workspace = true
 chrono.workspace = true
+ring.workspace = true
 rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -21,6 +23,7 @@ sluice-vector.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+ureq.workspace = true
 
 [dev-dependencies]
 flate2.workspace = true

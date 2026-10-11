@@ -29,6 +29,9 @@ pub struct Settings {
     pub guardrails: GuardrailConfig,
     /// Whether full-fidelity archiving runs before reductions (safety contract rule 2).
     pub archive_enabled: bool,
+    /// Requirements operators added (ADR 0016), such as fields to keep. They constrain the
+    /// guardrails like any rule, but are not evaluated in the proof.
+    pub operator_rules: Vec<RuleRequirements>,
 }
 
 impl Default for Settings {
@@ -37,6 +40,7 @@ impl Default for Settings {
             discover: DiscoverConfig::default(),
             guardrails: GuardrailConfig::default(),
             archive_enabled: true,
+            operator_rules: Vec::new(),
         }
     }
 }
@@ -235,6 +239,7 @@ pub fn analyze_proposals(
         .iter()
         .chain(input.wazuh.map_or(&[][..], WazuhRules::requirements))
         .chain(input.sentinel.map_or(&[][..], |s| s.rules.requirements()))
+        .chain(&settings.operator_rules)
         .cloned()
         .collect();
     let context = GuardContext {

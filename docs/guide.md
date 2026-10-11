@@ -63,9 +63,9 @@ sources:
 | `sluice status` | The live control plane's status: savings, proof, stage per template, recent transitions. |
 | `sluice search --archive DIR [--source S] [--from T] [--to T] [--where C]…` | Prints archived events (full fidelity) as NDJSON; `--count`, `--limit`. |
 | `sluice replay … --url URL` | Sends archived events to an HTTP endpoint as NDJSON. |
-| `sluice connect TARGET` | Prints a destination for `sluice up`: `splunk`, `elastic`, `sentinel`, `chronicle`, `wazuh`, `http`. For `sentinel`, `--standard-table syslog\|common-security-log\|asim-network-session\|asim-dns --out DIR` writes the data collection rule for a standard table, and `--sample FILE --table NAME --out DIR` a custom table and its rule. |
+| `sluice connect TARGET` | Prints a destination for `sluice up`: `splunk`, `elastic`, `sentinel`, `chronicle`, `wazuh`, `http`. For `sentinel`, `--standard-table syslog\|common-security-log\|asim-network-session\|asim-dns\|asim-web-session --out DIR` writes the data collection rule for a standard table, and `--sample FILE --table NAME --out DIR` a custom table and its rule. |
 | `sluice agent windows --to URL [--events-to URL] [--channel C]...` | Prints the Vector configuration for a Windows host that sends its event logs to `sluice up`; `--dcr FILE --workspace ID` also writes the Sentinel data collection rule for them. |
-| `sluice mcp [--archive DIR] [--allow-replay] [--http ADDR]` | An MCP server for AI assistants, over stdio or bearer-token HTTP. |
+| `sluice mcp [--archive DIR] [--allow-replay] [--allow-actions] [--http ADDR]` | An MCP server for AI assistants, over stdio or bearer-token HTTP. `--allow-actions` offers the operator actions (ADR 0016). |
 | `sluice recipes [schema \| export --out DIR]` | Lists the built-in recipes, prints their JSON Schema, or exports them to edit. |
 | `sluice rules requirements --rules DIR` | Prints, as JSON, what each rule needs: log source, fields, raw text, state. Also for Wazuh (`--wazuh-rules`) and Sentinel (`--sentinel-rules`) rules. |
 
@@ -83,7 +83,7 @@ data_dir: /var/lib/sluice/vector-data
 tap_rate: 10                    # keep 1 in 10 events for analysis (default)
 cycle_secs: 300                 # seconds between cycles (default)
 window: { max_events_per_source: 20000, max_age_secs: 3600 }   # defaults
-promotion: { shadow_secs: 86400, min_proofs: 3 }               # defaults
+promotion: { shadow_secs: 86400, min_proofs: 3, approval: false }   # defaults; approval: true = no recipe without an operator's approval
 sources:
   - id: windows-system
     logsource: { product: windows, service: system, complete: true }
@@ -105,9 +105,10 @@ vector_secrets:                 # Vector secret backends for destination credent
   hosts running `sluice agent windows`, `sentinel_syslog` for Linux hosts and network devices
   (Vector's `syslog` source or raw lines), `sentinel_common_security_log` or
   `sentinel_asim_network_session` for firewall records (raw `filterlog` lines or parsed),
-  `sentinel_asim_dns` for DNS query records. `sluice connect sentinel --standard-table
-  syslog|common-security-log|asim-network-session|asim-dns --out DIR` writes the data
-  collection rule for the table.
+  `sentinel_asim_dns` for DNS query records, `sentinel_asim_web_session` for web server access
+  logs. `sluice connect sentinel --standard-table
+  syslog|common-security-log|asim-network-session|asim-dns|asim-web-session --out DIR` writes
+  the data collection rule for the table.
 - A destination may carry `sluice_sources: [id, …]` to take only those sources. A SIEM table
   takes one shape of record: Windows hosts running `sluice agent windows` send Sentinel
   `SecurityEvent` and `WindowsEvent` records to two sources, and each Sentinel destination names
@@ -144,6 +145,51 @@ vector_secrets:                 # Vector secret backends for destination credent
   route but `/healthz` needs `Authorization: Bearer <token>`; `sluice status` and `sluice mcp`
   send it from the same variable. Without a token, `sluice up` only listens on loopback.
 - The archive is gzip NDJSON per source and UTC hour; nothing in it is ever reduced.
+
+## Operator actions
+
+The console's template page, and `POST /actions` with a JSON body, let an operator steer Sluice
+for one rule profile ([ADR 0016](adr/0016-operator-actions.md)):
+
+| Action | Body | Effect |
+|---|---|---|
+| Hold | `{"action": "hold", "template": "…"}` | The template is forwarded unchanged until released; its recipe stops now. |
+| Release | `{"action": "release", "template": "…"}` | Ends a hold; the recipe starts over in shadow. |
+| Approve | `{"action": "approve", "template": "…"}` | A recipe in shadow is enforced at its next proof. Required for every recipe with `promotion.approval: true`. |
+| Keep / unkeep | `{"action": "keep", "source": "…", "field": "…"}` | The field is never removed from that source's events. |
+| Acknowledge | `{"action": "acknowledge", "template": "…", "at": 1791742558}` | Marks a rollback as seen. |
+
+Add `"profile"` for a profile other than the first, and `"reason"` for the audit log. To have
+the audit log name people, give each operator their own token in `operators_file` (in the
+`sluice up` configuration): a file of `name token` lines, tokens of at least 32 characters, only
+readable by its owner (`chmod 600`). Each operator then signs in to the console, or calls the API,
+with their own token.
+
+For single sign-on with your organization's identity provider (Entra ID, Keycloak, Authentik,
+Google, any OIDC provider), register Sluice as a client with the redirect URL
+`https://<console>/auth/callback` and add:
+
+```yaml
+oidc:
+  issuer: https://login.microsoftonline.com/<tenant>/v2.0   # exactly as the provider states it
+  client_id: <client id>
+  client_secret_file: /run/secrets/sluice/oidc_client_secret # only for confidential clients
+  redirect_url: https://sluice.example.org/auth/callback
+  name_claim: email                                          # or preferred_username
+  operators: [alice@example.org, bob@example.org]            # who may sign in
+```
+
+The console then offers **Sign in with single sign-on**. `SLUICE_CONTROL_TOKEN` stays required:
+Vector uses it for the tap. Details and caveats: [notes/oidc.md](notes/oidc.md). Every
+action goes into the profile's history and into `audit.ndjson` in the data directory; holds and
+kept fields are stored in `operator.json` there and survive a restart. None of them can weaken
+the safety contract: holds and kept fields only add protection, and an approved recipe still has
+to pass the proof on the cycle it is enforced in.
+
+```sh
+curl -X POST http://127.0.0.1:8686/actions -H "Authorization: Bearer $SLUICE_CONTROL_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"action":"hold","template":"dns:8570167c963a","reason":"IR"}'
+```
 
 ## Why is nothing cut?
 

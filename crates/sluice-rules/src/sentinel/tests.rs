@@ -26,6 +26,7 @@ fn shaped_records() -> Predicate {
         super::extract::present("DeviceVendor"),
         super::extract::present("EventSchemaVersion"),
         super::extract::present("DnsQuery"),
+        super::extract::present("Url"),
     ])
 }
 

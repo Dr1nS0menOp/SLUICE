@@ -26,6 +26,13 @@ pub struct ServerConfig {
     pub archive_dir: PathBuf,
     /// Vector's data directory.
     pub data_dir: PathBuf,
+    /// A secret file of named operator tokens, one `name token` per line (ADR 0016). Each
+    /// operator signs in with their own token, so the audit log names them.
+    #[serde(default)]
+    pub operators_file: Option<PathBuf>,
+    /// Single sign-on for the console with an OIDC provider (ADR 0016).
+    #[serde(default)]
+    pub oidc: Option<crate::oidc::OidcConfig>,
     /// Where Sluice writes the Vector configuration.
     pub vector_config: PathBuf,
     /// The Vector binary.
@@ -74,6 +81,8 @@ pub enum Shape {
     SentinelAsimNetworkSession,
     /// DNS query records as Sentinel's normalized `ASimDnsActivityLogs`.
     SentinelAsimDns,
+    /// Web server access logs as Sentinel's normalized `ASimWebSessionLogs`.
+    SentinelAsimWebSession,
 }
 
 impl Shape {
@@ -91,6 +100,9 @@ impl Shape {
                 sluice_vector::asim_network_session::asim_network_session_program()
             }
             Self::SentinelAsimDns => sluice_vector::asim_dns::asim_dns_program(),
+            Self::SentinelAsimWebSession => {
+                sluice_vector::asim_web_session::asim_web_session_program()
+            }
         }
     }
 }
@@ -122,6 +134,9 @@ pub struct PromotionConfig {
     pub shadow_secs: i64,
     /// Minimum consecutive proofs in shadow.
     pub min_proofs: u32,
+    /// Conservative mode: no recipe is enforced without an operator's approval (ADR 0016).
+    #[serde(default)]
+    pub approval: bool,
 }
 
 impl Default for PromotionConfig {
@@ -130,6 +145,7 @@ impl Default for PromotionConfig {
         Self {
             shadow_secs: policy.shadow_secs,
             min_proofs: policy.min_proofs,
+            approval: policy.approval,
         }
     }
 }
@@ -139,6 +155,7 @@ impl From<PromotionConfig> for Policy {
         Self {
             shadow_secs: config.shadow_secs,
             min_proofs: config.min_proofs,
+            approval: config.approval,
         }
     }
 }

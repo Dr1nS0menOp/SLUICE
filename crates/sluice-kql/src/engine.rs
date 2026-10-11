@@ -45,16 +45,19 @@ pub enum Table {
     ASimNetworkSessionLogs,
     /// DNS queries in the ASIM schema.
     ASimDnsActivityLogs,
+    /// Web sessions in the ASIM schema.
+    ASimWebSessionLogs,
 }
 
 impl Table {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::SecurityEvent,
         Self::WindowsEvent,
         Self::Syslog,
         Self::CommonSecurityLog,
         Self::ASimNetworkSessionLogs,
         Self::ASimDnsActivityLogs,
+        Self::ASimWebSessionLogs,
     ];
 
     /// The table's name in a Log Analytics workspace.
@@ -67,6 +70,7 @@ impl Table {
             Self::CommonSecurityLog => "CommonSecurityLog",
             Self::ASimNetworkSessionLogs => "ASimNetworkSessionLogs",
             Self::ASimDnsActivityLogs => "ASimDnsActivityLogs",
+            Self::ASimWebSessionLogs => "ASimWebSessionLogs",
         }
     }
 
@@ -80,6 +84,7 @@ impl Table {
             Self::CommonSecurityLog => schema::COMMON_SECURITY_LOG,
             Self::ASimNetworkSessionLogs => schema::ASIM_NETWORK_SESSION_LOGS,
             Self::ASimDnsActivityLogs => schema::ASIM_DNS_ACTIVITY_LOGS,
+            Self::ASimWebSessionLogs => schema::ASIM_WEB_SESSION_LOGS,
         };
         own.iter().chain(HIDDEN_COLUMNS).copied()
     }

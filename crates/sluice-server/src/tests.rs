@@ -15,11 +15,11 @@ use crate::config::{LiveSourceConfig, PromotionConfig, ServerConfig, WindowConfi
 use crate::control::{Rules, Shared};
 use crate::routes::router;
 
-fn shared(dir: &std::path::Path) -> Arc<Shared> {
+pub(crate) fn shared(dir: &std::path::Path) -> Arc<Shared> {
     shared_with_token(dir, None)
 }
 
-fn shared_with_token(dir: &std::path::Path, token: Option<&str>) -> Arc<Shared> {
+pub(crate) fn shared_with_token(dir: &std::path::Path, token: Option<&str>) -> Arc<Shared> {
     let mut destinations = Map::new();
     destinations.insert("siem".into(), json!({"type": "blackhole"}));
     shared_with(dir, token, destinations, false)
@@ -34,7 +34,7 @@ fn shared_with(
     Arc::new(build(dir, token, destinations, wazuh).unwrap())
 }
 
-fn build(
+pub(crate) fn build(
     dir: &std::path::Path,
     token: Option<&str>,
     destinations: Map<String, Value>,
@@ -80,6 +80,8 @@ fn build_with(
         vector_secrets: Map::new(),
         archive_dir: dir.join("archive"),
         data_dir: dir.join("data"),
+        operators_file: None,
+        oidc: None,
         vector_config: dir.join("vector.yaml"),
         vector_binary: PathBuf::from("vector"),
         tap_rate: 10,
@@ -88,6 +90,7 @@ fn build_with(
         promotion: PromotionConfig {
             shadow_secs: 0,
             min_proofs: 2,
+            approval: false,
         },
     };
     Shared::new(
@@ -98,13 +101,13 @@ fn build_with(
     )
 }
 
-fn scratch(name: &str) -> PathBuf {
+pub(crate) fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("sluice-server-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     dir
 }
 
-async fn post(shared: &Arc<Shared>, uri: &str, body: String) -> StatusCode {
+pub(crate) async fn post(shared: &Arc<Shared>, uri: &str, body: String) -> StatusCode {
     let request = Request::post(uri).body(Body::from(body)).unwrap();
     router(Arc::clone(shared))
         .oneshot(request)
@@ -113,7 +116,7 @@ async fn post(shared: &Arc<Shared>, uri: &str, body: String) -> StatusCode {
         .status()
 }
 
-fn ndjson(source: &str, scale: u64) -> String {
+pub(crate) fn ndjson(source: &str, scale: u64) -> String {
     let sample = generate(&SynthConfig {
         scale_percent: scale,
         ..SynthConfig::default()

@@ -98,6 +98,12 @@ Follow it with `sluice status`, or open `http://127.0.0.1:8686/` for the web con
 the saving per source and template, why each field was kept, each recipe's history, and a search
 over the archive.
 
+You can steer it from the console too. On a template's page, **Hold** forwards it unchanged
+until you release it, **Approve** enforces its recipe at the next proof instead of after the full
+shadow period, and **Keep field** protects a field your analysts rely on even though no rule
+reads it. Give a reason: every action is written to the audit log (`audit.ndjson`). A team that
+wants a person to agree before anything is cut sets `promotion: { approval: true }`.
+
 ## 4. Microsoft Sentinel
 
 Sentinel's built-in analytics rules expect data in its standard tables, in their exact shape.
@@ -126,6 +132,11 @@ that stores them.
 | Firewall logs (raw OPNsense/pfSense `filterlog`, or parsed) | `sentinel_common_security_log` | `CommonSecurityLog` | `--standard-table common-security-log` |
 | The same firewall logs, normalized | `sentinel_asim_network_session` | `ASimNetworkSessionLogs` | `--standard-table asim-network-session` |
 | DNS queries (ECS fields) | `sentinel_asim_dns` | `ASimDnsActivityLogs` | `--standard-table asim-dns` |
+| Web server access logs (nginx combined lines, or ECS) | `sentinel_asim_web_session` | `ASimWebSessionLogs` | `--standard-table asim-web-session` |
+
+Authentication and process events need no table of their own: Microsoft's ASIM parsers already
+derive them from `Syslog` (sshd), `SecurityEvent` and Sysmon's `WindowsEvent`, which the shapes
+above deliver.
 
 ```sh
 sluice connect sentinel --standard-table syslog --out dcr/ \
@@ -207,8 +218,10 @@ the live status, and look up original events in the archive:
 claude mcp add sluice -- sluice mcp --archive /var/lib/sluice/archive
 ```
 
-Replay is only offered with `--allow-replay`. For a remote assistant, `sluice mcp --http
-127.0.0.1:8687` serves MCP over HTTP with a bearer token (`SLUICE_MCP_TOKEN`).
+Replay is only offered with `--allow-replay`, and the operator actions (hold, approve, keep a
+field, acknowledge a rollback) only with `--allow-actions`; the control plane audits them like
+actions from the console. For a remote assistant, `sluice mcp --http 127.0.0.1:8687` serves MCP
+over HTTP with a bearer token (`SLUICE_MCP_TOKEN`).
 
 ## 8. Let AI propose recipes
 
@@ -230,12 +243,15 @@ yourself: `sluice recipes export --out my-recipes`, edit, and pass `--recipes my
 | A Linux server or VM | The static release binary and Vector 0.59, with `sluice up` under systemd. |
 | Docker | `docker compose -f examples/docker/compose.yaml up --build` runs Sluice and Vector with demo traffic. The image bundles the verified Vector release. |
 | Kubernetes | `helm install sluice deploy/helm/sluice --set controlToken.secretName=sluice-token` |
+| Your own Vector fleet | `sluice analyze` writes a proven `vector.yaml`; roll it out with your own tooling (Git, CI, Ansible, Kubernetes). Sluice does not run your nodes ([ADR 0017](adr/0017-remote-data-plane.md)). |
 
 Before it handles real data:
 
 - Set `SLUICE_CONTROL_TOKEN` (32 characters or more). Without it, the control plane only listens
   on localhost.
 - Keep SIEM credentials in secret files, referenced as `SECRET[backend.key]`.
+- Give each person who steers Sluice their own identity: single sign-on with your provider
+  (`oidc`), or their own token in `operators_file`, so the audit log names them.
 - Size the archive: it holds everything, gzip-compressed, per source and hour.
 - Leave the promotion defaults (24 hours of shadow, 3 proofs) unless you are testing.
 

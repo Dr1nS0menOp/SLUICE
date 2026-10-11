@@ -223,6 +223,8 @@ pub const SECURITY_EVENT_SYSTEM_COLUMNS: &[(&str, &str)] = &[
     ("SystemUserId", "string"),
     ("Activity", "string"),
     ("EventData", "string"),
+    ("Account", "string"),
+    ("AccountType", "string"),
 ];
 
 /// `SecurityEvent` data columns the table types as `guid`. A stream declaration has no GUID

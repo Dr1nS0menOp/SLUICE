@@ -2904,8 +2904,10 @@ name = "sluice-server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "chrono",
  "flate2",
+ "ring",
  "rustix",
  "serde",
  "serde_json",
@@ -2920,6 +2922,7 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
+ "ureq",
 ]
 
 [[package]]

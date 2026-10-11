@@ -128,6 +128,7 @@ pub(crate) fn mcp(args: McpArgs) -> Result<()> {
         control_token: control_token(),
         archive: args.archive,
         allow_replay: args.allow_replay,
+        allow_actions: args.allow_actions,
     };
     let runtime = tokio::runtime::Runtime::new().context("starting the async runtime")?;
     match args.http {
@@ -201,6 +202,7 @@ fn sentinel(args: &UpArgs, config: &ServerConfig) -> Result<Option<SentinelRuleS
                 Shape::SentinelCommonSecurityLog => Table::CommonSecurityLog,
                 Shape::SentinelAsimNetworkSession => Table::ASimNetworkSessionLogs,
                 Shape::SentinelAsimDns => Table::ASimDnsActivityLogs,
+                Shape::SentinelAsimWebSession => Table::ASimWebSessionLogs,
             };
             Some((s.source.id.clone(), table))
         })

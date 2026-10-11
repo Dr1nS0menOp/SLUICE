@@ -7,6 +7,7 @@
 
 pub mod asim_dns;
 pub mod asim_network_session;
+pub mod asim_web_session;
 mod classify;
 pub mod common_security_log;
 mod config;

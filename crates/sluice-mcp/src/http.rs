@@ -120,6 +120,7 @@ mod tests {
             control_token: None,
             archive: None,
             allow_replay: false,
+            allow_actions: false,
         };
         let options = HttpOptions {
             listen: "127.0.0.1:0".parse().unwrap(),
@@ -184,6 +185,7 @@ mod tests {
             control_token: None,
             archive: None,
             allow_replay: false,
+            allow_actions: false,
         };
         assert!(matches!(router(config, &options), Err(McpError::Token(_))));
     }

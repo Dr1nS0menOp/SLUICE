@@ -48,6 +48,7 @@ fn recipes_are_shadowed_then_enforced_and_keep_holding() {
     let mut lifecycle = Lifecycle::new(Policy {
         shadow_secs: 2 * 3_600,
         min_proofs: 2,
+        approval: false,
     });
 
     let mut enforced_after = Vec::new();

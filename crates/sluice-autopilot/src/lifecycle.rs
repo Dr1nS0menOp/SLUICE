@@ -18,6 +18,8 @@ pub struct Policy {
     pub shadow_secs: i64,
     /// Minimum consecutive proofs in shadow.
     pub min_proofs: u32,
+    /// Conservative mode: no recipe is enforced without an operator's approval (ADR 0016).
+    pub approval: bool,
 }
 
 impl Default for Policy {
@@ -25,6 +27,7 @@ impl Default for Policy {
         Self {
             shadow_secs: 24 * 3_600,
             min_proofs: 3,
+            approval: false,
         }
     }
 }
@@ -60,6 +63,8 @@ pub enum Transition {
     /// The template became rare in this window, so its recipe stopped (contract rule 4, not a
     /// failed proof). It starts over in shadow once the template is clearly frequent again.
     Paused(TemplateId),
+    /// An operator held the template: its recipe stopped and stays stopped until released.
+    Held(TemplateId),
 }
 
 /// What one window says about the tracked templates.
@@ -77,12 +82,15 @@ pub struct Evidence<'a> {
 }
 
 /// The stages of all templates with a proven recipe, and the last proven recipe of every enforced
-/// template, which stays deployed through windows in which the template is absent.
+/// template, which stays deployed through windows in which the template is absent. Operators may
+/// hold templates (never cut) and approve recipes (enforced at their next proof).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Lifecycle {
     policy: Policy,
     stages: BTreeMap<TemplateId, Stage>,
     deployed: BTreeMap<TemplateId, (Template, EffectiveRecipe)>,
+    held: BTreeSet<TemplateId>,
+    approved: BTreeSet<TemplateId>,
 }
 
 impl Lifecycle {
@@ -93,7 +101,54 @@ impl Lifecycle {
             policy,
             stages: BTreeMap::new(),
             deployed: BTreeMap::new(),
+            held: BTreeSet::new(),
+            approved: BTreeSet::new(),
         }
+    }
+
+    /// Holds a template: its recipe stops now and does not advance until released. Holding only
+    /// ever adds protection. Returns the transition if a recipe was in shadow or enforced.
+    pub fn hold(&mut self, template: &TemplateId) -> Option<Transition> {
+        self.held.insert(template.clone());
+        self.approved.remove(template);
+        self.deployed.remove(template);
+        self.stages
+            .remove(template)
+            .map(|_| Transition::Held(template.clone()))
+    }
+
+    /// Releases a held template; its recipe starts over in shadow when next proven.
+    pub fn release(&mut self, template: &TemplateId) -> bool {
+        self.held.remove(template)
+    }
+
+    /// Approves the recipe of a template in shadow: it is enforced at the next cycle in which it
+    /// is proven, without waiting for the shadow time and proof count. Returns false when the
+    /// template is not in shadow.
+    pub fn approve(&mut self, template: &TemplateId) -> bool {
+        let shadow = matches!(self.stages.get(template), Some(Stage::Shadow { .. }));
+        if shadow {
+            self.approved.insert(template.clone());
+        }
+        shadow
+    }
+
+    /// The promotion policy.
+    #[must_use]
+    pub fn policy(&self) -> Policy {
+        self.policy
+    }
+
+    /// Held templates.
+    #[must_use]
+    pub fn held(&self) -> &BTreeSet<TemplateId> {
+        &self.held
+    }
+
+    /// Approved recipes still in shadow.
+    #[must_use]
+    pub fn approved(&self) -> &BTreeSet<TemplateId> {
+        &self.approved
     }
 
     /// Records the latest proven recipe of an enforced template.
@@ -139,6 +194,7 @@ impl Lifecycle {
             .cloned()
             .collect();
         for template in stopped {
+            self.approved.remove(&template);
             self.deployed.remove(&template);
             let stage = self.stages.remove(&template);
             match stage {
@@ -151,6 +207,9 @@ impl Lifecycle {
             }
         }
         for template in evidence.proven {
+            if self.held.contains(template) {
+                continue;
+            }
             let next = match self.stages.get(template) {
                 None if evidence.near_rare.contains(template) => continue,
                 None => {
@@ -162,9 +221,11 @@ impl Lifecycle {
                 }
                 Some(Stage::Shadow { since, proofs }) => {
                     let proofs = proofs + 1;
-                    if now.0 - since.0 >= self.policy.shadow_secs
-                        && proofs >= self.policy.min_proofs
-                    {
+                    let waited = now.0 - since.0 >= self.policy.shadow_secs
+                        && proofs >= self.policy.min_proofs;
+                    let approved = self.approved.contains(template);
+                    if approved || (waited && !self.policy.approval) {
+                        self.approved.remove(template);
                         transitions.push(Transition::Promoted(template.clone()));
                         Stage::Enforced { since: now }
                     } else {
@@ -233,7 +294,58 @@ mod tests {
         Lifecycle::new(Policy {
             shadow_secs: 24 * HOUR,
             min_proofs: 3,
+            approval: false,
         })
+    }
+
+    #[test]
+    fn c5_a_held_template_is_never_cut_until_released() {
+        let mut l = lifecycle();
+        for hour in [0, 12, 24] {
+            step(&mut l, hour * HOUR, &["a"]);
+        }
+        assert_eq!(l.hold(&"a".into()), Some(Transition::Held("a".into())));
+        assert!(l.enforced().is_empty() && l.deployed().is_empty());
+        assert_eq!(step(&mut l, 25 * HOUR, &["a"]), [], "proven, but held");
+        assert!(l.stages().is_empty());
+        assert!(l.release(&"a".into()));
+        assert_eq!(
+            step(&mut l, 26 * HOUR, &["a"]),
+            [Transition::Shadowing("a".into())],
+            "released: starts over in shadow"
+        );
+    }
+
+    #[test]
+    fn c5_approval_shortens_the_wait_but_never_skips_the_proof() {
+        let mut l = lifecycle();
+        assert!(!l.approve(&"a".into()), "nothing in shadow yet");
+        step(&mut l, 0, &["a"]);
+        assert!(l.approve(&"a".into()));
+        assert_eq!(step(&mut l, HOUR, &[]), [Transition::Demoted("a".into())]);
+        assert!(l.approved().is_empty(), "a failed proof drops the approval");
+        step(&mut l, 2 * HOUR, &["a"]);
+        l.approve(&"a".into());
+        assert_eq!(
+            step(&mut l, 3 * HOUR, &["a"]),
+            [Transition::Promoted("a".into())]
+        );
+    }
+
+    #[test]
+    fn c5_in_conservative_mode_nothing_is_enforced_without_approval() {
+        let mut l = Lifecycle::new(Policy {
+            shadow_secs: HOUR,
+            min_proofs: 2,
+            approval: true,
+        });
+        for hour in [0, 2, 4, 6] {
+            step(&mut l, hour * HOUR, &["a"]);
+        }
+        assert!(l.enforced().is_empty());
+        l.approve(&"a".into());
+        step(&mut l, 7 * HOUR, &["a"]);
+        assert_eq!(l.enforced(), ids(&["a"]));
     }
 
     #[test]

@@ -7,10 +7,11 @@ use axum::http::{StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use sluice_core::ids::SourceId;
 
 use crate::control::{Shared, as_object, lock};
+use crate::operators::Actor;
 use crate::status::{RuleInfo, Status};
 use crate::unix_now;
 
@@ -22,6 +23,8 @@ pub(crate) fn router(shared: Arc<Shared>) -> Router {
         .route("/tap/{source}", post(tap))
         .route("/status", get(status))
         .route("/rules", get(rules))
+        .route("/actions", post(act))
+        .route("/auth/me", get(me))
         .route("/archive/search", get(crate::archive::search))
         .layer(middleware::from_fn_with_state(
             Arc::clone(&shared),
@@ -30,25 +33,59 @@ pub(crate) fn router(shared: Arc<Shared>) -> Router {
     Router::new()
         .merge(protected)
         .merge(crate::ui::router())
+        .merge(crate::oidc::routes::router())
         .route("/healthz", get(|| async { "ok" }))
         .layer(DefaultBodyLimit::max(MAX_BODY))
         .with_state(shared)
 }
 
-/// Requires `Authorization: Bearer <token>` when the control plane has a token.
-async fn authorize(State(shared): State<Arc<Shared>>, request: Request, next: Next) -> Response {
-    let Some(token) = &shared.control_token else {
+/// Requires `Authorization: Bearer <token>` when the control plane has a control token or
+/// operator tokens, and records who made the request ([`Actor`]): the operator's name, `token`
+/// for the control token, or `local` when no token is configured.
+async fn authorize(
+    State(shared): State<Arc<Shared>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if let Some(name) = shared.oidc.as_ref().and_then(|oidc| {
+        crate::oidc::routes::session_id(request.headers())
+            .and_then(|id| oidc.session(&id, unix_now()))
+    }) {
+        request.extensions_mut().insert(Actor(name));
         return next.run(request).await;
-    };
-    let expected = format!("Bearer {token}");
+    }
+    if shared.control_token.is_none() && shared.operators.is_empty() {
+        request.extensions_mut().insert(Actor("local".to_owned()));
+        return next.run(request).await;
+    }
     let given = request
         .headers()
         .get(header::AUTHORIZATION)
-        .map(header::HeaderValue::as_bytes);
-    if given.is_some_and(|given| same(given, expected.as_bytes())) {
-        next.run(request).await
-    } else {
-        (StatusCode::UNAUTHORIZED, "missing or wrong bearer token\n").into_response()
+        .map(|value| value.as_bytes().to_vec());
+    let bearer = |token: &str| format!("Bearer {token}");
+    let actor = given.and_then(|given| {
+        let control = shared
+            .control_token
+            .as_deref()
+            .is_some_and(|token| same(&given, bearer(token).as_bytes()));
+        if control {
+            return Some("token".to_owned());
+        }
+        // Every token is compared, so timing does not reveal which operator matched.
+        let mut found = None;
+        for operator in &shared.operators {
+            if same(&given, bearer(&operator.token).as_bytes()) {
+                found = Some(operator.name.clone());
+            }
+        }
+        found
+    });
+    match actor {
+        Some(actor) => {
+            request.extensions_mut().insert(Actor(actor));
+            next.run(request).await
+        }
+        None => (StatusCode::UNAUTHORIZED, "missing or wrong bearer token\n").into_response(),
     }
 }
 
@@ -122,4 +159,32 @@ async fn status(
         .read()
         .unwrap_or_else(PoisonError::into_inner);
     Ok(Json(status.clone()))
+}
+
+/// `POST /actions`: an operator action (ADR 0016). Only JSON is accepted, which a cross-site
+/// form cannot send; the bearer token guards it like every other route.
+async fn act(
+    State(shared): State<Arc<Shared>>,
+    Extension(Actor(actor)): Extension<Actor>,
+    Json(request): Json<crate::operator::ActionRequest>,
+) -> (StatusCode, String) {
+    match shared.act(&request, &actor, unix_now()) {
+        Ok(()) => (
+            StatusCode::OK,
+            format!("{} {}\n", request.action.kind(), request.action.target()),
+        ),
+        Err(crate::operator::Refusal::Invalid(why)) => (StatusCode::CONFLICT, format!("{why}\n")),
+        Err(crate::operator::Refusal::Failed(error)) => {
+            tracing::error!(%error, "operator action not recorded");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "the action could not be recorded\n".to_owned(),
+            )
+        }
+    }
+}
+
+/// `GET /auth/me`: who the console is signed in as.
+async fn me(Extension(Actor(actor)): Extension<Actor>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "actor": actor }))
 }

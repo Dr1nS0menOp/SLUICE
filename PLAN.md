@@ -164,7 +164,7 @@ format change, silent source) → rediscover.
 ## Architecture
 
 ```
-sources ──▶ Vector data plane (Rust, MPL-2.0; scale-out nodes pull config via Vector's HTTP provider)
+sources ──▶ Vector data plane (Rust, MPL-2.0; scaled out with the user's own tooling, ADR 0017)
   syslog, Splunk HEC (drop-in),      ├─ tap (sampled, pre-reduction) ──▶ Sluice control plane (Rust)
   Beats/Lumberjack, OTLP, Kafka,     ├─ archive sink (full fidelity)        templates+stats (SQLite)
   files, http                        ├─ effective recipes (VRL remap,       recipes, guardrails, AI compiler
@@ -181,7 +181,7 @@ the number of events. Throughput comes from Vector.
 | Area | v0.1 | Later |
 |---|---|---|
 | **Destinations** (Vector sinks) | Splunk HEC; Elasticsearch/OpenSearch (incl. Wazuh indexer); Microsoft Sentinel (`azure_logs_ingestion`); Google SecOps/Chronicle; CrowdStrike LogScale; Datadog; QRadar (syslog/LEEF); Graylog (GELF); Loki; Kafka; S3/Blob/GCS; Wazuh manager (syslog remote or JSON file for agent `localfile`) | — |
-| **Rule awareness** | Sigma (rsigma, incl. correlations); Wazuh `rules.xml`; exact Wazuh verification via the Wazuh API `PUT /logtest` | Splunk SPL, Sentinel KQL, Elastic, Chronicle YARA-L, QRadar AQL (best effort, fail closed) |
+| **Rule awareness** | Sigma (rsigma, incl. correlations); Wazuh `rules.xml`; exact Wazuh verification via the Wazuh API `PUT /logtest` | Sentinel KQL (since M6, ADR 0015); Splunk SPL, Elastic, Chronicle YARA-L, QRadar AQL, read from the SIEM itself (M10; best effort, fail closed) |
 
 **Wazuh specifics.** Agent→manager traffic uses Wazuh's own encrypted protocol, so Sluice sits
 in two other places:
@@ -397,11 +397,14 @@ author of the config rather than another hop:
   done (`shape: sentinel_syslog`), and parsed firewall records to `CommonSecurityLog`
   (`shape: sentinel_common_security_log`) or `ASimNetworkSessionLogs`
   (`shape: sentinel_asim_network_session`), DNS to `ASimDnsActivityLogs`
-  (`shape: sentinel_asim_dns`); rules on each apply and run in the emulator. Left: the other
-  ASIM tables (authentication, process, web session). Raw `filterlog` lines (CSV over syslog) are
+  (`shape: sentinel_asim_dns`), web access logs to `ASimWebSessionLogs`
+  (`shape: sentinel_asim_web_session`); rules on each apply and run in the emulator.
+  Authentication and process events need no table of their own: Microsoft's ASIM parsers read
+  them from `Syslog`, `SecurityEvent` and `WindowsEvent`. Raw `filterlog` lines (CSV over syslog) are
   parsed by the shape itself; other firewall vendors need a parsed record or their own parser.
-- **`Account` and `AccountType` in `SecurityEvent`.** Compare with records the Azure Monitor
-  Agent collected on the same machine before deriving them.
+- **`Account` and `AccountType` in `SecurityEvent`.** Derived since 2026-10-11 (ADR 0014,
+  update), with the account columns; left: compare edge cases with records the Azure Monitor Agent
+  collected on the same machine.
 - **The 14 Sentinel rules that read `EventData` without an `EventID` bound** (ADR 0015): most
   filter through `let` lists or `union`s that step 1 does not resolve yet.
 
@@ -411,22 +414,137 @@ recipes in `conservative` mode, and acknowledge a rollback. Every action is an e
 history, and none can override the safety contract. Then multi-user access (OIDC), since a team
 console needs to know who acted.
 
-**M9 — Scale out.** Several Vector data-plane nodes pulling config from the control plane
-(Vector's HTTP config provider), a sharded tap, the archive on S3/Blob/GCS with Parquet for
-search, and a load test that publishes events per second per node next to the savings. A Helm
-chart with an HPA for the data plane.
+- Status 2026-10-11 (ADR 0016): hold/release, approve, keep/unkeep a field and acknowledge a
+  rollback, from the console and `POST /actions`, audited and stored; conservative mode
+  (`promotion.approval`). Checked live with demo traffic. The same actions as an MCP tool
+  (`sluice mcp --allow-actions`), and named operator tokens (`operators_file`) so the audit
+  log names people. Single sign-on with any OIDC provider (`oidc`), verified against Keycloak. M8 is done.
 
-**M10 — Community and ecosystem.** The flywheel that makes recipes "Sigma for pipelines":
+**Review 2026-10-11: the foundation under the proof.** The safety core holds up: superset
+pre-filters, field claims, per-template scoping, the proof in the real engine and the archive.
+What it rests on does not, and that is also what makes custom rules hard. Three findings, the
+first two reproduced with synthetic `sluice analyze` runs:
+
+- **Field names are compared literally (fail open).** The guardrails and the rsigma proof match a
+  rule's field names against the data's own. Sigma names `Image`; Elastic stores
+  `process.executable` (ECS), Splunk CIM names, Sentinel ASIM names. A SIEM converts Sigma with
+  a pySigma processing pipeline that maps those names; Sluice applies none. On ECS data a
+  `whoami` rule therefore "did not apply": its fields were unprotected, a summarize recipe took
+  600 of 600 events including the 3 matches, and the proof read 0 = 0. The same events with
+  Sysmon names gave 3 = 3 with the matches forwarded. The built-in recipes use Windows names, so
+  ECS data mostly gets no recipe today, but AI-proposed (L3) and operator recipes run straight
+  into this.
+- **A template is a shape, not a meaning.** Drain routes on the program name alone and merges at
+  40 % equal tokens, so sshd's "Accepted password" and "Failed password" become one template
+  (`sshd <*> password for <*> from …`): 3 failures among 597 accepted logons were not rare, and
+  were summarized with the rest. Contract rule 4 protects rare shapes, not rare events. Digit
+  masking also hides message ids (`%ASA-6-302013` becomes `%ASA-<NUM>-<NUM>`). JSON key sets
+  split the other way: every combination of optional fields is its own template (many end up
+  under the rarity floor, and agent updates reset them), and the four discriminator names
+  (`EventID`, `event.code`, `event.action`, `action`) are fixed, while CloudTrail, Okta, Entra
+  and Suricata name the event type in other fields. Whitespace tokens also suit CSV,
+  `key=value` and CEF lines poorly.
+- **Rules that are not loaded do not exist.** Sigma, Wazuh and Sentinel rules come from
+  directories; nothing reads the rules a SIEM actually runs (`sluice rules fetch` in ADR 0015 was
+  never built), Splunk, Elastic, Chronicle and QRadar rules are not modeled, and neither are
+  hunting queries, dashboards, workbooks or saved searches. A destination's `sluice_rules`
+  defaults to every loaded set, which treats "loaded" as "complete". A custom rule is written in
+  the SIEM's names and event categories; protecting it needs its scope as event types, its fields
+  as source fields and its filter in source terms, so it depends on the first two findings.
+
+M9 and M10 below fix the foundation, in that order; the configuration and CI milestones follow,
+since `sluice prove` in CI would otherwise inherit the same gaps.
+
+**M9 — Know the data: event types, schemas and field lineage.**
+
+1. **Fail-closed field namespaces (a safety fix, first).** Each source declares the field names
+   its records use (`schema: sigma | ecs | cim | asim | udm | ocsf`), and so does each rule set
+   (Sigma: Sigma's own names, unless a processing pipeline maps them). A rule whose names differ
+   from a source's, without a known mapping, applies to that source with unknown fields, so it
+   blocks cuts instead of being ignored. A test named after contract rule 3 reproduces the ECS
+   case. Then pySigma processing pipelines (field mappings and log source conditions), so Sigma
+   rules read the names the SIEM stores, as its own conversion does.
+2. **Event types instead of clusters.** The fields that name the event type are set per source
+   (`event_type: [eventSource, eventName]`), with defaults per source family. A template becomes
+   an event type with its shape variants under it; rarity is also counted per variant, so a rare
+   variant or field of a frequent type is forwarded. The classifier keys on the event type and
+   the fields a recipe touches, so an agent update does not reset every template. Drain stays for
+   unknown text only, made security-aware: route on more than the program name, keep the first
+   content tokens (verbs such as Accepted and Failed) constant, keep message ids unmasked, and
+   raise the similarity threshold.
+3. **A schema layer with field lineage.** Per source a declared parser and a mapping to the
+   destination's schema (ECS and ASIM first, then CIM, UDM and OCSF), shipped as community parser
+   packs next to the recipes. The guardrails and the proof work in the names the destination
+   stores; the lineage maps a rule's fields back to the source fields to protect. For unknown
+   text, the AI may propose a parser (a VRL regex), accepted only when it parses every line of
+   its cluster and rebuilds each line exactly.
+
+Done when: the ECS case keeps the rule's matches with a pipeline and refuses the cut without one,
+sshd failures form a template of their own, and the real-data runs save at least as much as
+before.
+
+**M10 — Know the rules: the inventory comes from the SIEM.**
+
+1. **Rule inventory over read-only APIs** instead of rule directories: Sentinel (`alertRules`,
+   scheduled and NRT; `savedSearches` for hunting queries and functions), Splunk
+   (`saved/searches` including Enterprise Security correlation searches, macros, event types,
+   data models and search-time extractions), Elastic (detection rules API, ingest pipelines, ML
+   jobs), the Wazuh API (`/rules`, `/decoders`) and Chronicle's rules API. Polled: a new rule is
+   guarded from the next cycle on, and its lookback can be replayed from the archive. This is
+   where `sluice rules fetch` (ADR 0015) lands.
+2. **One extractor per query language**, on the pattern of the KQL one: scope (tables, indexes,
+   sourcetypes), fields (a superset), pre-filter (the first filter), stateful parts and
+   unbounded constructs, with a coverage report. A rule that cannot be read blocks cuts only
+   within its own scope.
+3. **Completeness gate.** A destination states where its rules come from; without an inventory
+   it gets no rule-guided or semantic cuts (L2/L3), only a report of what they would save.
+4. **The proof in the real engine** where one runs offline (the Kusto emulator; Elasticsearch in
+   a container for ES|QL and EQL); elsewhere the cut ships as advisory.
+5. **Queries beyond detections.** Hunting queries, workbooks, dashboards and saved searches from
+   the same inventory, proven the same way: "same alerts" becomes "same query result", which
+   `KustoEngine` already compares row by row. Query logs (`LAQueryLogs`, Splunk `_audit`,
+   Elastic's audit log) show which fields people actually query: those are protected, and what
+   nobody queries is offered as the safest field cuts. Summaries become data of their own (a
+   table or index with window, keys, count and an archive pointer), with generated helpers (a
+   KQL function, a Splunk macro) that count raw events and summaries together.
+
+Done when: a Sentinel workspace's enabled rules and hunting queries are read over the API and
+proven in the emulator, a Splunk or Elastic destination without an inventory gets no L2/L3, and
+a dashboard that counts events either passes the proof or keeps its data.
+
+**M11 — Configs as the product.** Sluice's output scales; Sluice itself does not run a fleet
+(ADR 0017). Vector already runs pipelines at scale, so Sluice does not reinvent that. What
+Sluice delivers is the configuration and the proof that it saves data without changing a
+detection:
+
+- Every generated artifact (Vector pipeline, DCRs, agent configurations) written to a directory
+  that can live in Git. `sluice up` can write a proposed change there instead of applying it, so
+  a recipe reaches production as a reviewable diff.
+- `sluice prove` for CI: given a sample, the rules and a configuration, it fails when the alert
+  set over the forwarded data differs from the alert set over the full data, and prints the
+  savings. A GitHub Action wraps it.
+- A load test of the generated configuration on a stock Vector: events per second next to the
+  savings, so the numbers are about the configuration, not about Sluice.
+
+- Status 2026-10-11: a first draft, remote nodes pulling their configuration from the control
+  plane, worked end to end but was rejected and removed (ADR 0017): it would have made Sluice
+  the kind of platform it means to make unnecessary.
+
+**M12 — Community and ecosystem.** The flywheel that makes recipes "Sigma for pipelines":
 
 - A recipe hub repository with CI that runs every recipe against its samples and SigmaHQ.
 - `sluice recipes contribute`: export a locally proven, AI-written recipe (values stripped) as a
   pull request.
 - Signed recipe releases that `sluice up` can follow, with the same shadow and proof before
   anything enforces.
-- Normalization for teams that want it (OCSF, ECS, CIM, ASIM, UDM mappings), proven against
-  the rules that read the mapped names, and PII masking with the same proof.
+- Parser packs (M9) in the same hub, with the same CI.
+- Normalization for teams that want it, on M9's schema layer (OCSF, ECS, CIM, ASIM, UDM
+  mappings), proven against the rules that read the mapped names, and PII masking with the same
+  proof.
 
 **Out of scope, on purpose:** a hosted service and paid tiers (AGPL, adoption over revenue);
+running or steering a fleet of pipeline nodes (Vector and the user's own deployment tooling do
+that; ADR 0017);
 agent-side cuts without a full copy; any reduction the proof cannot run with the platform's
 own semantics.
 
@@ -505,12 +623,17 @@ sluice/
 ## Honest limits
 
 - Rule parsing is never complete. Failing closed protects detections but costs savings.
+- Until M9 step 1, rules are only protected on data that uses their own field names. Sigma rules
+  against ECS, CIM or ASIM records protect nothing, and the proof cannot notice (both sides
+  raise no alert). Use Sigma-named records with Sigma rules, or load no recipes for such sources.
+- Until M10, a rule Sluice was not given does not exist for it. Load every rule the SIEM runs,
+  for each destination.
 - Detections aren't the only consumers of data; dashboards, hunts and compliance also use it.
   Archive, replay, summaries, the keep-list and a per-destination "no reduction" switch mitigate
-  this.
+  this until M10 brings them into the proof.
 - Savings shown are estimates from samples; check them against the SIEM's license usage.
-- Throughput is measured on one machine (about 16k events/s per vCPU); multi-node numbers wait
-  for M9.
+- Throughput is measured on one machine (about 16k events/s per vCPU); the load test of the
+  generated configuration on a stock Vector waits for M11.
 - With the stock Wazuh ruleset loaded, JSON events are not reduced at all, by design (generic
   raw-text rules read the whole line). Until M4, load Wazuh rules only when Wazuh receives the
   data.

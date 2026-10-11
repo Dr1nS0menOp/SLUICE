@@ -66,3 +66,12 @@ runs and proves, has a `windows_event_log` source (beta) that runs on Windows
   `shape` to reach a Sentinel table. No
   recipe matches the table shapes yet, so they passed through unchanged: recipes for
   `SecurityEvent` and `WindowsEvent` are the next step.
+Update 2026-10-11: the account columns are derived now, not left out. Microsoft's rules read them
+widely (on the rules cached from Azure/Azure-Sentinel: `Account` in 38 rule files, `AccountType`
+in 15, `SubjectAccount` in 12, `TargetAccount` in 11), so leaving them empty made those rules
+blind to Sluice's records. Following Microsoft's column reference: `SubjectAccount` and
+`TargetAccount` as `DOMAIN\name` from the event's data, `Account` as the target account when
+there is one and the subject otherwise, `AccountType` `Machine` for a name ending in `$` and
+`User` otherwise. When in doubt the type is `User`, which the rules filter for, so a rule sees
+more rather than less. Comparing with records the Azure Monitor Agent wrote on the same machine
+is still the way to confirm the edge cases (for example which account 4798 reports).

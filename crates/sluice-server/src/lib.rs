@@ -9,6 +9,11 @@ mod archive;
 mod config;
 mod control;
 mod error;
+mod oidc;
+mod operator;
+#[cfg(test)]
+mod operator_tests;
+mod operators;
 mod routes;
 mod status;
 #[cfg(test)]
@@ -28,9 +33,11 @@ pub use crate::config::{LiveSourceConfig, PromotionConfig, ServerConfig, Shape, 
 use crate::control::Shared;
 pub use crate::control::{Rules, SentinelRuleSet};
 pub use crate::error::ServerError;
+pub use crate::oidc::OidcConfig;
+pub use crate::operator::{Action, ActionRequest, ProfileDecisions};
 pub use crate::status::{
-    CycleStatus, Example, RuleInfo, SourceHealth, Status, TemplateDetail, TemplateStatus,
-    TransitionRecord,
+    CycleStatus, Example, OperatorStatus, RuleInfo, SourceHealth, Status, TemplateDetail,
+    TemplateStatus, TransitionRecord,
 };
 
 /// The environment variable from which `sluice` reads the control plane's bearer token. Vector
@@ -106,6 +113,11 @@ fn check_config(config: &ServerConfig, control_token: Option<&str>) -> Result<()
         return Err(ServerError::Refused(format!(
             "vector_secrets: the name `{}` is reserved for Sluice",
             control::SECRET_BACKEND
+        )));
+    }
+    if config.oidc.is_some() && control_token.is_none() {
+        return Err(ServerError::Refused(format!(
+            "oidc needs {CONTROL_TOKEN_ENV} as well: Vector authenticates its tap with it"
         )));
     }
     Ok(())
@@ -262,6 +274,9 @@ fn log_transitions(transitions: &[(String, Transition)]) {
             }
             Transition::Paused(t) => {
                 tracing::info!(%profile, template = %t, "recipe paused: template is rare now");
+            }
+            Transition::Held(t) => {
+                tracing::info!(%profile, template = %t, "recipe held by an operator");
             }
         }
     }

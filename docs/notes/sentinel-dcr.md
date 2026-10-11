@@ -180,3 +180,16 @@ DNS the same way (2026-10-11): 61 query records (ECS fields, synthetic) through
 (`A` 1, `AAAA` 28, `HTTPS` 65), `DnsResponseCode` 0 with `EventResult` `Success` and
 `EventResultDetails` `NOERROR`, the client address and port, the answers in `DnsResponseName`,
 `DnsFlags` and `TransactionIdHex`, with `EventType` `Query` and `EventSchemaVersion` `0.1.7`.
+Web sessions the same way (2026-10-11): 84 nginx access records (Filebeat JSON with the
+combined-format line in `message`, synthetic) through `shape: sentinel_asim_web_session` and
+`--standard-table asim-web-session` (stream `Custom-SluiceASimWebSession` →
+`Microsoft-ASimWebSessionLogs`) arrived with `Url`, `HttpRequestMethod`, `HttpVersion` `1.1`,
+`EventResultDetails` (`200`, `302`, `304`, `404`) with `EventResult` `Failure` from 400 up,
+`SrcIpAddr`, `HttpUserAgent`, `DstBytes`, and `EventType` `WebServerSession` with
+`EventSchemaVersion` `0.2.6`. The table has no `HttpStatusCode` column; Microsoft's Apache parser
+puts the code in `EventResultDetails` too.
+Account columns (2026-10-11): after the DCR was updated with `Account` and `AccountType`, 40 real
+Security events shaped by `sluice up` arrived with `Account`, `AccountType`, `SubjectAccount`
+and `TargetAccount` filled (`NT AUTHORITY\SYSTEM`, `DESKTOP-…\ward`, `WORKGROUP\DESKTOP-…$`).
+The way Microsoft's rules read them works: `split(Account, @'\')[1]` gives the name and
+`AccountType == "User"` matches.

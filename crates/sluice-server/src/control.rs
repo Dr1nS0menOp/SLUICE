@@ -64,7 +64,7 @@ pub(crate) struct Profile {
     sigma: bool,
     wazuh: bool,
     sentinel: bool,
-    lifecycle: Mutex<Lifecycle>,
+    pub(crate) lifecycle: Mutex<Lifecycle>,
     pub(crate) status: RwLock<Status>,
 }
 
@@ -84,6 +84,14 @@ pub(crate) struct Shared {
     /// The bearer token every route but `/healthz` requires, if set.
     pub(crate) control_token: Option<String>,
     last_config: Mutex<String>,
+    /// Where operator decisions and the audit log are kept (ADR 0016).
+    pub(crate) store: crate::operator::Store,
+    /// Held templates and kept fields per profile.
+    pub(crate) decisions: Mutex<BTreeMap<String, crate::operator::ProfileDecisions>>,
+    /// Named operator tokens; empty without an operators file.
+    pub(crate) operators: Vec<crate::operators::Operator>,
+    /// Single sign-on, when configured.
+    pub(crate) oidc: Option<crate::oidc::Oidc>,
 }
 
 impl Shared {
@@ -105,7 +113,18 @@ impl Shared {
             );
         }
         let listed: Vec<String> = names.iter().cloned().collect();
-        let profiles = names
+        let operators = match &config.operators_file {
+            Some(path) => crate::operators::load(path)?,
+            None => Vec::new(),
+        };
+        let oidc = config
+            .oidc
+            .clone()
+            .map(crate::oidc::Oidc::new)
+            .transpose()?;
+        let store = crate::operator::Store::new(&config.data_dir);
+        let decisions = store.load()?;
+        let profiles: Vec<Profile> = names
             .into_iter()
             .map(|name| Profile {
                 sigma: name.split('+').any(|r| r == "sigma"),
@@ -120,6 +139,18 @@ impl Shared {
                 name,
             })
             .collect();
+        for profile in &profiles {
+            let decided = decisions.get(&profile.name).cloned().unwrap_or_default();
+            let mut lifecycle = lock(&profile.lifecycle);
+            for template in &decided.held {
+                lifecycle.hold(&sluice_core::ids::TemplateId::new(template.as_str()));
+            }
+            let mut status = profile
+                .status
+                .write()
+                .unwrap_or_else(PoisonError::into_inner);
+            status.operator = crate::operator::operator_status(&lifecycle, &decided, &[]);
+        }
         let sources = config.sources.iter().map(|s| s.source.clone()).collect();
         let mut rule_info: Vec<RuleInfo> = rules
             .sigma
@@ -156,6 +187,10 @@ impl Shared {
                 .map_err(|e| ServerError::Config(e.to_string()))?,
             book,
             last_config: Mutex::new(String::new()),
+            store,
+            decisions: Mutex::new(decisions),
+            operators,
+            oidc,
         })
     }
 
@@ -223,14 +258,22 @@ impl Shared {
     }
 
     fn cycle_on(&self, events: &[Event], now: i64) -> Result<CycleReport, ServerError> {
+        let decisions = lock(&self.decisions).clone();
         let mut lifecycles: Vec<_> = self.profiles.iter().map(|p| lock(&p.lifecycle)).collect();
         let mut results = Vec::with_capacity(self.profiles.len());
         for (profile, lifecycle) in self.profiles.iter().zip(&mut lifecycles) {
             let input = self.input(profile, events);
+            let settings = Settings {
+                operator_rules: decisions
+                    .get(&profile.name)
+                    .map(|d| d.rules(&self.sources))
+                    .unwrap_or_default(),
+                ..Settings::default()
+            };
             let result = cycle(
                 input,
                 &self.book,
-                &Settings::default(),
+                &settings,
                 Helpers::default(),
                 lifecycle,
                 Timestamp(now),
@@ -269,6 +312,9 @@ impl Shared {
                 .unwrap_or_else(PoisonError::into_inner);
             status.record(now, result, lifecycle, &report, &self.sources, events);
             status.window.clone_from(&window);
+            let decided = decisions.get(&profile.name).cloned().unwrap_or_default();
+            status.operator =
+                crate::operator::operator_status(lifecycle, &decided, &status.history);
             transitions.extend(
                 result
                     .transitions
