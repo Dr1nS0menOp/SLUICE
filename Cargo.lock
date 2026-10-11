@@ -2852,6 +2852,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sluice-kql"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sluice-core",
+ "sluice-rules",
+ "sluice-synth",
+ "sluice-vector",
+ "ureq",
+]
+
+[[package]]
 name = "sluice-mcp"
 version = "0.1.0"
 dependencies = [

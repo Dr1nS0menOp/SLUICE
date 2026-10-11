@@ -41,6 +41,12 @@ First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
 - `sluice connect` for Splunk, Elastic, Microsoft Sentinel, Google SecOps, Wazuh (JSON and raw-line
   files) and HTTP, validated against Vector 0.59.
 
+### Native transformations (in progress)
+
+- `sluice-kql`: pre-filters as KQL for Azure Monitor DCR transformations (Sentinel), compiled to
+  match at least what Vector's VRL matches and checked against the Kusto emulator
+  (`scripts/kql-check.sh`, ADR 0013).
+
 ### Security
 
 - Destination credentials through Vector secret backends (`vector_secrets`, `SECRET[…]`); Vector

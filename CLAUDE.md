@@ -47,9 +47,14 @@ and contribute to.
 
 `scripts/check.sh` runs all of them: fmt, clippy `-D warnings`, tests, `cargo doc -D warnings`,
 cargo-deny and, when `vector` is installed (`scripts/install-vector.sh`), `scripts/vector-check.sh`.
-That last step runs `vector validate` and `vector test` on a generated config, so the real Vector
-binary must reproduce what the `vrl` crate computed. CI (`.github/workflows/ci.yml`) runs the same
-gates.
+That step runs `vector validate` and `vector test` on a generated config, so the real Vector
+binary must reproduce what the `vrl` crate computed. When the Kusto emulator image is present
+(`docker pull mcr.microsoft.com/azuredataexplorer/kustainer-linux`), `scripts/kql-check.sh` runs
+the generated KQL in it and checks it matches at least what the VRL matches. CI
+(`.github/workflows/ci.yml`) runs the same gates.
+
+- Every engine Sluice generates code for gets a differential test against the real engine
+  (Vector, Kusto); generated code that cannot be checked that way ships as advisory only.
 
 - Generated VRL must compile **without warnings** in Vector's environment (event and metadata
   typed as objects). `CompiledProgram::compile` enforces this.
