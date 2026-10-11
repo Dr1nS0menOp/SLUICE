@@ -342,6 +342,11 @@ platform's own ingest language, so the cut can run without Vector in the path:
   that before it emits a cut.
 - Done when: a Sentinel deployment without Vector receives a generated DCR whose KQL passes the
   emulator differential test, and a real-data run shows the same savings as the Vector path.
+- Status 2026-10-10: design in ADR 0013 (proposed). DCR transformations allow no `summarize`
+  and no `bag_remove_keys`, so the native Sentinel path is L1 only, on a column model. Step 1
+  is done: `sluice-kql` compiles predicates to KQL that matches at least what the VRL matches,
+  checked against the real KQL engine (Kusto emulator) on 1,324 predicates. Next: template
+  recognition and L1 reductions as `transformKql`, then the DCR with an archive flow.
 
 **M6 — Rule awareness for native detections.** Native transforms are only safe if Sluice knows
 the platform's own detections, not just Sigma. Read Sentinel analytics rules (KQL), Splunk

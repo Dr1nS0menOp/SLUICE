@@ -31,4 +31,12 @@ else
     printf '\n==> vector: skipped (run scripts/install-vector.sh)\n'
 fi
 
+if command -v docker >/dev/null 2>&1 \
+    && docker image inspect mcr.microsoft.com/azuredataexplorer/kustainer-linux:latest >/dev/null 2>&1; then
+    step "kql (differential test against the Kusto emulator)"
+    bash "$(dirname "$0")/kql-check.sh"
+else
+    printf '\n==> kql: skipped (pull mcr.microsoft.com/azuredataexplorer/kustainer-linux)\n'
+fi
+
 printf '\nAll gates passed.\n'
