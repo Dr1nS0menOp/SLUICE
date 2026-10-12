@@ -422,8 +422,8 @@ console needs to know who acted.
 
 **Review 2026-10-11: the foundation under the proof.** The safety core holds up: superset
 pre-filters, field claims, per-template scoping, the proof in the real engine and the archive.
-What it rests on does not, and that is also what makes custom rules hard. Three findings, the
-first two reproduced with synthetic `sluice analyze` runs:
+What it rests on does not, and that is also what makes custom rules hard. Four findings, the
+first three reproduced with synthetic `sluice analyze` runs (the third also in Vector):
 
 - **Field names are compared literally (fail open).** The guardrails and the rsigma proof match a
   rule's field names against the data's own. Sigma names `Image`; Elastic stores
@@ -444,6 +444,12 @@ first two reproduced with synthetic `sluice analyze` runs:
   (`EventID`, `event.code`, `event.action`, `action`) are fixed, while CloudTrail, Okta, Entra
   and Suricata name the event type in other fields. Whitespace tokens also suit CSV,
   `key=value` and CEF lines poorly.
+- **Summary keys use the source's field names.** A recipe names its summary keys as the event
+  arrives (`Application`, `DestPort`), but a Sentinel shape moves them: `SecurityEvent` keeps
+  most event data only in its `EventData` XML, `WindowsEvent` under the `EventData` object. The
+  built-in 5156 recipe on `SecurityEvent` records summarized 600 events from two applications and
+  two ports into one count with empty keys, in the real Vector 0.59. No detection changes (no
+  rule saw those events), but the summary loses what it was for.
 - **Rules that are not loaded do not exist.** Sigma, Wazuh and Sentinel rules come from
   directories; nothing reads the rules a SIEM actually runs (`sluice rules fetch` in ADR 0015 was
   never built), Splunk, Elastic, Chronicle and QRadar rules are not modeled, and neither are
@@ -475,7 +481,8 @@ since `sluice prove` in CI would otherwise inherit the same gaps.
 3. **A schema layer with field lineage.** Per source a declared parser and a mapping to the
    destination's schema (ECS and ASIM first, then CIM, UDM and OCSF), shipped as community parser
    packs next to the recipes. The guardrails and the proof work in the names the destination
-   stores; the lineage maps a rule's fields back to the source fields to protect. For unknown
+   stores; the lineage maps a rule's fields back to the source fields to protect, and a recipe's
+   summary keys to where the shaped record keeps them (`EventData` included). For unknown
    text, the AI may propose a parser (a VRL regex), accepted only when it parses every line of
    its cluster and rebuilds each line exactly.
 
