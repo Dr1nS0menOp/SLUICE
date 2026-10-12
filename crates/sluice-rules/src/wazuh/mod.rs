@@ -207,6 +207,7 @@ fn requirement(
     let requirements = RuleRequirements {
         rule,
         logsource: LogSource::default(),
+        field_names: None,
         fields: if builder.unknown_fields {
             RequiredFields::Unknown
         } else {

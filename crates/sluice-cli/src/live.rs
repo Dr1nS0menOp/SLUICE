@@ -36,6 +36,12 @@ pub(crate) fn up(args: &UpArgs) -> Result<()> {
         wazuh: input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?,
         sentinel: sentinel(args, &config)?,
     };
+    let analysis_sources: Vec<_> = config
+        .sources
+        .iter()
+        .map(sluice_server::LiveSourceConfig::analysis_source)
+        .collect();
+    input::hint_undeclared_schemas(&analysis_sources, &rules.sigma);
     if args.check {
         let sources = config.sources.len();
         let destinations = config.destinations.len();

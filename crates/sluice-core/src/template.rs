@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::field::FieldPath;
 use crate::ids::{SourceId, TemplateId};
 use crate::logsource::LogSource;
+use crate::schema::Schema;
 
 /// A recurring event shape within a source, such as "Windows 4624 logon, type 3".
 ///
@@ -20,6 +21,10 @@ pub struct Template {
     pub source: SourceId,
     /// What the template is, as far as it is known. Unknown attributes stay `None`.
     pub logsource: LogSource,
+    /// The naming convention of the source's field names, which decides whether a rule's field
+    /// names can be compared with this template's.
+    #[serde(default)]
+    pub schema: Schema,
     /// Human-readable shape, such as a Drain pattern or a sorted key set.
     pub pattern: String,
     /// The exact shape, from which the data plane's classifier is compiled.

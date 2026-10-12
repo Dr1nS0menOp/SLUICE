@@ -68,6 +68,7 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
         None => Vec::new(),
     };
     let sigma = SigmaRules::parse(sigma_files.iter().map(|(_, text)| text.as_str()))?;
+    input::hint_undeclared_schemas(&sources, &sigma);
     let wazuh = input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?;
     let book = recipe_book(args.recipes.as_deref())?;
     let advisor = ai::advisor(&args.ai)?;

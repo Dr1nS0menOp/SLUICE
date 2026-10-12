@@ -403,6 +403,7 @@ fn destination_sources(
 mod tests {
     use serde_json::{Map, Value, json};
     use sluice_core::logsource::LogSource;
+    use sluice_core::schema::Schema;
     use sluice_core::source::{Source, SourceFormat};
 
     use super::*;
@@ -412,6 +413,8 @@ mod tests {
         let source = Source {
             id: "fw".into(),
             logsource: LogSource::default(),
+            schema: Schema::default(),
+            event_type: Vec::new(),
             format: SourceFormat::Json,
         };
         let vector = json!({"type": "http_server", "address": "127.0.0.1:9000"});
@@ -460,6 +463,8 @@ mod tests {
         let text = Source {
             id: "auth".into(),
             logsource: LogSource::default(),
+            schema: Schema::default(),
+            event_type: Vec::new(),
             format: SourceFormat::Text {
                 field: "message".into(),
             },
@@ -467,6 +472,8 @@ mod tests {
         let json_source = Source {
             id: "fw".into(),
             logsource: LogSource::default(),
+            schema: Schema::default(),
+            event_type: Vec::new(),
             format: SourceFormat::Json,
         };
         let vector = json!({"type": "http_server", "address": "127.0.0.1:9000"});
@@ -508,6 +515,8 @@ mod tests {
         let text = Source {
             id: "auth".into(),
             logsource: LogSource::default(),
+            schema: Schema::default(),
+            event_type: Vec::new(),
             format: SourceFormat::Text {
                 field: "log".into(),
             },
@@ -536,6 +545,8 @@ mod tests {
         let json_source = |id: &str| Source {
             id: id.into(),
             logsource: LogSource::default(),
+            schema: Schema::default(),
+            event_type: Vec::new(),
             format: SourceFormat::Json,
         };
         let (security, events) = (
@@ -654,6 +665,8 @@ mod tests {
         let source = Source {
             id: "fw".into(),
             logsource: LogSource::default(),
+            schema: Schema::default(),
+            event_type: Vec::new(),
             format: SourceFormat::Json,
         };
         let vector = json!({"type": "http_server", "address": "127.0.0.1:9000"});

@@ -22,5 +22,6 @@ pub mod proof;
 pub mod recipe;
 pub mod reduce;
 pub mod rules;
+pub mod schema;
 pub mod source;
 pub mod template;

@@ -7,6 +7,7 @@ use sluice_core::event::{Event, encoded_size};
 use sluice_core::field::FieldPath;
 use sluice_core::ids::{SourceId, TemplateId};
 use sluice_core::logsource::LogSource;
+use sluice_core::schema::Schema;
 use sluice_core::template::{LineHeader, Template, TemplateShape, TemplateStats};
 
 use crate::DiscoverConfig;
@@ -152,6 +153,25 @@ impl Group {
         });
     }
 
+    /// Folds `other`, a group of the same source, into this one.
+    pub(crate) fn absorb(&mut self, other: Group) {
+        self.fields.extend(other.fields);
+        for (path, theirs) in other.strings {
+            let mine = self.strings.entry(path).or_default();
+            mine.values += theirs.values;
+            mine.total_len += theirs.total_len;
+            mine.with_whitespace += theirs.with_whitespace;
+        }
+        self.events += other.events;
+        self.bytes += other.bytes;
+        self.header = match (self.header, other.header) {
+            (None, theirs) => theirs,
+            (mine, None) => mine,
+            (Some(mine), Some(theirs)) if mine == theirs => Some(mine),
+            _ => Some(LineHeader::Mixed),
+        };
+    }
+
     pub(crate) fn header(&self) -> LineHeader {
         self.header.unwrap_or(LineHeader::None)
     }
@@ -197,6 +217,7 @@ impl Group {
             id,
             source: self.source,
             logsource: LogSource::default(),
+            schema: Schema::default(),
             pattern,
             shape,
             fields: self.fields,

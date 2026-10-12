@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 
 use sluice_core::event::{Event, Timestamp};
 use sluice_core::ids::{EventId, SourceId};
+use sluice_core::schema::Schema;
 use sluice_core::source::Source;
 
 use crate::rng::Rng;
@@ -88,6 +89,9 @@ pub fn generate(config: &SynthConfig) -> Sample {
             id,
             logsource: (spec.logsource)(),
             format: (spec.format)(),
+            // The example rules are written in the names these records carry.
+            schema: Schema::Sigma,
+            event_type: Vec::new(),
         });
     }
 

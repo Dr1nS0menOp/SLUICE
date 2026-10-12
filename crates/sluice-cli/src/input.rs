@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use sluice_core::event::{Event, Timestamp};
 use sluice_core::ids::EventId;
-use sluice_core::source::Source;
+use sluice_core::source::{Source, SourceFormat};
 
 /// The sources file: `sources: [{ id, logsource, format }]`.
 #[derive(Debug, Deserialize)]
@@ -64,6 +64,26 @@ pub(crate) fn events(dir: &Path, sources: &[Source]) -> Result<Vec<Event>> {
         event.id = EventId(n);
     }
     Ok(events)
+}
+
+/// Tells the operator which JSON sources have not declared the field naming convention of their
+/// records. Sigma rules cannot be compared with such a source (ADR 0018), so nothing a Sigma rule
+/// could read is cut there; the hint says how to change that.
+pub(crate) fn hint_undeclared_schemas(sources: &[Source], sigma: &sluice_rules::SigmaRules) {
+    if sigma.requirements().is_empty() {
+        return;
+    }
+    for source in sources
+        .iter()
+        .filter(|s| matches!(s.format, SourceFormat::Json) && !s.schema.is_declared())
+    {
+        eprintln!(
+            "hint: source {} does not declare `schema`, so Sigma rules cannot be compared with \
+             its field names and nothing they could read is cut. Add `schema: sigma` if its \
+             records use the names your Sigma rules use (docs/guide.md, \"Field names\").",
+            source.id
+        );
+    }
 }
 
 /// Wazuh rules from `rules`, bounded by the decoders in `decoders` if given.

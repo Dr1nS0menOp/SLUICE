@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use sluice_autopilot::Policy;
+use sluice_core::schema::Schema;
 use sluice_core::source::Source;
 
 /// Everything `sluice up` needs to know.
@@ -65,6 +66,19 @@ pub struct LiveSourceConfig {
     pub shape: Option<Shape>,
 }
 
+impl LiveSourceConfig {
+    /// The source as the analysis sees it. A source that does not declare its field naming
+    /// convention but has a `shape` follows the shape's: the shape writes those names.
+    #[must_use]
+    pub fn analysis_source(&self) -> Source {
+        let mut source = self.source.clone();
+        if let (false, Some(shape)) = (source.schema.is_declared(), self.shape) {
+            source.schema = shape.schema();
+        }
+        source
+    }
+}
+
 /// A shaping of raw events into a SIEM table's record (ADR 0014).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -86,6 +100,20 @@ pub enum Shape {
 }
 
 impl Shape {
+    /// The field naming convention of the records this shape writes: Windows event data under
+    /// the names Sigma uses (ADR 0014), the ASIM tables under ASIM's, the other tables under
+    /// their own columns.
+    #[must_use]
+    pub fn schema(self) -> Schema {
+        match self {
+            Self::SentinelSecurityEvent | Self::SentinelWindowsEvent => Schema::Sigma,
+            Self::SentinelSyslog | Self::SentinelCommonSecurityLog => Schema::Sentinel,
+            Self::SentinelAsimNetworkSession
+            | Self::SentinelAsimDns
+            | Self::SentinelAsimWebSession => Schema::Asim,
+        }
+    }
+
     /// The VRL that shapes an event.
     #[must_use]
     pub fn program(self) -> String {

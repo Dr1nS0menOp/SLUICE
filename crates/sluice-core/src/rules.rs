@@ -11,6 +11,7 @@ use crate::field::FieldPath;
 use crate::ids::RuleId;
 use crate::logsource::LogSource;
 use crate::predicate::Predicate;
+use crate::schema::Schema;
 
 /// The data a single rule depends on.
 ///
@@ -22,6 +23,12 @@ pub struct RuleRequirements {
     pub rule: RuleId,
     /// Data the rule applies to. Empty means everything.
     pub logsource: LogSource,
+    /// The convention the rule's field names are written in, or `None` when its adapter relates
+    /// them to the data by other means (Wazuh decoders, Sentinel's table columns, operator
+    /// rules). A rule with a convention can only be compared with records that follow the same
+    /// one (ADR 0018); on JSON records that do not, it is read as widely as can be.
+    #[serde(default)]
+    pub field_names: Option<Schema>,
     /// Every field the rule references, including fields only used in exclusions
     /// (`not filter`). An exclusion that loses its field would start alerting on noise, and a
     /// silent change in either direction is a regression.
@@ -70,11 +77,23 @@ impl RuleRequirements {
         Self {
             rule,
             logsource: LogSource::default(),
+            field_names: None,
             fields: RequiredFields::Unknown,
             matches_raw_text: true,
             stateful: true,
             text_lines_only: false,
             prefilter: Predicate::Always,
+        }
+    }
+
+    /// The same rule, read as widely as can be: any field, on any event of its log source. Used
+    /// when its field names cannot be related to the data's, so nothing it might read is cut.
+    #[must_use]
+    pub fn widened(&self) -> Self {
+        Self {
+            logsource: self.logsource.clone(),
+            text_lines_only: self.text_lines_only,
+            ..Self::opaque(self.rule.clone())
         }
     }
 }

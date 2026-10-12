@@ -16,6 +16,7 @@ use sluice_core::ids::{EventId, TemplateId};
 use sluice_core::logsource::LogSource;
 use sluice_core::proof::prove;
 use sluice_core::recipe::{Provenance, Recipe, Reduction};
+use sluice_core::schema::Schema;
 use sluice_core::source::{Source, SourceFormat};
 use sluice_discover::{DiscoverConfig, discover};
 use sluice_rules::SigmaRules;
@@ -82,6 +83,8 @@ fn source() -> Source {
             complete: true,
         },
         format: SourceFormat::Json,
+        schema: Schema::Sigma,
+        event_type: Vec::new(),
     }
 }
 
@@ -221,6 +224,8 @@ fn odd_text_lines_compile_and_keep_every_alert() {
         format: SourceFormat::Text {
             field: "message".into(),
         },
+        schema: Schema::Sigma,
+        event_type: Vec::new(),
     };
     let rules = SigmaRules::parse([RULES]).expect("rules parse");
     let sources = [text_source];

@@ -151,7 +151,11 @@ impl Shared {
                 .unwrap_or_else(PoisonError::into_inner);
             status.operator = crate::operator::operator_status(&lifecycle, &decided, &[]);
         }
-        let sources = config.sources.iter().map(|s| s.source.clone()).collect();
+        let sources = config
+            .sources
+            .iter()
+            .map(crate::config::LiveSourceConfig::analysis_source)
+            .collect();
         let mut rule_info: Vec<RuleInfo> = rules
             .sigma
             .requirements()

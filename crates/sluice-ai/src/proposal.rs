@@ -122,6 +122,7 @@ mod tests {
             id: "t".into(),
             source: "s".into(),
             logsource: sluice_core::logsource::LogSource::default(),
+            schema: sluice_core::schema::Schema::default(),
             pattern: "p".into(),
             shape: TemplateShape::Keyset {
                 discriminators: vec![],
