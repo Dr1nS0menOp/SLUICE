@@ -21,6 +21,20 @@ sample on 2026-10-09.
    line length. Wildcards count as unequal.
 4. **Joining.** A line joins the best cluster at or above the threshold. Positions where the
    cluster and the line differ become `<*>`.
+5. **Categorical split** (`categorical.rs`, ADR 0019). When the clusters are final, a `<*>`
+   position with at most 6 distinct values in its cluster, or with Cisco message ids only, is a
+   word rather than a parameter. Each value becomes a template of its own. Verified 2026-10-12:
+   sshd `Accepted password` and `Failed password` lines no longer share a template, and three
+   failed logons among 597 accepted ones stay rare. Message ids (`%ASA-6-302013:`) are not
+   masked in step 1.
+
+## Known limit: merged lines defeat the rarity floor
+
+The first version of this note said a coarse template "only reduces less". That is wrong: a rare
+event merged into a frequent template is no longer rare, so the floor that keeps attacks from
+being cut does not see it (review 2026-10-11, PLAN.md). The categorical split above addresses it
+for words that alternate among few values; a rare line that differs only at a parameter position
+still shares its template.
 
 ## Known limit: masked tokens inflate similarity
 
@@ -35,8 +49,8 @@ threshold splits real templates elsewhere.
 
 **Consequence and plan:**
 
-- Text discovery is coarse. That is acceptable for safety, because a coarse template only
-  reduces less.
+- Text discovery is coarse. Where a coarse template hides a rare event, the categorical split
+  is what keeps it rare.
 - For known text formats (nginx, sshd, sudo), community recipes parse the line into fields.
   Parsed fields are discriminated like JSON, so `/healthz` can become its own template and get
   an L3 recipe.

@@ -18,6 +18,7 @@ config: |
     - id: windows-system
       logsource: { product: windows, service: system, complete: true }
       format: { kind: json }
+      schema: sigma   # the records use the field names the Sigma rules use
       vector: { type: http_server, address: 0.0.0.0:9101, decoding: { codec: json } }
   destinations:
     siem: { type: blackhole }

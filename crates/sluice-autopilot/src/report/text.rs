@@ -48,6 +48,21 @@ pub(crate) fn adjustment(adjustment: &Adjustment) -> String {
         Reason::ProtectionTooBroad { tests } => {
             format!("kept: {tests} rule tests could apply, too many to check per event")
         }
+        Reason::FieldNamesDiffer {
+            rule,
+            rules,
+            rule_names,
+            data_names,
+        } => {
+            let who = match rules {
+                1 => format!("{rule} names"),
+                n => format!("{n} rules such as {rule} name"),
+            };
+            format!(
+                "{who} fields as {rule_names} does, the records use {data_names}: they may read \
+                 any field, so nothing they could read is cut"
+            )
+        }
         Reason::UnboundedRule { rule } => {
             format!("{rule} could match any event, so every event is forwarded")
         }

@@ -115,12 +115,14 @@ fn rendered_messages_are_detected_as_free_text() {
     assert_eq!(logon.logsource.service.as_deref(), Some("security"));
 }
 
+/// The sample has only a handful of users, so user names are categorical and split templates
+/// (ADR 0019); the bound guards against an explosion, not against that.
 #[test]
-fn text_sources_cluster_into_few_templates() {
+fn text_sources_cluster_into_a_bounded_number_of_templates() {
     for source in ["linux-auth", "nginx"] {
         let templates = templates_of(source);
         assert!(
-            (2..=20).contains(&templates.len()),
+            (2..=40).contains(&templates.len()),
             "{source}: {} templates: {:#?}",
             templates.len(),
             templates.iter().map(|t| &t.pattern).collect::<Vec<_>>()
@@ -129,30 +131,26 @@ fn text_sources_cluster_into_few_templates() {
     }
 }
 
+/// The brute force tries a few user names, so each name is a template of its own, and none of
+/// them shares a template with anything but failed logons.
 #[test]
-fn brute_force_lines_share_a_template_with_a_wildcard_user() {
+fn brute_force_lines_stay_in_failed_password_templates() {
     let brute_force = &sample()
         .scenarios
         .iter()
         .find(|s| s.name == "ssh-brute-force")
         .unwrap()
         .events;
-    let failed = &discovery().assignments[&brute_force[0]];
-    let same: Vec<_> = brute_force[..30]
-        .iter()
-        .map(|id| &discovery().assignments[id])
-        .collect();
-    assert!(same.iter().all(|id| *id == failed));
-    let pattern = &discovery()
-        .templates
-        .iter()
-        .find(|t| &t.id == failed)
-        .unwrap()
-        .pattern;
-    assert!(
-        pattern.contains("Failed password for invalid user <*> from"),
-        "{pattern}"
-    );
+    for id in &brute_force[..30] {
+        let template = &discovery().assignments[id];
+        let pattern = &discovery()
+            .templates
+            .iter()
+            .find(|t| &t.id == template)
+            .unwrap()
+            .pattern;
+        assert!(pattern.contains("sshd Failed password for"), "{pattern}");
+    }
 }
 
 /// Drain merges health checks with other short requests (see `docs/notes/drain.md`), but all

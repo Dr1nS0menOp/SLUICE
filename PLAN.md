@@ -470,6 +470,13 @@ since `sluice prove` in CI would otherwise inherit the same gaps.
    blocks cuts instead of being ignored. A test named after contract rule 3 reproduces the ECS
    case. Then pySigma processing pipelines (field mappings and log source conditions), so Sigma
    rules read the names the SIEM stores, as its own conversion does.
+   - Status 2026-10-12 (ADR 0018): the fail-closed part is done. `Schema` on sources, templates
+     and rules; a rule whose convention a JSON source does not follow is read as reading every
+     field of every event of its log source (`Reason::FieldNamesDiffer`); only `schema: sigma`
+     matches Sigma rules for now; shapes bring their own convention; `sluice analyze` and
+     `sluice up` hint at undeclared JSON sources. The ECS and undeclared cases are reproduced in
+     `sluice-core` and `sluice-autopilot` tests, which fail with the check switched off. Open:
+     the pySigma pipelines that let other conventions be cut.
 2. **Event types instead of clusters.** The fields that name the event type are set per source
    (`event_type: [eventSource, eventName]`), with defaults per source family. A template becomes
    an event type with its shape variants under it; rarity is also counted per variant, so a rare
@@ -478,6 +485,13 @@ since `sluice prove` in CI would otherwise inherit the same gaps.
    unknown text only, made security-aware: route on more than the program name, keep the first
    content tokens (verbs such as Accepted and Failed) constant, keep message ids unmasked, and
    raise the similarity threshold.
+   - Status 2026-10-12 (ADR 0019): `event_type` per source plus product defaults (CloudTrail,
+     Okta, M365, Azure, GCP, Kubernetes); Drain clusters split at categorical positions (at most
+     6 values, or message ids), which keeps the review's three failed sshd logons in a template
+     of their own and forwards them; Cisco message ids are no longer masked. Routing on more
+     tokens and a higher threshold were not needed. Demo: 75.0 % saved, 41 = 41. Open: grouping
+     JSON key-set variants under their event type, so an agent update that adds a field does
+     not reset every template.
 3. **A schema layer with field lineage.** Per source a declared parser and a mapping to the
    destination's schema (ECS and ASIM first, then CIM, UDM and OCSF), shipped as community parser
    packs next to the recipes. The guardrails and the proof work in the names the destination
@@ -630,9 +644,10 @@ sluice/
 ## Honest limits
 
 - Rule parsing is never complete. Failing closed protects detections but costs savings.
-- Until M9 step 1, rules are only protected on data that uses their own field names. Sigma rules
-  against ECS, CIM or ASIM records protect nothing, and the proof cannot notice (both sides
-  raise no alert). Use Sigma-named records with Sigma rules, or load no recipes for such sources.
+- Sigma rules are compared with a JSON source only when it declares `schema: sigma` (ADR 0018).
+  Records in ECS, CIM, ASIM or any undeclared convention get no cuts a Sigma rule of their log
+  source could object to, until the pySigma pipelines of M9 step 1. Declaring `sigma` for records
+  that use other names is unsafe, and the proof cannot notice (both sides raise no alert).
 - Until M10, a rule Sluice was not given does not exist for it. Load every rule the SIEM runs,
   for each destination.
 - Detections aren't the only consumers of data; dashboards, hunts and compliance also use it.

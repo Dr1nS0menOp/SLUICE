@@ -72,12 +72,13 @@ lifecycle and reduction program per *rule profile*, all fed from the same input,
 `cycle_secs` (default 300) it takes these steps on the sample:
 
 - **A. Window.** The tapped sample, per source: at most 20,000 events and at most an hour old.
-- **B. Templates.** Events are grouped into *templates*, recurring shapes within a source. For
-  JSON: the values of a few discriminator fields (`EventID`, `event.code`, `event.action`,
-  `action`) and the exact set of field paths. For text: a Drain cluster of the line, with the
-  syslog header reduced to the program name and numbers and hex identifiers masked. A template
-  is a shape, not a meaning: it is the unit recipes target, the guardrails reason about and the
-  rarity floor counts.
+- **B. Templates.** Events are grouped into *templates*, one kind of event in one source. For
+  JSON: the values of the fields that name the kind of event (`EventID`, `event.code`,
+  `event.action`, `action`, defaults for products such as CloudTrail, and the source's own
+  `event_type`) and the exact set of field paths. For text: a Drain cluster of the line, with
+  the syslog header reduced to the program name and numbers and hex identifiers masked, split
+  where only a few words alternate, so `Accepted` and `Failed` stay apart (ADR 0019). A template
+  is the unit recipes target, the guardrails reason about and the rarity floor counts.
 - **C. Recipes.** Community recipes (YAML in [`recipes/`](../recipes/)), the operator's own and,
   optionally, an AI advisor propose reductions per template: drop fields or empty fields (L1),
   forward what rules could match and summarize the rest (L2), or summarize a template no rule
@@ -92,8 +93,9 @@ lifecycle and reduction program per *rule profile*, all fed from the same input,
 - **E. Guardrails.** The safety contract turns each proposal into an *effective recipe*: unknown
   data and rare templates (fewer than 100 events, or under 0.1 % of their source) are never cut,
   nothing is cut without the archive, a field a rule may read is kept on every event the rule
-  could match, and events a rule could match are forwarded whole. Every refusal is recorded with
-  the contract rule behind it.
+  could match, and events a rule could match are forwarded whole. A rule whose field names
+  follow another convention than the source's is read as reading everything (ADR 0018). Every
+  refusal is recorded with the contract rule behind it.
 - **F. Proof.** The rules run twice on the window, on the full events and on the events as the
   reductions would forward them, computed with the same VRL Vector runs (the `vrl` crate). Only
   the same alerts in both directions count as proof; a recipe implicated in a difference is
@@ -122,15 +124,20 @@ that configuration with your own tooling. `sluice demo` does the same on synthet
 A review on 2026-10-11 (PLAN.md, "Review 2026-10-11"; synthetic `sluice analyze` runs) found gaps
 that M9 and M10 address:
 
-- **Field names are compared literally.** The guardrails and the proof match a rule's field names
-  with the record's own. A Sigma rule names `Image`; Elastic stores `process.executable` (ECS).
-  Sluice applies no pySigma processing pipelines, so such a rule protects nothing on ECS, CIM or
-  ASIM records, and the proof cannot notice: both sides raise no alert. Until M9, use Sigma rules
-  with Sigma-named records.
-- **Templates are shapes.** Drain merges lines that differ in meaning: sshd's "Accepted password"
-  and "Failed password" become one template, so rare failures are not rare to the guardrails.
-  Digit masking hides message ids (`%ASA-6-302013`). JSON key sets split every combination of
-  optional fields into its own template, and the discriminator fields are fixed.
+- **Field names are not mapped.** A Sigma rule names `Image`; Elastic stores
+  `process.executable` (ECS). Sluice applies no pySigma processing pipelines. Found on
+  2026-10-11, such a rule looked as if it read nothing of ECS records, and its matches were
+  summarized while the proof passed on two empty alert sets. Since ADR 0018 a source declares its
+  convention (`schema`), and a rule is compared with a JSON source only when both are `sigma`;
+  otherwise the rule is read as reading everything, which keeps the data and costs the savings
+  (the report says `names its fields as sigma does, the records use ecs`). The pipelines that
+  let ECS, CIM and ASIM sources be cut are still to come (M9). Declaring `sigma` for records
+  that use other names is unsafe, and the proof cannot notice.
+- **Templates still follow shapes in part.** Since ADR 0019, Drain clusters split where a few
+  words alternate (sshd's "Accepted" and "Failed"), message ids keep their digits, and JSON
+  sources name their event-type fields. A rare line that differs only at a parameter position
+  still shares its template, and JSON key sets still split every combination of optional
+  fields into its own template, which an agent update resets.
 - **Summary keys use the source's field names.** In a Sentinel shape, a recipe's summary keys may
   not exist: `SecurityEvent` keeps most event data only in its `EventData` XML. A 5156 recipe on
   such records summarized 600 events from two applications and two ports into one count with

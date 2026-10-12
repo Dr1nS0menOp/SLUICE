@@ -39,6 +39,7 @@ sources:
   - id: windows-system                 # your name for it; also the archive directory
     logsource: { product: windows, service: system, complete: true }
     format: { kind: json }             # JSON objects
+    schema: sigma                      # the field names the records use (see "Field names")
   - id: linux-auth
     logsource: { product: linux, service: auth }
     format: { kind: text, field: message }   # one log line per event, in `message`
@@ -52,6 +53,51 @@ sources:
   channel, onto which Sigma maps categories such as `process_creation`.
 - `sluice analyze` prints a **hint** for each source where undeclared attributes keep rules in
   scope, with the number of rules involved.
+
+### Kinds of event
+
+A template is one kind of event in one source, and the rarity floor counts per template. For
+JSON, Sluice reads the kind from `EventID`, `event.code`, `event.action` and `action`, plus
+defaults for some products: `aws` (`eventSource`, `eventName`), `okta` (`eventType`), `m365`
+(`Workload`, `Operation`), `azure` (`category`, `operationName`), `gcp`
+(`protoPayload.serviceName`, `protoPayload.methodName`) and `kubernetes` (`verb`,
+`objectRef.resource`). Add your own with `event_type`:
+
+```yaml
+  - id: idp
+    logsource: { product: keycloak }
+    format: { kind: json }
+    event_type: [type, details.auth_method]
+```
+
+More fields only split templates further, which never makes Sluice cut more. For text lines,
+Sluice splits a template wherever only a few words alternate (`Accepted`, `Failed`), so a rare
+outcome keeps a template of its own (ADR 0019).
+
+### Field names
+
+A rule names the fields it reads in one convention, and a SIEM stores them in another. Sigma says
+`Image`; Elastic's ECS says `process.executable`. A SIEM converts a Sigma rule with a mapping
+(pySigma's processing pipelines); Sluice has none yet. So each JSON source says which names its
+records follow, with `schema`:
+
+| `schema` | The records use |
+|---|---|
+| `sigma` | The names Sigma rules use: Windows event data (`Image`, `TargetUserName`) and whatever names your own rules were written against. |
+| `ecs`, `cim`, `asim`, `ocsf`, `udm` | Elastic's, Splunk's, Sentinel's ASIM, OCSF's or Google's names. |
+| `sentinel` | The columns of a Sentinel table that is not ASIM (`Syslog`, `CommonSecurityLog`). |
+| (left out) | Not declared. |
+
+Only `schema: sigma` lets Sluice compare a Sigma rule with a source. For any other value, or none,
+a Sigma rule that applies to the source (by its log source) is read as reading every field of
+every event, so no field it could read is cut from that source: the report says `names its fields
+as sigma does, the records use ecs`. This is the safe direction. Declaring `sigma` for records that
+use other names is not: a rule would then look as if it read nothing, and Sluice would cut what it
+reads. A source with a `shape` (Sentinel tables) follows its shape's names unless you set
+`schema`. Text sources are not compared by field names; their lines are matched as text. Wazuh,
+Sentinel and operator rules relate their own field names to the data and are not affected.
+Mapping Sigma onto ECS, CIM and the others, so that these sources can be cut too, is planned
+(PLAN.md, M9).
 
 ## Commands
 
@@ -88,6 +134,7 @@ sources:
   - id: windows-system
     logsource: { product: windows, service: system, complete: true }
     format: { kind: json }
+    schema: sigma               # the records use Sigma's field names (see "Field names")
     vector: { type: http_server, address: 0.0.0.0:9101, decoding: { codec: json } }
 destinations:                   # Vector sinks; Sluice sets their inputs
   siem: { type: splunk_hec_logs, endpoint: https://splunk:8088, default_token: "SECRET[siem.splunk_hec_token]", encoding: { codec: json } }

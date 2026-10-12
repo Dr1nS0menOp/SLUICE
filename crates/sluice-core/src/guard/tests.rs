@@ -7,6 +7,7 @@ use crate::logsource::LogSource;
 use crate::predicate::{FieldTest, KeywordTest, MatchOp};
 use crate::recipe::Provenance;
 use crate::rules::RequiredFields;
+use crate::schema::Schema;
 use crate::template::{TemplateShape, TemplateStats};
 
 fn windows_security() -> LogSource {
@@ -34,6 +35,7 @@ fn template() -> Template {
         id: "win-4625".into(),
         source: "windows-security".into(),
         logsource: windows_security(),
+        schema: Schema::Sigma,
         pattern: "4625 failed logon".into(),
         shape: TemplateShape::Keyset {
             discriminators: vec![("EventID".into(), "4625".into())],
@@ -62,6 +64,7 @@ fn rule(id: &str, fields: &[&str], prefilter: Predicate) -> RuleRequirements {
     RuleRequirements {
         rule: id.into(),
         logsource: windows_security(),
+        field_names: Some(Schema::Sigma),
         fields: RequiredFields::known(fields.iter().copied().map(FieldPath::from)),
         matches_raw_text: false,
         stateful: false,
@@ -401,6 +404,135 @@ fn c3_semantic_on_rule_covered_template_becomes_rule_guided() {
         effective.adjustments[0].reason,
         Reason::SemanticOnCoveredTemplate
     ));
+}
+
+// ---------- rule 3, field names (ADR 0018) ----------
+
+/// An ECS template of the same kind of event: the data lives under other names than the rule's.
+fn ecs_template() -> Template {
+    let mut ecs = template();
+    ecs.schema = Schema::Ecs;
+    ecs
+}
+
+/// A Sigma rule on `Image`, a field the ECS template does not carry under that name.
+fn image_rule() -> RuleRequirements {
+    rule("image", &["Image"], eq("Image", "x"))
+}
+
+#[test]
+fn c3_a_rule_in_another_naming_convention_keeps_everything_it_could_read() {
+    let proposal = recipe(vec![
+        drop(&["Message", "Keywords"]),
+        Reduction::DropEmptyFields,
+        forward_matching(),
+    ]);
+    let effective = guard(&ecs_template(), Some(&proposal), ctx(&[image_rule()]));
+    assert!(effective.is_passthrough(), "{effective:?}");
+    assert!(effective.adjustments.iter().any(|a| matches!(
+        &a.reason,
+        Reason::FieldNamesDiffer { rule, rules: 1, rule_names: Schema::Sigma, data_names: Schema::Ecs }
+            if rule.as_str() == "image"
+    )));
+}
+
+#[test]
+fn c3_many_rules_in_another_convention_give_one_reason() {
+    let rules: Vec<RuleRequirements> = (0..500)
+        .map(|n| rule(&format!("r{n}"), &["Image"], eq("Image", "x")))
+        .collect();
+    let proposal = recipe(vec![drop(&["Message"]), forward_matching()]);
+    let effective = guard(&ecs_template(), Some(&proposal), ctx(&rules));
+    assert!(effective.is_passthrough());
+    let reasons: Vec<&Reason> = effective
+        .adjustments
+        .iter()
+        .map(|a| &a.reason)
+        .filter(|r| matches!(r, Reason::FieldNamesDiffer { .. }))
+        .collect();
+    assert!(
+        matches!(
+            reasons.as_slice(),
+            [Reason::FieldNamesDiffer { rules: 500, .. }]
+        ),
+        "{reasons:?}"
+    );
+    assert!(
+        effective.adjustments.len() < 10,
+        "{:?}",
+        effective.adjustments
+    );
+}
+
+#[test]
+fn c3_an_undeclared_source_is_treated_as_a_different_convention() {
+    let mut undeclared = template();
+    undeclared.schema = Schema::Undeclared;
+    let proposal = recipe(vec![drop(&["Message"]), forward_matching()]);
+    let effective = guard(&undeclared, Some(&proposal), ctx(&[image_rule()]));
+    assert!(effective.is_passthrough());
+    assert!(effective.adjustments.iter().any(|a| matches!(
+        a.reason,
+        Reason::FieldNamesDiffer {
+            data_names: Schema::Undeclared,
+            ..
+        }
+    )));
+}
+
+#[test]
+fn c3_a_matching_convention_still_scopes_rules_by_what_the_template_carries() {
+    // The Sigma template has no `Image`, so a Sigma rule on it cannot match: the cut stands.
+    let proposal = recipe(vec![drop(&["Message"])]);
+    let effective = guard(&template(), Some(&proposal), ctx(&[image_rule()]));
+    assert_eq!(effective.drop_fields, BTreeSet::from(["Message".into()]));
+    assert!(
+        !effective
+            .adjustments
+            .iter()
+            .any(|a| matches!(a.reason, Reason::FieldNamesDiffer { .. }))
+    );
+}
+
+#[test]
+fn c3_rules_that_relate_their_names_themselves_ignore_the_convention() {
+    // Wazuh, Sentinel and operator rules declare no convention.
+    let mut wazuh = image_rule();
+    wazuh.field_names = None;
+    wazuh.fields = RequiredFields::known([FieldPath::from("Keywords")]);
+    wazuh.prefilter = eq("EventID", "4625");
+    let proposal = recipe(vec![drop(&["Message", "Keywords"])]);
+    let effective = guard(&ecs_template(), Some(&proposal), ctx(&[wazuh]));
+    assert!(!effective.drop_fields.contains(&FieldPath::from("Keywords")));
+    assert!(effective.drop_fields.contains(&FieldPath::from("Message")));
+}
+
+#[test]
+fn c3_a_rule_in_another_convention_does_not_widen_what_its_log_source_excludes() {
+    let mut sysmon = image_rule();
+    sysmon.logsource.service = Some("sysmon".into());
+    let proposal = recipe(vec![drop(&["Message"])]);
+    let effective = guard(&ecs_template(), Some(&proposal), ctx(&[sysmon]));
+    assert_eq!(effective.drop_fields, BTreeSet::from(["Message".into()]));
+}
+
+#[test]
+fn c3_text_templates_have_no_field_names_to_compare() {
+    let mut text = template();
+    text.schema = Schema::Undeclared;
+    text.shape = TemplateShape::Text {
+        field: "Message".into(),
+        header: crate::template::LineHeader::None,
+        tokens: vec!["x".into()],
+    };
+    let proposal = recipe(vec![drop(&["Keywords"])]);
+    let effective = guard(&text, Some(&proposal), ctx(&[image_rule()]));
+    assert!(
+        !effective
+            .adjustments
+            .iter()
+            .any(|a| matches!(a.reason, Reason::FieldNamesDiffer { .. }))
+    );
 }
 
 // ---------- rule 4: rare is never cut ----------

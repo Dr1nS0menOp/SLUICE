@@ -6,6 +6,7 @@ use sluice_core::alert::RuleEngine;
 use sluice_core::event::{Event, Timestamp};
 use sluice_core::ids::EventId;
 use sluice_core::logsource::LogSource;
+use sluice_core::schema::Schema;
 use sluice_core::source::{Source, SourceFormat};
 use sluice_rules::SigmaRules;
 
@@ -31,6 +32,8 @@ fn alerts(complete: bool) -> usize {
             complete,
         },
         format: SourceFormat::Json,
+        schema: Schema::Sigma,
+        event_type: Vec::new(),
     };
     let fields = json!({"EventID": 7036, "param1": "drop table service"});
     let event = Event {

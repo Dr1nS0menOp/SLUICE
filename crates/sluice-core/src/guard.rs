@@ -57,10 +57,20 @@ pub fn guard(
         return effective;
     }
 
+    // A rule whose field names cannot be compared with the template's is read as widely as can
+    // be (ADR 0018): its pre-filter and field list say nothing about records named otherwise.
+    // Widened rules protect identically, so the first one stands for all of them.
+    let renamed_rules: Vec<&RuleRequirements> = ctx
+        .rules
+        .iter()
+        .filter(|rule| renamed(rule, template) && applies(rule, template))
+        .collect();
+    let widened: Option<RuleRequirements> = renamed_rules.first().map(|r| r.widened());
     let applicable: Vec<&RuleRequirements> = ctx
         .rules
         .iter()
-        .filter(|rule| applies(rule, template))
+        .filter(|rule| !renamed(rule, template) && applies(rule, template))
+        .chain(&widened)
         .collect();
     let (mut shaped, conditions) = shape(template, recipe, &applicable, true);
     let keep = Predicate::any(conditions);
@@ -76,6 +86,22 @@ pub fn guard(
         });
     } else if !shaped.drop_fields.is_empty() || shaped.drop_empty_except.is_some() {
         shaped.keep_whole_when = (!keep.is_never()).then_some(keep);
+    }
+    // One adjustment for all of them: SigmaHQ alone can put hundreds on one template.
+    if let Some((first, rule_names)) = renamed_rules
+        .first()
+        .and_then(|rule| rule.field_names.map(|names| (rule, names)))
+    {
+        shaped.adjustments.push(Adjustment {
+            contract: ContractRule::RuleMatchesForwarded,
+            level: None,
+            reason: Reason::FieldNamesDiffer {
+                rule: first.rule.clone(),
+                rules: renamed_rules.len(),
+                rule_names,
+                data_names: template.schema,
+            },
+        });
     }
     dedup(&mut shaped.adjustments);
     shaped
@@ -212,7 +238,9 @@ fn rule_guided_route(
 /// Whether `rule` can see events of `template`: its log source may apply, and its pre-filter is
 /// not ruled out by the template's fixed discriminator values. A rule that requires
 /// `EventID: 5805` reads nothing of an `EventID=7036` template, even if it also has keywords.
-/// A rule that only sees text lines reads nothing of a JSON template.
+/// A rule that only sees text lines reads nothing of a JSON template. A rule whose field names
+/// cannot be compared with the template's ([`renamed`]) is not ruled out by them: its pre-filter
+/// names fields the template may carry under other names.
 fn applies(rule: &RuleRequirements, template: &Template) -> bool {
     let (fixed, paths): (&[(FieldPath, String)], _) = match &template.shape {
         TemplateShape::Keyset { .. } if rule.text_lines_only => return false,
@@ -222,7 +250,18 @@ fn applies(rule: &RuleRequirements, template: &Template) -> bool {
         } => (discriminators, Some(paths)),
         TemplateShape::Text { .. } => (&[], None),
     };
-    rule.logsource.may_apply_to(&template.logsource) && rule.prefilter.may_match_with(fixed, paths)
+    rule.logsource.may_apply_to(&template.logsource)
+        && (renamed(rule, template) || rule.prefilter.may_match_with(fixed, paths))
+}
+
+/// Whether `rule` names its fields in a convention the structured records of `template` do not
+/// follow, or do not declare. Text templates have no named fields to compare (their line is
+/// parsed by the SIEM, which is the schema layer's concern), so they never count.
+fn renamed(rule: &RuleRequirements, template: &Template) -> bool {
+    matches!(template.shape, TemplateShape::Keyset { .. })
+        && rule
+            .field_names
+            .is_some_and(|names| !template.schema.can_read(names))
 }
 #[cfg(test)]
 mod tests;

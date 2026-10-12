@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use sluice_core::field::FieldPath;
+use sluice_core::schema::Schema;
 use sluice_core::template::{LineHeader, TemplateStats};
 
 use super::*;
@@ -15,6 +16,7 @@ fn keyset(id: &str, product: &str, service: &str, event_id: &str) -> Template {
             category: None,
             complete: false,
         },
+        schema: Schema::Sigma,
         pattern: format!("EventID={event_id}"),
         shape: TemplateShape::Keyset {
             discriminators: vec![("EventID".into(), event_id.into())],

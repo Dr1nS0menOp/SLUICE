@@ -11,6 +11,7 @@ use crate::ids::{RuleId, TemplateId};
 use crate::predicate::Predicate;
 use crate::recipe::Level;
 use crate::rules::RuleRequirements;
+use crate::schema::Schema;
 use crate::template::Template;
 
 /// The rules of the safety contract, as numbered in the README.
@@ -100,6 +101,18 @@ pub enum Reason {
     ProtectionTooBroad {
         /// Tests the combined pre-filter would need.
         tests: usize,
+    },
+    /// A rule's field names follow another convention than the records', and no mapping between
+    /// them is known, so the rule is read as reading any field of any event of its log source.
+    FieldNamesDiffer {
+        /// The first such rule.
+        rule: RuleId,
+        /// How many applicable rules are read this way.
+        rules: usize,
+        /// The convention the rule's field names are written in.
+        rule_names: Schema,
+        /// The convention the records follow (`undeclared` when the source does not say).
+        data_names: Schema,
     },
     /// A rule's pre-filter cannot be bounded, so every event could match.
     UnboundedRule {

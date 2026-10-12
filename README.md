@@ -72,7 +72,14 @@ sources:
   - id: system
     logsource: { product: windows, service: system, complete: true }
     format: { kind: json }
+    schema: sigma
 ```
+
+`schema` says which field names the records use. Sigma rules name fields in Sigma's convention
+(`Image`, `TargetUserName`), and a SIEM maps them onto what it stores. Sluice maps nothing yet, so
+`schema: sigma` is the only value that lets it compare a Sigma rule with a JSON source. Without
+it, or with `ecs`, `cim`, `asim`, `ocsf`, `udm` or `sentinel`, no field a Sigma rule could read is
+cut from that source (ADR 0018). Say `sigma` only when the records really carry Sigma's names.
 
 Don't mark a source complete if Sigma maps categories onto it: Sysmon carries
 `process_creation`, `network_connection` and more, and the Security channel carries

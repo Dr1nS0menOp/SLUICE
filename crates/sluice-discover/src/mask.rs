@@ -9,6 +9,9 @@ use sluice_core::template::token::{HEX, NUM};
 /// Masks one token. Surrounding punctuation (quotes, brackets, colons) is kept, so `[1234]:`
 /// becomes `[<NUM>]:`.
 pub(crate) fn mask(token: &str) -> String {
+    if is_message_tag(token) {
+        return token.to_owned();
+    }
     let start = token.find(|c: char| c.is_ascii_alphanumeric());
     let end = token.rfind(|c: char| c.is_ascii_alphanumeric());
     if let (Some(start), Some(end)) = (start, end) {
@@ -18,6 +21,25 @@ pub(crate) fn mask(token: &str) -> String {
         }
     }
     mask_digit_runs(token)
+}
+
+/// A Cisco-style message id, `%FACILITY-SEVERITY-MNEMONIC:` (`%ASA-6-302013:`,
+/// `%SEC_LOGIN-5-LOGIN_SUCCESS:`). Its digits name the event type, so they are not masked.
+pub(crate) fn is_message_tag(token: &str) -> bool {
+    let Some(rest) = token.strip_prefix('%') else {
+        return false;
+    };
+    let word = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+    match rest.trim_end_matches(':').split('-').collect::<Vec<_>>()[..] {
+        [facility, severity, mnemonic] => {
+            word(facility)
+                && facility.bytes().any(|b| b.is_ascii_alphabetic())
+                && severity.len() == 1
+                && severity.bytes().all(|b| b.is_ascii_digit())
+                && word(mnemonic)
+        }
+        _ => false,
+    }
 }
 
 fn is_hex_identifier(core: &str) -> bool {
@@ -56,6 +78,22 @@ mod tests {
         assert_eq!(mask("10.10.1.21"), "<NUM>.<NUM>.<NUM>.<NUM>");
         assert_eq!(mask("08:00:02"), "<NUM>:<NUM>:<NUM>");
         assert_eq!(mask("publickey"), "publickey");
+    }
+
+    #[test]
+    fn message_ids_keep_their_digits() {
+        assert_eq!(mask("%ASA-6-302013:"), "%ASA-6-302013:");
+        assert_eq!(
+            mask("%SEC_LOGIN-5-LOGIN_SUCCESS:"),
+            "%SEC_LOGIN-5-LOGIN_SUCCESS:"
+        );
+        assert_eq!(mask("%-6-302013:"), "%-<NUM>-<NUM>:", "no facility");
+        assert_eq!(
+            mask("%ASA-16-302013:"),
+            "%ASA-<NUM>-<NUM>:",
+            "severity is one digit"
+        );
+        assert_eq!(mask("50%-6-1"), "<NUM>%-<NUM>-<NUM>");
     }
 
     #[test]

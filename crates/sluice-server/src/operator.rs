@@ -126,6 +126,8 @@ impl ProfileDecisions {
                 rules.push(RuleRequirements {
                     rule: RuleId::new(format!("operator:keep:{source}:{field}")),
                     logsource: found.logsource.clone(),
+                    // The operator picked the field from the source's own records.
+                    field_names: None,
                     fields: RequiredFields::Known(BTreeSet::from([FieldPath::new(field.as_str())])),
                     matches_raw_text: false,
                     stateful: false,

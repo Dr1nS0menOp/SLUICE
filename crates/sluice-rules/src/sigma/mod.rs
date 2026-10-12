@@ -12,6 +12,7 @@ use sluice_core::field::FieldPath;
 use sluice_core::ids::RuleId;
 use sluice_core::logsource::LogSource;
 use sluice_core::rules::RuleRequirements;
+use sluice_core::schema::Schema;
 use sluice_core::source::Source;
 
 pub use self::engine::SigmaEngine;
@@ -133,6 +134,7 @@ fn requirements(collection: &SigmaCollection, problems: &mut Vec<String>) -> Vec
         .map(|((rule, reads), stateful)| RuleRequirements {
             rule: rule_id(rule.id.as_deref(), &rule.title),
             logsource: logsource(rule),
+            field_names: Some(Schema::Sigma),
             matches_raw_text: reads.matches_raw_text(),
             fields: reads.into_required(),
             stateful,

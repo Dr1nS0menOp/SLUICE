@@ -25,6 +25,19 @@ First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
 - Guardrails scope rules by log source and per template, protect what a rule reads only on events
   the rule could match, and support complete log sources (ADR 0009). `sluice analyze` hints at
   sources whose description keeps extra rules in scope.
+- Field names are part of the safety contract (ADR 0018): a source declares the convention its
+  records follow with `schema` (`sigma`, `ecs`, `cim`, `asim`, `ocsf`, `udm`, `sentinel`). A Sigma
+  rule is compared with a JSON source only when it declares `sigma`; for any other value, or none,
+  the rule is read as reading every field of every event of its log source, so nothing it could
+  read is cut (`names its fields as sigma does, the records use ecs`). Before, such a rule was
+  ruled out and a summarizing recipe could take its matches while the proof compared two empty
+  alert sets. Sources with a `shape` follow the shape's convention; `sluice analyze` and
+  `sluice up` hint at JSON sources that declare none.
+- Templates follow the kind of event (ADR 0019). Text templates split where only a few words
+  alternate, so sshd's `Accepted` and `Failed` lines no longer share one and rare failures stay
+  rare; Cisco message ids (`%ASA-6-302013:`) keep their digits. JSON sources take extra
+  event-type fields with `event_type`, with defaults for AWS CloudTrail, Okta, Microsoft 365,
+  Azure, Google Cloud and Kubernetes.
 
 ### Live operation
 
