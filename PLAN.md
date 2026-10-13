@@ -489,9 +489,10 @@ since `sluice prove` in CI would otherwise inherit the same gaps.
      Okta, M365, Azure, GCP, Kubernetes); Drain clusters split at categorical positions (at most
      6 values, or message ids), which keeps the review's three failed sshd logons in a template
      of their own and forwards them; Cisco message ids are no longer masked. Routing on more
-     tokens and a higher threshold were not needed. Demo: 75.0 % saved, 41 = 41. Open: grouping
-     JSON key-set variants under their event type, so an agent update that adds a field does
-     not reset every template.
+     tokens and a higher threshold were not needed. Demo: 75.0 % saved, 41 = 41. JSON events
+     of one kind now share a template across their frequent key sets, with an id that ignores
+     the key sets; rare key sets keep their own; the classifier accepts the seen key sets only.
+     An agent update that adds a field no longer resets the source's templates. Step 2 is done.
 3. **A schema layer with field lineage.** Per source a declared parser and a mapping to the
    destination's schema (ECS and ASIM first, then CIM, UDM and OCSF), shipped as community parser
    packs next to the recipes. The guardrails and the proof work in the names the destination

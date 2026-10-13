@@ -37,7 +37,9 @@ First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
   alternate, so sshd's `Accepted` and `Failed` lines no longer share one and rare failures stay
   rare; Cisco message ids (`%ASA-6-302013:`) keep their digits. JSON sources take extra
   event-type fields with `event_type`, with defaults for AWS CloudTrail, Okta, Microsoft 365,
-  Azure, Google Cloud and Kubernetes.
+  Azure, Google Cloud and Kubernetes. One kind of JSON event shares a template across its
+  frequent key sets (with and without an optional field), while a rare key set keeps its own;
+  an agent update that adds a field no longer sends every recipe of its source back to shadow.
 
 ### Live operation
 

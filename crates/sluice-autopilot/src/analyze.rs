@@ -136,7 +136,12 @@ pub fn analyze(
     settings: &Settings,
     helpers: Helpers<'_>,
 ) -> Result<Analysis, AutopilotError> {
-    let discovery = discover(settings.discover.clone(), input.sources, input.events);
+    // Discovery keeps rare key sets apart by the same floor the guardrails apply.
+    let config = DiscoverConfig {
+        rarity: settings.guardrails,
+        ..settings.discover.clone()
+    };
+    let discovery = discover(config, input.sources, input.events);
     let mut resolution = book.resolve(&discovery.templates);
     let mut problems: Vec<String> = resolution
         .conflicts

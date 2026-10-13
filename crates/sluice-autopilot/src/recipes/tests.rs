@@ -21,6 +21,7 @@ fn keyset(id: &str, product: &str, service: &str, event_id: &str) -> Template {
         shape: TemplateShape::Keyset {
             discriminators: vec![("EventID".into(), event_id.into())],
             paths: BTreeSet::new(),
+            variants: vec![BTreeSet::new()],
         },
         fields: BTreeSet::new(),
         text_fields: BTreeSet::new(),

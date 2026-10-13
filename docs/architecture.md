@@ -75,10 +75,12 @@ lifecycle and reduction program per *rule profile*, all fed from the same input,
 - **B. Templates.** Events are grouped into *templates*, one kind of event in one source. For
   JSON: the values of the fields that name the kind of event (`EventID`, `event.code`,
   `event.action`, `action`, defaults for products such as CloudTrail, and the source's own
-  `event_type`) and the exact set of field paths. For text: a Drain cluster of the line, with
-  the syslog header reduced to the program name and numbers and hex identifiers masked, split
-  where only a few words alternate, so `Accepted` and `Failed` stay apart (ADR 0019). A template
-  is the unit recipes target, the guardrails reason about and the rarity floor counts.
+  `event_type`), with each frequent set of field paths accepted and each rare one a template of
+  its own (without event-type values, one template per exact set). For text: a Drain cluster
+  of the line, with the syslog header reduced to the program name and numbers and hex
+  identifiers masked, split where only a few words alternate, so `Accepted` and `Failed` stay
+  apart (ADR 0019). A template is the unit recipes target, the guardrails reason about and the
+  rarity floor counts.
 - **C. Recipes.** Community recipes (YAML in [`recipes/`](../recipes/)), the operator's own and,
   optionally, an AI advisor propose reductions per template: drop fields or empty fields (L1),
   forward what rules could match and summarize the rest (L2), or summarize a template no rule
@@ -135,9 +137,9 @@ that M9 and M10 address:
   that use other names is unsafe, and the proof cannot notice.
 - **Templates still follow shapes in part.** Since ADR 0019, Drain clusters split where a few
   words alternate (sshd's "Accepted" and "Failed"), message ids keep their digits, and JSON
-  sources name their event-type fields. A rare line that differs only at a parameter position
-  still shares its template, and JSON key sets still split every combination of optional
-  fields into its own template, which an agent update resets.
+  sources name their event-type fields and share a template per kind of event across their
+  frequent shapes. A rare text line that differs only at a parameter position still shares its
+  template.
 - **Summary keys use the source's field names.** In a Sentinel shape, a recipe's summary keys may
   not exist: `SecurityEvent` keeps most event data only in its `EventData` XML. A 5156 recipe on
   such records summarized 600 events from two applications and two ports into one count with

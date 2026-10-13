@@ -3,9 +3,9 @@
 //! The classifier mirrors discovery exactly, because it decides which reductions apply to an
 //! event:
 //!
-//! - **Keyset:** the sorted leaf paths of `flatten(.)` joined by newlines equal the template's,
-//!   and each discriminator renders to the recorded value. Any drift (an extra or missing field)
-//!   fails to match, so drifted events pass through untouched.
+//! - **Keyset:** the sorted leaf paths of `flatten(.)` joined by newlines equal one of the
+//!   template's key sets, and each discriminator renders to the recorded value. Any drift (a key
+//!   set discovery did not see) fails to match, so drifted events pass through untouched.
 //! - **Text:** a regex equivalent to "this line splits and masks into these tokens", including
 //!   the syslog header that discovery reduced to its program name.
 //!
@@ -39,13 +39,28 @@ pub(crate) fn classifier(shape: &TemplateShape) -> Option<Classifier> {
     match shape {
         TemplateShape::Keyset {
             discriminators,
-            paths,
+            variants,
+            ..
         } => {
-            let joined: Vec<&str> = paths
+            // A template without a key set accepts no event: its events pass through.
+            if variants.is_empty() {
+                return None;
+            }
+            let key_sets: Vec<String> = variants
                 .iter()
-                .map(sluice_core::field::FieldPath::as_str)
+                .map(|paths| {
+                    let joined: Vec<&str> = paths
+                        .iter()
+                        .map(sluice_core::field::FieldPath::as_str)
+                        .collect();
+                    format!("{KEYS} == {}", syntax::string(&joined.join("\n")))
+                })
                 .collect();
-            let mut parts = vec![format!("{KEYS} == {}", syntax::string(&joined.join("\n")))];
+            let mut parts = vec![if key_sets.len() == 1 {
+                key_sets.concat()
+            } else {
+                format!("({})", key_sets.join(" || "))
+            }];
             parts.extend(discriminators.iter().map(|(field, value)| {
                 format!(
                     "(to_string({}) ?? \"\") == {}",

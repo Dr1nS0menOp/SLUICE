@@ -224,10 +224,16 @@ impl GuardrailConfig {
     /// Whether `template` is below the rarity floor.
     #[must_use]
     pub fn is_rare(&self, template: &Template) -> bool {
-        let stats = template.stats;
-        let share_too_small = u128::from(stats.events) * 1_000_000
-            < u128::from(self.rarity_min_share_ppm) * u128::from(stats.source_events);
-        stats.events < self.rarity_min_events || share_too_small
+        self.is_rare_count(template.stats.events, template.stats.source_events)
+    }
+
+    /// Whether `events` out of `source_events` is below the rarity floor. Discovery uses it to
+    /// keep a rare variant of a frequent kind of event in a template of its own.
+    #[must_use]
+    pub fn is_rare_count(&self, events: u64, source_events: u64) -> bool {
+        let share_too_small = u128::from(events) * 1_000_000
+            < u128::from(self.rarity_min_share_ppm) * u128::from(source_events);
+        events < self.rarity_min_events || share_too_small
     }
 
     /// Whether `template` is too close to the rarity floor for a new recipe to start: below

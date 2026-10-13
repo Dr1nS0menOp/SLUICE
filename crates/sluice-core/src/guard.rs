@@ -247,6 +247,7 @@ fn applies(rule: &RuleRequirements, template: &Template) -> bool {
         TemplateShape::Keyset {
             discriminators,
             paths,
+            ..
         } => (discriminators, Some(paths)),
         TemplateShape::Text { .. } => (&[], None),
     };

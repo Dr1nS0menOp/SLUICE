@@ -139,6 +139,85 @@ fn a_source_names_its_own_event_type_fields() {
     assert_eq!(count(&typed), 2, "the rare grant is a template of its own");
 }
 
+/// 4624 logons, most without the optional `ElevatedToken`, 300 with it, and two with a field no
+/// other logon has.
+fn logons(extra: &str) -> Vec<Event> {
+    events(
+        "sec",
+        (0..1_000).map(|n| {
+            let mut record = json!({ "EventID": 4624, "TargetUserName": format!("u{n}") });
+            if n % 1_000 >= 700 {
+                record["ElevatedToken"] = json!("%%1842");
+            }
+            if n == 5 || n == 6 {
+                record[extra] = json!("x");
+            }
+            record
+        }),
+    )
+}
+
+fn security() -> Source {
+    source("sec", "windows", SourceFormat::Json, &[])
+}
+
+#[test]
+fn frequent_shapes_of_one_kind_share_a_template_rare_ones_do_not() {
+    let events = logons("RareField");
+    let discovery = discover(
+        DiscoverConfig::default(),
+        std::slice::from_ref(&security()),
+        &events,
+    );
+    assert_eq!(discovery.templates.len(), 2, "{:#?}", discovery.templates);
+    let common = &discovery.assignments[&events[0].id];
+    assert_eq!(
+        common, &discovery.assignments[&events[800].id],
+        "both frequent shapes"
+    );
+    let rare = &discovery.assignments[&events[5].id];
+    assert_ne!(rare, common);
+    let template = discovery
+        .templates
+        .iter()
+        .find(|t| &t.id == common)
+        .expect("known");
+    assert_eq!(template.stats.events, 998);
+    let TemplateShape::Keyset {
+        variants, paths, ..
+    } = &template.shape
+    else {
+        panic!("a JSON template");
+    };
+    assert_eq!(variants.len(), 2);
+    assert!(paths.contains("ElevatedToken"));
+    assert!(!paths.contains("RareField"));
+}
+
+#[test]
+fn a_new_optional_field_keeps_the_template_of_its_kind() {
+    // An agent update: every logon now carries a field it did not before.
+    let before = discover(
+        DiscoverConfig::default(),
+        std::slice::from_ref(&security()),
+        &logons("RareField"),
+    );
+    let mut updated = logons("RareField");
+    for event in &mut updated {
+        event.fields.insert("AgentVersion".into(), json!("2"));
+    }
+    let after = discover(
+        DiscoverConfig::default(),
+        std::slice::from_ref(&security()),
+        &updated,
+    );
+    assert_eq!(
+        before.assignments[&EventId(0)],
+        after.assignments[&EventId(0)],
+        "the same template id, so its recipe keeps its stage"
+    );
+}
+
 #[test]
 fn cloudtrail_is_split_by_service_and_call_without_configuration() {
     let records = (0..10).map(|n| {
