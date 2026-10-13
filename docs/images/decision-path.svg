@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 660" width="1200" height="660" role="img" aria-label="The decision path: what Sluice decides every five minutes"><title>The decision path: what Sluice decides every five minutes</title><defs><marker id="h15232D" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#15232D"/></marker><marker id="h1D6E8A" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1D6E8A"/></marker><marker id="h9A5B16" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9A5B16"/></marker><marker id="h4B5A62" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4B5A62"/></marker></defs><rect width="1200" height="660" fill="#F6F7F4"/><rect x="12" y="50" width="1176" height="600" rx="12" fill="#F3E8D8" stroke="#DEC9A6"/>
+<text x="24" y="640" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#9A5B16" text-anchor="start" letter-spacing="0.8">DECISION PATH · SLUICE CONTROL PLANE (sluice up) · EVERY 5 MINUTES</text>
+<polyline points="144,8 144,87" fill="none" stroke="#1D6E8A" stroke-width="2" stroke-linejoin="round" marker-end="url(#h1D6E8A)"/>
+<polyline points="264,150 310,150" fill="none" stroke="#9A5B16" stroke-width="2" stroke-linejoin="round" marker-end="url(#h9A5B16)"/>
+<polyline points="264,390 310,390" fill="none" stroke="#9A5B16" stroke-width="2" stroke-linejoin="round" marker-end="url(#h9A5B16)"/>
+<polyline points="552,150 598,150" fill="none" stroke="#9A5B16" stroke-width="2" stroke-linejoin="round" marker-end="url(#h9A5B16)"/>
+<polyline points="552,390 598,390" fill="none" stroke="#9A5B16" stroke-width="2" stroke-linejoin="round" marker-end="url(#h9A5B16)"/>
+<polyline points="840,150 886,150" fill="none" stroke="#9A5B16" stroke-width="2" stroke-linejoin="round" marker-end="url(#h9A5B16)"/>
+<polyline points="840,390 886,390" fill="none" stroke="#9A5B16" stroke-width="2" stroke-linejoin="round" marker-end="url(#h9A5B16)"/>
+<polyline points="1008,210 1008,270 144,270 144,327" fill="none" stroke="#9A5B16" stroke-width="2" stroke-linejoin="round" marker-end="url(#h9A5B16)"/>
+<polyline points="1128,390 1180,390 1180,8" fill="none" stroke="#9A5B16" stroke-width="2" stroke-linejoin="round" marker-end="url(#h9A5B16)"/>
+<polyline points="697,450 697,497" fill="none" stroke="#4B5A62" stroke-width="2" stroke-linejoin="round" marker-end="url(#h4B5A62)"/>
+<polyline points="743,500 743,453" fill="none" stroke="#4B5A62" stroke-width="2" stroke-linejoin="round" marker-end="url(#h4B5A62)"/>
+<rect x="24" y="90" width="240" height="120" rx="6" fill="#FFFFFF" stroke="#9A5B16" stroke-width="1.5"/>
+<text x="36" y="114" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#15232D"><tspan fill="#9A5B16">A</tspan>  Window</text>
+<text x="36" y="134" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">the tapped sample per source:</text>
+<text x="36" y="151" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">up to 20,000 events, 1 hour</text>
+<text x="36" y="171" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#9A5B16" text-anchor="start">sluice-server · axum · /tap</text>
+<rect x="312" y="90" width="240" height="120" rx="6" fill="#FFFFFF" stroke="#9A5B16" stroke-width="1.5"/>
+<text x="324" y="114" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#15232D"><tspan fill="#9A5B16">B</tspan>  Templates</text>
+<text x="324" y="134" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">one kind of event per source;</text>
+<text x="324" y="151" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">rare variants stay apart</text>
+<text x="324" y="171" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#9A5B16" text-anchor="start">sluice-discover</text>
+<text x="324" y="186" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#9A5B16" text-anchor="start">Drain (text), key sets (JSON)</text>
+<rect x="600" y="90" width="240" height="120" rx="6" fill="#FFFFFF" stroke="#9A5B16" stroke-width="1.5"/>
+<text x="612" y="114" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#15232D"><tspan fill="#9A5B16">C</tspan>  Recipes</text>
+<text x="612" y="134" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">proposals: drop fields (L1),</text>
+<text x="612" y="151" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">count the rest (L2, L3)</text>
+<text x="612" y="171" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#9A5B16" text-anchor="start">recipes/*.yaml · own · AI</text>
+<rect x="888" y="90" width="240" height="120" rx="6" fill="#FFFFFF" stroke="#9A5B16" stroke-width="1.5"/>
+<text x="900" y="114" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#15232D"><tspan fill="#9A5B16">D</tspan>  Rules to requirements</text>
+<text x="900" y="134" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">per rule: log source, fields,</text>
+<text x="900" y="151" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">pre-filter</text>
+<text x="900" y="171" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#9A5B16" text-anchor="start">rsigma · quick-xml (Wazuh)</text>
+<text x="900" y="186" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#9A5B16" text-anchor="start">KQL reader (Sentinel)</text>
+<rect x="24" y="330" width="240" height="120" rx="6" fill="#FFFFFF" stroke="#9A5B16" stroke-width="1.5"/>
+<text x="36" y="354" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#15232D"><tspan fill="#9A5B16">E</tspan>  Guardrails</text>
+<text x="36" y="374" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">the safety contract:</text>
+<text x="36" y="391" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">what may be cut?</text>
+<text x="36" y="411" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#9A5B16" text-anchor="start">sluice-core</text>
+<rect x="312" y="330" width="240" height="120" rx="6" fill="#FFFFFF" stroke="#9A5B16" stroke-width="1.5"/>
+<text x="324" y="354" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#15232D"><tspan fill="#9A5B16">F</tspan>  Proof</text>
+<text x="324" y="374" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">same alerts on full and</text>
+<text x="324" y="391" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">forwarded data?</text>
+<text x="324" y="411" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#9A5B16" text-anchor="start">vrl crate · rsigma</text>
+<text x="324" y="426" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#9A5B16" text-anchor="start">Kusto emulator</text>
+<rect x="600" y="330" width="240" height="120" rx="6" fill="#FFFFFF" stroke="#9A5B16" stroke-width="1.5"/>
+<text x="612" y="354" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#15232D"><tspan fill="#9A5B16">G</tspan>  Lifecycle</text>
+<text x="612" y="374" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">shadow; enforced after 24 h</text>
+<text x="612" y="391" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">and 3 proofs; rolled back</text>
+<text x="612" y="408" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">on a failure</text>
+<text x="612" y="428" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#9A5B16" text-anchor="start">sluice-autopilot</text>
+<rect x="888" y="330" width="240" height="120" rx="6" fill="#FFFFFF" stroke="#9A5B16" stroke-width="1.5"/>
+<text x="900" y="354" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#15232D"><tspan fill="#9A5B16">H</tspan>  New config</text>
+<text x="900" y="374" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">write vector.yaml;</text>
+<text x="900" y="391" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">Vector reloads (SIGHUP)</text>
+<text x="900" y="411" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#9A5B16" text-anchor="start">sluice-vector</text>
+<text x="900" y="426" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#9A5B16" text-anchor="start">sluice-server</text>
+<rect x="24" y="500" width="270" height="96" rx="6" fill="#FBEAE6" stroke="#B3261E" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="36" y="520" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#B3261E" text-anchor="start" letter-spacing="0.6">LIMIT · D · M9</text>
+<text x="36" y="538" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">Field names are not mapped yet:</text>
+<text x="36" y="555" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">Sigma rules cut only sources</text>
+<text x="36" y="572" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">declared schema: sigma.</text>
+<rect x="312" y="500" width="270" height="96" rx="6" fill="#FBEAE6" stroke="#B3261E" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="324" y="520" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#B3261E" text-anchor="start" letter-spacing="0.6">LIMIT · D · M10</text>
+<text x="324" y="538" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">Rules come from directories;</text>
+<text x="324" y="555" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">hunts, dashboards and other</text>
+<text x="324" y="572" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">SIEM languages are not read.</text>
+<rect x="600" y="500" width="240" height="96" rx="6" fill="#FFFFFF" stroke="#15232D" stroke-width="1.5"/>
+<text x="612" y="524" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#15232D">Operators</text>
+<text x="612" y="544" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">console, sluice status, MCP:</text>
+<text x="612" y="561" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">watch, explain, intervene</text>
+<text x="612" y="581" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#4B5A62" text-anchor="start">web console · rmcp</text>
+<text x="156" y="30" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#1D6E8A" text-anchor="start">tap from Vector, step 4</text>
+<text x="1170" y="30" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#9A5B16" text-anchor="end">to Vector, step 5</text>
+<text x="687" y="480" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4B5A62" text-anchor="end">status</text>
+<text x="753" y="480" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4B5A62" text-anchor="start">actions</text></svg>

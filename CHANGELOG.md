@@ -8,6 +8,10 @@ All notable changes to Sluice are recorded here. The format follows
 
 First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
 
+Documentation: `docs/architecture.md` has diagrams of the data and decision paths
+(`docs/images/*.svg`) and one Windows event followed through every step; `docs/glossary.md`
+explains the terms.
+
 ### Offline autopilot
 
 - `sluice demo` and `sluice analyze`: template discovery (JSON key sets, Drain for text with

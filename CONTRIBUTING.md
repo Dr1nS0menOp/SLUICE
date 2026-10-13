@@ -46,6 +46,7 @@ Beyond the gates, these scripts check behaviour against the real tools. CI runs 
 | `scripts/vector-check.sh` | `vector validate` and `vector test` on generated configurations (part of `check.sh` when Vector is installed) |
 | `scripts/live-smoke.sh` | `sluice up` with demo traffic and the real Vector: promotion, enforcement, archive, graceful stop, then `replay-smoke.sh` |
 | `scripts/sigma-differential.sh [--sigmahq]` | Rule requirements against pySigma, on the examples or the full SigmaHQ set |
+| `python3 scripts/architecture-diagrams.py` | Regenerates the diagrams in `docs/images/` used by `docs/architecture.md` |
 | `scripts/helm-check.sh` | The Helm chart: lint, refused without a control token, its configuration through `sluice up --check` and `vector validate` |
 | `scripts/bench.sh [source] [scale]` | Data plane throughput with the real Vector ([docs/notes/benchmarks.md](docs/notes/benchmarks.md)) |
 
