@@ -35,9 +35,16 @@ flowchart LR
 ```
 
 The numbers are steps every event takes in Vector. The letters are steps Sluice takes once per
-cycle, on a sample.
+cycle, on a sample. The terms are explained in the [glossary](glossary.md).
 
 ## The data path: what Vector does with every event
+
+![The data path: a source sends events to Vector, which archives every event, optionally shapes
+it as a SIEM table's record, taps one in ten to Sluice, and runs the generated program that
+forwards each event or counts it into a summary. Archived events can be searched and replayed.](images/data-path.svg)
+
+Each box names, in monospace, the software that does the step. A dashed red box is a known limit
+that the plan addresses.
 
 1. **Receive.** A Vector source takes the events in: `http_server` (for example from the Vector
    agent that `sluice agent windows` configures), syslog, files, or any other Vector source.
@@ -70,6 +77,12 @@ lifecycle and reduction program per *rule profile*, all fed from the same input,
 
 `sluice up` runs the control plane next to one Vector, which it starts and reloads. Every
 `cycle_secs` (default 300) it takes these steps on the sample:
+
+![The decision path: the tapped sample goes into a window, events are grouped into templates,
+recipes propose reductions, rules are read into requirements, the guardrails narrow the
+proposals, the proof compares alerts on full and forwarded data, the lifecycle moves recipes
+from shadow to enforced, and a new Vector configuration is written. Operators watch and
+intervene through the console and MCP.](images/decision-path.svg)
 
 - **A. Window.** The tapped sample, per source: at most 20,000 events and at most an hour old.
 - **B. Templates.** Events are grouped into *templates*, one kind of event in one source. For
@@ -113,6 +126,39 @@ lifecycle and reduction program per *rule profile*, all fed from the same input,
 - **H. New configuration.** When the enforced set changes, Sluice writes a new `vector.yaml`
   atomically (a temporary file, then a rename) and sends Vector a SIGHUP. If the control plane
   stops, Vector keeps running the last configuration.
+
+## An example: one Windows firewall event, step by step
+
+Windows logs event 5156 each time its filtering platform permits a connection. With that audit
+on, it is usually the busiest event in the Security log. Follow one of them, as `sluice demo`
+generates it (event data as top-level fields), from host `web01` to a SIEM that stores the
+fields as they arrive. Besides SigmaHQ, one example rule is loaded: *LSASS opens a network
+connection* (`EventID: 5156`, `Application|endswith: '\lsass.exe'`).
+
+| Step | What happens to this event |
+|---|---|
+| 1 Receive | Vector receives the JSON: `EventID 5156`, `Application …\svchost.exe`, `DestAddress 10.0.0.53`, `DestPort 53`, `Protocol 17`, a rendered `Message`, and so on. |
+| 2 Archive | A full copy goes to `archive/windows-security/2026-10-11/08.ndjson.gz` before anything changes. |
+| 3 Shape | The source has no `shape`, so the event stays as it is. |
+| 4 Tap | One in ten such events is copied to Sluice. |
+| A Window | The copy joins the source's window. |
+| B Templates | `EventID` is 5156, so the event belongs to template `windows-security:5156:<hash>`, which holds every frequent shape of 5156. It is far above the rarity floor of 100 events and 0.1 % of the source. |
+| C Recipes | Two community recipes match and are merged: `microsoft/windows/security/rendered-message` (drop `Message` and empty fields, L1) and `microsoft/windows/security/filtering-platform-connection` (forward what a rule could match, count the rest per `Application`, `DestAddress`, `DestPort`, `Protocol`, L2). |
+| D Rules | The example rule applies to `windows/security`, reads `EventID` and `Application`, and can only match events with `EventID` 5156 whose `Application` ends in `\lsass.exe`: its pre-filter. |
+| E Guardrails | Events the pre-filter matches are forwarded whole; every other 5156 event is counted. The records follow Sigma's names (`schema: sigma`), so the rule's fields can be compared with them. |
+| F Proof | The rules run on the window twice, on full events and on what the generated VRL would forward. The example rule fires on the same `lsass.exe` events both times, so the recipe holds. |
+| G Lifecycle | Proven once: shadow, nothing changes yet. After 24 hours and 3 proofs in a row: enforced. A later failed proof rolls it back at once. |
+| H New config | Sluice writes a new `vector.yaml` and Vector reloads it. |
+| 5 Reduce | The program classifies the event as the 5156 template. Its `Application` is `svchost.exe`, outside the pre-filter, so its route is `summarize`. An `lsass.exe` event would be forwarded unchanged. |
+| 7 Summarize | Instead of the event, the SIEM receives one record per minute per key combination, such as `{"sluice_template": "windows-security:5156:…", "sluice_keys": {"Application": "…\svchost.exe", "DestAddress": "10.0.0.53", "DestPort": "53", "Protocol": 17}, "sluice_count": 1840}`. |
+| SIEM | The rule runs on the forwarded `lsass.exe` events as before. A single event is back with `sluice search` or `sluice replay`. |
+
+Sent to Microsoft Sentinel's `SecurityEvent` table instead (`shape: sentinel_security_event`),
+three things differ. `Application`, `DestAddress`, `DestPort` and `Protocol` have no column
+there and live only in the `EventData` XML. Sentinel's KQL analytics rules are read and run in
+the Kusto emulator; Sluice bounds a KQL rule by `EventID` and a few fixed columns only, so if one
+reads 5156, every 5156 event is forwarded. And if none does, the summary keys above are empty in
+the shaped record, so the summary becomes one count per minute: a known limit (see below).
 
 ## Offline: `sluice analyze`
 
