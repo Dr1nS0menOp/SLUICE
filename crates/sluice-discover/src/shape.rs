@@ -39,12 +39,6 @@ impl Keyset {
     }
 
     pub(crate) fn template_id(&self) -> TemplateId {
-        let label = self
-            .discriminators
-            .iter()
-            .map(|(_, value)| sanitize(value))
-            .collect::<Vec<_>>()
-            .join("/");
         let discriminator_parts = self
             .discriminators
             .iter()
@@ -55,29 +49,94 @@ impl Keyset {
                 .chain(discriminator_parts)
                 .chain(self.paths.iter().map(String::as_str)),
         );
-        template_id(&self.source, &label, hash)
+        template_id(&self.source, &label(&self.discriminators), hash)
+    }
+
+    /// The kind of event, when the event names one: its source and event-type values.
+    pub(crate) fn kind(&self) -> Option<Kind> {
+        (!self.discriminators.is_empty()).then(|| Kind {
+            source: self.source.clone(),
+            discriminators: self.discriminators.clone(),
+        })
+    }
+
+    /// The exact key set.
+    pub(crate) fn path_set(&self) -> BTreeSet<FieldPath> {
+        self.paths
+            .iter()
+            .map(|p| FieldPath::new(p.as_str()))
+            .collect()
     }
 
     pub(crate) fn shape(&self) -> TemplateShape {
+        let paths = self.path_set();
         TemplateShape::Keyset {
             discriminators: self.discriminators.clone(),
-            paths: self
-                .paths
-                .iter()
-                .map(|p| FieldPath::new(p.as_str()))
-                .collect(),
+            variants: vec![paths.clone()],
+            paths,
         }
     }
 
     pub(crate) fn pattern(&self) -> String {
-        let mut pattern: Vec<String> = self
-            .discriminators
-            .iter()
-            .map(|(field, value)| format!("{field}={value}"))
-            .collect();
+        let mut pattern = described(&self.discriminators);
         pattern.push(format!("[{} fields]", self.paths.len()));
         pattern.join(" ")
     }
+}
+
+/// One kind of event in a JSON source: the source and the values of its event-type fields. Its
+/// frequent key sets share one template, whose id does not depend on them, so a new optional
+/// field does not make a new template of every kind of event (ADR 0019).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Kind {
+    pub(crate) source: SourceId,
+    discriminators: Vec<(FieldPath, String)>,
+}
+
+impl Kind {
+    pub(crate) fn template_id(&self) -> TemplateId {
+        let parts = self
+            .discriminators
+            .iter()
+            .flat_map(|(field, value)| [field.as_str(), value.as_str()]);
+        let hash = fnv1a([self.source.as_str(), "json-kind"].into_iter().chain(parts));
+        template_id(&self.source, &label(&self.discriminators), hash)
+    }
+
+    /// The template shape accepting exactly `variants`.
+    pub(crate) fn shape(&self, variants: Vec<BTreeSet<FieldPath>>) -> TemplateShape {
+        TemplateShape::Keyset {
+            discriminators: self.discriminators.clone(),
+            paths: variants.iter().flatten().cloned().collect(),
+            variants,
+        }
+    }
+
+    pub(crate) fn pattern(&self, variants: &[BTreeSet<FieldPath>]) -> String {
+        let fields: BTreeSet<&FieldPath> = variants.iter().flatten().collect();
+        let mut pattern = described(&self.discriminators);
+        pattern.push(match variants.len() {
+            1 => format!("[{} fields]", fields.len()),
+            n => format!("[{n} shapes, {} fields]", fields.len()),
+        });
+        pattern.join(" ")
+    }
+}
+
+/// The readable part of a JSON template id: the event-type values.
+fn label(discriminators: &[(FieldPath, String)]) -> String {
+    discriminators
+        .iter()
+        .map(|(_, value)| sanitize(value))
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn described(discriminators: &[(FieldPath, String)]) -> Vec<String> {
+    discriminators
+        .iter()
+        .map(|(field, value)| format!("{field}={value}"))
+        .collect()
 }
 
 /// Id and pattern of a final Drain template.
@@ -178,6 +237,10 @@ impl Group {
 
     pub(crate) fn source(&self) -> &SourceId {
         &self.source
+    }
+
+    pub(crate) fn events(&self) -> u64 {
+        self.events
     }
 
     pub(crate) fn add(&mut self, event: &Event) {

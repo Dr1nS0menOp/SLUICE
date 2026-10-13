@@ -44,13 +44,17 @@ pub struct Template {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TemplateShape {
-    /// A JSON event: exactly these leaf paths (nested objects flattened with `.`, arrays and
-    /// scalars as leaves, empty objects absent), with these discriminator values.
+    /// A JSON event with these discriminator values and exactly one of `variants` as its leaf
+    /// paths (nested objects flattened with `.`, arrays and scalars as leaves, empty objects
+    /// absent). An event with another key set belongs to another template, or to none.
     Keyset {
         /// Discriminator fields and their rendered values (strings as-is, other scalars as JSON).
         discriminators: Vec<(FieldPath, String)>,
-        /// Every leaf path.
+        /// Every leaf path of any variant: the fields an event of the template may carry.
         paths: BTreeSet<FieldPath>,
+        /// The exact key sets the template accepts, at least one (ADR 0019). Several when one
+        /// kind of event comes in several shapes, such as with and without an optional field.
+        variants: Vec<BTreeSet<FieldPath>>,
     },
     /// A text line in `field`, matching masked Drain tokens.
     Text {

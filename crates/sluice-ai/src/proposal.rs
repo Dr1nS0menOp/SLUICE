@@ -127,6 +127,7 @@ mod tests {
             shape: TemplateShape::Keyset {
                 discriminators: vec![],
                 paths: BTreeSet::new(),
+                variants: vec![BTreeSet::new()],
             },
             fields: ["message", "event.original", "host.name", "path"]
                 .into_iter()

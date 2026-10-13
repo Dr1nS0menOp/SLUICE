@@ -32,7 +32,8 @@ use sluice_core::template::{Template, TemplateShape};
 
 pub use crate::drain::DrainConfig;
 use crate::drain::{ClusterIndex, Drain};
-use crate::shape::{Group, Keyset};
+use crate::shape::{Group, Keyset, Kind};
+use sluice_core::guard::GuardrailConfig;
 
 /// Discovery settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +50,9 @@ pub struct DiscoverConfig {
     /// rather than a parameter, when it takes at most this many distinct values in a cluster.
     /// Each value then gets a template of its own.
     pub categorical_max_values: usize,
+    /// The rarity floor of the guardrails. A JSON key set this rare keeps a template of its own
+    /// instead of joining the other key sets of its kind of event, so it is never cut.
+    pub rarity: GuardrailConfig,
 }
 
 impl Default for DiscoverConfig {
@@ -62,6 +66,7 @@ impl Default for DiscoverConfig {
             text_min_avg_len: 40,
             text_min_whitespace_percent: 50,
             categorical_max_values: 6,
+            rarity: GuardrailConfig::default(),
         }
     }
 }
@@ -181,20 +186,16 @@ impl Discoverer {
         let mut resolved: BTreeMap<GroupKey, TemplateId> = BTreeMap::new();
         let mut templates: BTreeMap<TemplateId, Template> = BTreeMap::new();
         let mut clusters: BTreeMap<(SourceId, ClusterIndex), Lines> = BTreeMap::new();
+        let mut kinds: BTreeMap<Kind, Vec<(Keyset, Group)>> = BTreeMap::new();
 
         let groups = std::mem::take(&mut self.groups);
         for (key, group) in groups {
             match key {
-                GroupKey::Keyset(keyset) => {
-                    let template = self.template(
-                        group,
-                        keyset.template_id(),
-                        keyset.pattern(),
-                        keyset.shape(),
-                    );
-                    resolved.insert(GroupKey::Keyset(keyset), template.id.clone());
-                    add(&mut templates, template);
-                }
+                GroupKey::Keyset(keyset) => match keyset.kind() {
+                    Some(kind) => kinds.entry(kind).or_default().push((keyset, group)),
+                    // Without event-type values, the key set is all that tells events apart.
+                    None => self.exact(keyset, group, &mut resolved, &mut templates),
+                },
                 GroupKey::Line(source, index, tokens) => {
                     clusters
                         .entry((source, index))
@@ -202,6 +203,10 @@ impl Discoverer {
                         .push((tokens, group));
                 }
             }
+        }
+
+        for (kind, variants) in kinds {
+            self.kind(&kind, variants, &mut resolved, &mut templates);
         }
 
         for ((source, index), members) in clusters {
@@ -255,6 +260,60 @@ impl Discoverer {
         Discovery {
             templates: templates.into_values().collect(),
             assignments,
+        }
+    }
+
+    /// One template for exactly one key set.
+    fn exact(
+        &self,
+        keyset: Keyset,
+        group: Group,
+        resolved: &mut BTreeMap<GroupKey, TemplateId>,
+        templates: &mut BTreeMap<TemplateId, Template>,
+    ) {
+        let template = self.template(
+            group,
+            keyset.template_id(),
+            keyset.pattern(),
+            keyset.shape(),
+        );
+        resolved.insert(GroupKey::Keyset(keyset), template.id.clone());
+        add(templates, template);
+    }
+
+    /// The templates of one kind of event: one for all its frequent key sets, and one for each
+    /// rare key set, which the rarity floor then keeps from being cut (ADR 0019).
+    fn kind(
+        &self,
+        kind: &Kind,
+        variants: Vec<(Keyset, Group)>,
+        resolved: &mut BTreeMap<GroupKey, TemplateId>,
+        templates: &mut BTreeMap<TemplateId, Template>,
+    ) {
+        let source_events = self.source_events.get(&kind.source).copied().unwrap_or(0);
+        let (rare, frequent): (Vec<_>, Vec<_>) = variants.into_iter().partition(|(_, group)| {
+            self.config
+                .rarity
+                .is_rare_count(group.events(), source_events)
+        });
+        for (keyset, group) in rare {
+            self.exact(keyset, group, resolved, templates);
+        }
+        let id = kind.template_id();
+        let mut key_sets = Vec::new();
+        let mut merged: Option<Group> = None;
+        for (keyset, group) in frequent {
+            key_sets.push(keyset.path_set());
+            resolved.insert(GroupKey::Keyset(keyset), id.clone());
+            match &mut merged {
+                Some(all) => all.absorb(group),
+                None => merged = Some(group),
+            }
+        }
+        if let Some(group) = merged {
+            let pattern = kind.pattern(&key_sets);
+            let template = self.template(group, id, pattern, kind.shape(key_sets));
+            add(templates, template);
         }
     }
 

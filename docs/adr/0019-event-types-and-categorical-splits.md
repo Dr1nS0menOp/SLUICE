@@ -34,6 +34,15 @@ follow an event's shape rather than its meaning:
    `operationName`), `gcp` (`protoPayload.serviceName`, `protoPayload.methodName`) and
    `kubernetes` (`verb`, `objectRef.resource`). A field an event lacks does not count.
 
+4. **One template per kind of JSON event, rare shapes apart.** When an event has event-type
+   values, its frequent key sets share one template, whose id depends on the source and those
+   values only. The template lists each accepted key set (`TemplateShape::Keyset::variants`) and
+   their union (`paths`), which the guardrails use as before. The classifier accepts exactly
+   those key sets, so a shape discovery never saw passes through (contract rule 1). A key set
+   below the guardrails' rarity floor keeps a template of its own, so a rare shape of a frequent
+   kind of event is never cut (contract rule 4). Events without event-type values keep one
+   template per exact key set: there, the shape is the only sign of the kind.
+
 Raising Drain's similarity threshold or routing on more tokens was considered and not done:
 both split every cluster, also at parameters such as the sudo user (docs/notes/drain.md), while
 the categorical split only separates what alternates among a few values.
@@ -53,7 +62,10 @@ the categorical split only separates what alternates among a few values.
 - More event-type fields only ever split templates further, which is the safe direction. They
   also let the guardrails scope rules by those values, as they do for `EventID`: a CloudTrail
   rule on `eventName: CreateAccessKey` no longer applies to a `GetUser` template.
-- Still open in M9 step 2: JSON key sets split every combination of optional fields into its own
-  template, and the classifier matches the exact key set, so an agent update that adds a field
-  resets every template of its source. Grouping those variants under their event type is the
-  next part.
+- An agent update that adds a field to every event no longer resets its source's templates. The
+  new shape passes through for one cycle, then joins its kind's template, whose id and stage are
+  unchanged; the cycle's proof covers it before it is cut.
+- Whether a key set is rare depends on the window, so a shape near the floor can move between
+  its own template (never cut) and its kind's (proven with it). Both are safe.
+- A guardrail that reads `paths` sees every field of every variant, which can only bring more
+  rules into scope.

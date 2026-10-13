@@ -40,6 +40,7 @@ fn template() -> Template {
         shape: TemplateShape::Keyset {
             discriminators: vec![("EventID".into(), "4625".into())],
             paths: FIELDS.into_iter().map(FieldPath::from).collect(),
+            variants: vec![FIELDS.into_iter().map(FieldPath::from).collect()],
         },
         fields: FIELDS.into_iter().map(FieldPath::from).collect(),
         text_fields: BTreeSet::from(["Message".into()]),
@@ -253,6 +254,7 @@ fn c3_a_bare_rule_field_protects_the_same_field_nested_in_a_table_column() {
     nested.shape = TemplateShape::Keyset {
         discriminators: vec![("EventID".into(), "4104".into())],
         paths: paths.into_iter().map(FieldPath::from).collect(),
+        variants: vec![paths.into_iter().map(FieldPath::from).collect()],
     };
     nested.fields = paths.into_iter().map(FieldPath::from).collect();
     let rule = rule(
