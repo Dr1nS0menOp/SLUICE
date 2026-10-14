@@ -128,6 +128,7 @@ impl Shared {
         let oidc = config
             .oidc
             .clone()
+            .filter(|oidc| oidc.enabled)
             .map(crate::oidc::Oidc::new)
             .transpose()?;
         let store = crate::operator::Store::new(&config.data_dir);

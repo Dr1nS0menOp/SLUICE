@@ -452,3 +452,13 @@ fn a_union_of_named_tables_reads_only_those() {
     let r = rule("union (SecurityEvent | where EventID * 2 == 9250)");
     assert!(matches!(r.fields, RequiredFields::Known(_)));
 }
+
+#[test]
+fn rule_names_are_the_names_the_siem_shows() {
+    let rules = SentinelRules::parse([(
+        "r1.yaml",
+        "id: r1\nname: Brute force\nquery: |\n  SecurityEvent | where EventID == 4625\n",
+    )]);
+    assert_eq!(rules.names().len(), 1);
+    assert_eq!(rules.names()[&"sentinel:r1".into()], "Brute force");
+}

@@ -284,3 +284,62 @@ fn an_empty_ruleset_is_complete_with_zero_counts() {
     assert_eq!(inventory.manifest.counts["rules"], 0);
     assert!(inventory.manifest.complete);
 }
+
+#[test]
+fn every_request_after_logging_in_carries_the_managers_token() {
+    struct Checking {
+        headers: RefCell<Vec<(String, String)>>,
+    }
+    impl Transport for Checking {
+        fn send(
+            &self,
+            _: &str,
+            url: &str,
+            headers: &[(&str, String)],
+            _: Option<&str>,
+        ) -> Result<(u16, String), WazuhError> {
+            self.headers
+                .borrow_mut()
+                .push((url.to_owned(), headers[0].1.clone()));
+            let path = url.trim_start_matches("https://wazuh:55000");
+            let body = if path.ends_with("/authenticate") {
+                json!({"data": {"token": "jwt-from-manager"}, "error": 0}).to_string()
+            } else if path.contains("/files?") {
+                Manager::listing(&[], path)
+            } else {
+                return Ok((404, "{}".into()));
+            };
+            Ok((200, body))
+        }
+    }
+    let checking = Checking {
+        headers: RefCell::new(Vec::new()),
+    };
+    fetch(&checking, "https://wazuh:55000", "reader", "secret", "t").unwrap();
+    let headers = checking.headers.borrow();
+    assert_eq!(headers[0].1, crate::client::basic_auth("reader", "secret"));
+    assert!(headers.len() > 1);
+    for (url, header) in &headers[1..] {
+        assert_eq!(header, "Bearer jwt-from-manager", "{url}");
+    }
+}
+
+#[test]
+fn an_authentication_answer_without_a_token_fails_the_fetch() {
+    struct NoToken;
+    impl Transport for NoToken {
+        fn send(
+            &self,
+            _: &str,
+            _: &str,
+            _: &[(&str, String)],
+            _: Option<&str>,
+        ) -> Result<(u16, String), WazuhError> {
+            Ok((200, json!({"data": {}, "error": 0}).to_string()))
+        }
+    }
+    assert!(matches!(
+        fetch(&NoToken, "https://wazuh:55000", "u", "p", "t"),
+        Err(WazuhError::Invalid(m)) if m.contains("token")
+    ));
+}

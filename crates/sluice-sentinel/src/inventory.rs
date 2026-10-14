@@ -1,6 +1,6 @@
 //! What a Sentinel workspace runs, as rule files.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value, json};
 use sluice_core::inventory::{Inventory, Manifest, file_name};
@@ -152,11 +152,17 @@ fn logged_queries<T: Transport>(
 /// The inventory being built.
 struct Out {
     inventory: Inventory,
+    /// The paths written so far, to find a free one quickly.
+    paths: BTreeSet<String>,
+    /// The last suffix tried per file stem, so a run of equal names stays linear.
+    suffixes: BTreeMap<String, usize>,
 }
 
 impl Out {
     fn new(options: &Options) -> Self {
         Self {
+            paths: BTreeSet::new(),
+            suffixes: BTreeMap::new(),
             inventory: Inventory {
                 files: Vec::new(),
                 manifest: Manifest {
@@ -173,13 +179,15 @@ impl Out {
 
     fn write(&mut self, kind: &str, name: &str, document: &Value) {
         let text = serde_json::to_string_pretty(document).unwrap_or_default() + "\n";
-        let mut path = format!("{kind}/{}.yaml", file_name(name));
+        let stem = format!("{kind}/{}", file_name(name));
+        let mut path = format!("{stem}.yaml");
         // Names are unique per kind in Azure, but file_name() can make two equal.
-        let mut n = 1;
-        while self.inventory.files.iter().any(|(p, _)| *p == path) {
-            n += 1;
-            path = format!("{kind}/{}-{n}.yaml", file_name(name));
+        let n = self.suffixes.entry(stem.clone()).or_insert(1);
+        while self.paths.contains(&path) {
+            *n += 1;
+            path = format!("{stem}-{n}.yaml");
         }
+        self.paths.insert(path.clone());
         self.inventory.files.push((path, text));
         *self
             .inventory

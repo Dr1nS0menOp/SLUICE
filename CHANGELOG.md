@@ -177,6 +177,8 @@ explains the terms.
   - `logtest` renews an expired JWT.
   - Rule directories with symbolic link loops are read once.
   - Rule files with upper-case extensions are no longer skipped.
+  - Single sign-on refuses an `email` the provider marks as not verified.
+- `oidc.enabled` (default `true`) switches single sign-on off without removing its settings.
 
 ### Interfaces and packaging
 

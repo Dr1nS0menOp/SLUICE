@@ -222,3 +222,64 @@ fn c3_a_file_that_is_not_yaml_blocks_every_saving() {
         [RuleRequirements::opaque(RuleId::new("sigma:unparsed:0"))]
     );
 }
+
+#[test]
+fn a_filter_adds_its_fields_to_the_rules_it_names_only() {
+    let other = BASE
+        .replace(
+            "11111111-0000-4000-8000-000000000001",
+            "11111111-0000-4000-8000-0000000000ff",
+        )
+        .replace("name: failed_logon", "name: other_rule")
+        .replace("title: Failed logon", "title: Other");
+    let filter = r"
+title: Not the system account
+filter:
+  rules:
+    - failed_logon
+  selection:
+    SubjectUserName: SYSTEM
+  condition: not selection
+logsource:
+  product: windows
+  service: security
+";
+    let rules = parse(&[BASE, &other, filter]);
+    assert!(rules.problems().is_empty(), "{:?}", rules.problems());
+    let RequiredFields::Known(filtered) = &requirement(&rules, BASE_ID).fields else {
+        panic!("known fields expected");
+    };
+    assert!(
+        filtered.contains(&FieldPath::new("SubjectUserName")),
+        "{filtered:?}"
+    );
+    let RequiredFields::Known(untouched) =
+        &requirement(&rules, "11111111-0000-4000-8000-0000000000ff").fields
+    else {
+        panic!("known fields expected");
+    };
+    assert!(
+        !untouched.contains(&FieldPath::new("SubjectUserName")),
+        "{untouched:?}"
+    );
+}
+
+#[test]
+fn c3_an_unresolved_rule_deep_in_a_correlation_chain_is_reported() {
+    let outer = r"
+title: Outer
+id: 11111111-0000-4000-8000-000000000004
+correlation:
+  type: event_count
+  rules:
+    - failed_logon_spread
+  timespan: 1h
+  condition:
+    gte: 2
+";
+    // The inner correlation references a rule that is not loaded.
+    let rules = parse(&[CORRELATION, outer]);
+    assert_eq!(rules.problems().len(), 2, "{:?}", rules.problems());
+    let outer = requirement(&rules, "11111111-0000-4000-8000-000000000004");
+    assert_eq!(outer.fields, RequiredFields::Unknown);
+}

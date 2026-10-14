@@ -618,3 +618,6 @@ fn event_id(token: Option<&Token>) -> Option<String> {
     }
     text.parse::<u64>().ok().map(|n| n.to_string())
 }
+
+#[cfg(test)]
+mod tests;

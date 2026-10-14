@@ -235,6 +235,7 @@ Google, any OIDC provider), register Sluice as a client with the redirect URL
 
 ```yaml
 oidc:
+  enabled: true                                              # false switches it off, keeping the rest
   issuer: https://login.microsoftonline.com/<tenant>/v2.0   # exactly as the provider states it
   client_id: <client id>
   client_secret_file: /run/secrets/sluice/oidc_client_secret # only for confidential clients
@@ -243,7 +244,8 @@ oidc:
   operators: [alice@example.org, bob@example.org]            # who may sign in
 ```
 
-The console then offers **Sign in with single sign-on**. `SLUICE_CONTROL_TOKEN` stays required:
+The console then offers **Sign in with single sign-on**. With `enabled: false`, single sign-on
+is off, and the console asks for the control token as before. `SLUICE_CONTROL_TOKEN` stays required:
 Vector uses it for the tap. Details and caveats: [notes/oidc.md](notes/oidc.md). Every
 action goes into the profile's history and into `audit.ndjson` in the data directory; holds and
 kept fields are stored in `operator.json` there and survive a restart. None of them can weaken

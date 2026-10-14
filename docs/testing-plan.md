@@ -143,6 +143,8 @@ Each was fixed with a regression test named after what it broke.
 | 19 | `sluice-cli` `input.rs` | Reading a rules directory followed symbolic links without end; `.XML`/`.YAML` files were skipped; a sample with a byte order mark failed on line 1 | A link loop crashed the run (stack overflow); a rule file in upper case was silently left out: fail-open | `a_symbolic_link_loop_ends_and_each_directory_is_read_once`, `files_are_found_recursively_sorted_and_by_extension_in_any_case`, `a_byte_order_mark_and_crlf_line_ends_are_not_part_of_a_record` |
 | 20 | `sluice-autopilot` `analyze.rs` | Problems reading Sentinel rules were printed by the CLI but not added to the analysis, unlike Sigma's and Wazuh's | The report, the server's status and MCP showed no problem for a Sentinel rule file that could not be read | `sentinel_rule_problems_are_listed_in_the_analysis` |
 | 21 | `sluice-kql` `syntax.rs` | A field or column name with a newline, tab or other control character was put into `['…']` unescaped | A JSON key from a log line could make the generated KQL fail to parse (the KQL is advisory, so no data was lost, but the check broke) | `names_escape_what_a_literal_escapes_and_refuse_the_rest`, `a_field_or_column_name_kql_cannot_quote_widens_to_true` |
+| 22 | `sluice-server` `oidc` | Sign-in by `email` did not look at `email_verified` | With a provider where users choose their own address, someone could register an operator's address and sign in as them | `c1_an_address_the_provider_has_not_verified_names_nobody` |
+| 23 | `sluice-sentinel` `inventory.rs` | A run of equal file names searched every written path for each suffix (found by mutation testing as a timeout) | Thousands of equal names made the fetch quadratic | `many_colliding_names_each_get_their_own_file` |
 
 Mutation testing (`cargo-mutants` 27.1.0, MIT) on `sluice-core`, 2026-10-14: 246 mutants, 214
 caught, 30 unviable, 0 timeouts, 2 missed. Both are closed:
@@ -162,6 +164,12 @@ Running it:
   (`wsl --shutdown` recovers).
 - Then `cargo mutants -p CRATE --jobs 2 --timeout 180 --output DIR`. Each job builds in its own
   copy.
+- Watch the disk. Each job's copy holds a full debug build, and WSL's `ext4.vhdx` grows with it
+  but never shrinks on its own. On 2026-10-14 it reached 153 GB and filled C:. Run one crate at a
+  time, and delete the copies and `~/.cache/sluice-target` when done. To give the space back to
+  Windows, run `sudo fstrim -av` in WSL, then `wsl --shutdown` and `compact vdisk` in `diskpart`
+  as Administrator. WSL's sparse mode is disabled by Microsoft over data corruption; don't force
+  it.
 
 Known limits found, not fixed: a workspace function whose name is all lower case looks like a
 KQL built-in to the Sentinel extractor, so a rule calling it is not widened unless the function
