@@ -198,10 +198,16 @@ pub fn select_proven<R: Reducer>(
     mut build: impl FnMut(&[EffectiveRecipe]) -> Result<R, ProofError>,
 ) -> Result<Selection, ProofError> {
     let full_alerts = engine.alerts(events)?;
+    // Every round but the last rolls back at least one recipe, so more rounds than recipes plus
+    // one mean the roll-back is broken: stop rather than loop.
+    let max_rounds = candidates.len() + 1;
     let mut recipes = candidates;
     let mut rounds = 0;
     loop {
         rounds += 1;
+        if rounds > max_rounds {
+            return Err(ProofError::Inconsistent);
+        }
         let run = Run::new(events, &build(&recipes)?)?;
         let templates = run.templates.clone();
         let proof = run.into_proof(full_alerts.clone(), engine)?;

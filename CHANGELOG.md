@@ -69,6 +69,7 @@ explains the terms.
   show that your detections still work."), on what grounds the rules count as complete, and
   list every rule next to what Sluice made of it ("Rules in the SIEM", `rules.json`).
   `sluice prove` fails an empty proof unless `--allow-no-alerts`.
+- **Breaking:** `sluice mcp --allow-replay` is now `--replay-to URL` (repeatable): the replay tool sends only to the endpoints given at start, so an instruction injected in a log line cannot make an assistant send archived events elsewhere.
 - Configurations as the product (ADR 0022). `sluice prove` proves a generated Vector
   configuration as it is, reading its programs back from the file, and exits 1 when it would
   change a detection; it refuses wiring Sluice did not generate. A GitHub Action

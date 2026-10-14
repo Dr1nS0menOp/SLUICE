@@ -188,3 +188,171 @@ async fn act(
 async fn me(Extension(Actor(actor)): Extension<Actor>) -> Json<serde_json::Value> {
     Json(serde_json::json!({ "actor": actor }))
 }
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::Request;
+    use serde_json::{Map, json};
+    use tower::ServiceExt;
+
+    use super::*;
+    use crate::tests::{build, scratch};
+
+    const TOKEN: &str = "0123456789abcdef0123456789abcdef";
+
+    fn shared(name: &str, token: Option<&str>, operators: &[(&str, &str)]) -> Arc<Shared> {
+        let mut destinations = Map::new();
+        destinations.insert("siem".into(), json!({"type": "blackhole"}));
+        let mut built = build(
+            &scratch(&format!("routes-{name}")),
+            token,
+            destinations,
+            false,
+        )
+        .unwrap();
+        built.operators = operators
+            .iter()
+            .map(|(name, token)| crate::operators::Operator {
+                name: (*name).to_owned(),
+                token: (*token).to_owned(),
+            })
+            .collect();
+        Arc::new(built)
+    }
+
+    async fn call(shared: &Arc<Shared>, request: Request<Body>) -> (StatusCode, String) {
+        let response = router(Arc::clone(shared)).oneshot(request).await.unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, String::from_utf8_lossy(&body).into_owned())
+    }
+
+    fn me(authorization: Option<&str>) -> Request<Body> {
+        let mut request = Request::get("/auth/me");
+        if let Some(value) = authorization {
+            request = request.header(header::AUTHORIZATION, value);
+        }
+        request.body(Body::empty()).unwrap()
+    }
+
+    #[test]
+    fn same_compares_whole_byte_strings() {
+        assert!(same(b"abc", b"abc"));
+        assert!(!same(b"abc", b"abd"));
+        assert!(!same(b"abc", b"abcd"));
+        assert!(same(b"", b""));
+    }
+
+    #[tokio::test]
+    async fn almost_right_tokens_are_refused() {
+        let shared = shared("near-tokens", Some(TOKEN), &[]);
+        for wrong in [
+            String::new(),
+            "Bearer".to_owned(),
+            "Bearer ".to_owned(),
+            format!("bearer {TOKEN}"),
+            format!("Bearer {TOKEN} "),
+            format!("Bearer  {TOKEN}"),
+            format!("Bearer {}", &TOKEN[..31]),
+            format!("Bearer {TOKEN}x"),
+            format!("Basic {TOKEN}"),
+        ] {
+            let (status, _) = call(&shared, me(Some(&wrong))).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{wrong:?}");
+        }
+        let (status, _) = call(&shared, me(None)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, body) = call(&shared, me(Some(&format!("Bearer {TOKEN}")))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("\"token\""));
+    }
+
+    #[tokio::test]
+    async fn an_operator_token_names_the_operator() {
+        let other = "fedcba9876543210fedcba9876543210";
+        let shared = shared("operators", None, &[("alice", TOKEN), ("bob", other)]);
+        let (status, body) = call(&shared, me(Some(&format!("Bearer {other}")))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("\"bob\""), "{body}");
+        let (status, _) = call(&shared, me(None)).await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "operators alone require a token too"
+        );
+    }
+
+    #[tokio::test]
+    async fn without_any_token_the_caller_is_local() {
+        let shared = shared("local", None, &[]);
+        let (status, body) = call(&shared, me(None)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("\"local\""));
+    }
+
+    #[tokio::test]
+    async fn health_needs_no_token() {
+        let shared = shared("health", Some(TOKEN), &[]);
+        let request = Request::get("/healthz").body(Body::empty()).unwrap();
+        assert_eq!(
+            call(&shared, request).await,
+            (StatusCode::OK, "ok".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn actions_accept_json_only_so_a_cross_site_form_cannot_post_one() {
+        let shared = shared("csrf", None, &[]);
+        let form = Request::post("/actions")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("action=hold"))
+            .unwrap();
+        let (status, _) = call(&shared, form).await;
+        assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        let text = Request::post("/actions")
+            .header(header::CONTENT_TYPE, "text/plain")
+            .body(Body::from("{}"))
+            .unwrap();
+        assert_eq!(
+            call(&shared, text).await.0,
+            StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
+    }
+
+    #[tokio::test]
+    async fn the_tap_counts_what_it_accepts_and_refuses_non_objects() {
+        let shared = shared("tap-mixed", None, &[]);
+        let body = "{\"a\":1}\n[1,2]\nnot json\n\n42\n{\"b\":2}\n";
+        let request = Request::post("/tap/windows-security")
+            .body(Body::from(body))
+            .unwrap();
+        let (status, text) = call(&shared, request).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(text, "accepted 2, rejected 3\n");
+    }
+
+    #[tokio::test]
+    async fn an_oversized_tap_batch_is_refused() {
+        let shared = shared("tap-large", None, &[]);
+        let body = "x".repeat(MAX_BODY + 1);
+        let request = Request::post("/tap/windows-security")
+            .body(Body::from(body))
+            .unwrap();
+        assert_eq!(
+            call(&shared, request).await.0,
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unknown_profile_is_not_found() {
+        let shared = shared("profile", None, &[]);
+        let request = Request::get("/status?profile=nope")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(call(&shared, request).await.0, StatusCode::NOT_FOUND);
+    }
+}

@@ -221,7 +221,8 @@ impl Lifecycle {
                 }
                 Some(Stage::Shadow { since, proofs }) => {
                     let proofs = proofs + 1;
-                    let waited = now.0 - since.0 >= self.policy.shadow_secs
+                    // Saturating: a clock far off, or a timestamp out of range, must not wrap.
+                    let waited = now.0.saturating_sub(since.0) >= self.policy.shadow_secs
                         && proofs >= self.policy.min_proofs;
                     let approved = self.approved.contains(template);
                     if approved || (waited && !self.policy.approval) {
@@ -453,5 +454,105 @@ mod tests {
             l.stages()[&TemplateId::new("a")],
             Stage::Shadow { proofs: 2, .. }
         ));
+    }
+
+    #[test]
+    fn c5_promotion_happens_exactly_at_the_shadow_time_and_proof_count() {
+        let mut l = lifecycle();
+        step(&mut l, 0, &["a"]);
+        step(&mut l, HOUR, &["a"]);
+        let early = step(&mut l, 24 * HOUR - 1, &["a"]);
+        assert!(early.is_empty(), "one second short: {early:?}");
+        let on_time = step(&mut l, 24 * HOUR, &["a"]);
+        assert_eq!(on_time, [Transition::Promoted("a".into())]);
+    }
+
+    #[test]
+    fn c5_extreme_timestamps_neither_panic_nor_promote() {
+        let mut l = lifecycle();
+        step(&mut l, i64::MAX, &["a"]);
+        step(&mut l, i64::MIN, &["a"]);
+        let transitions = step(&mut l, i64::MIN, &["a"]);
+        assert!(transitions.is_empty(), "{transitions:?}");
+        assert!(l.enforced().is_empty());
+    }
+
+    #[test]
+    fn approving_works_only_in_shadow() {
+        let mut l = lifecycle();
+        assert!(!l.approve(&"a".into()), "not tracked");
+        step(&mut l, 0, &["a"]);
+        assert!(l.approve(&"a".into()));
+        assert_eq!(
+            step(&mut l, HOUR, &["a"]),
+            [Transition::Promoted("a".into())]
+        );
+        assert!(!l.approve(&"a".into()), "already enforced");
+        assert!(l.approved().is_empty());
+    }
+
+    #[test]
+    fn c5_an_approved_recipe_that_fails_its_proof_loses_the_approval() {
+        let mut l = lifecycle();
+        step(&mut l, 0, &["a"]);
+        l.approve(&"a".into());
+        assert_eq!(step(&mut l, HOUR, &[]), [Transition::Demoted("a".into())]);
+        assert!(l.approved().is_empty());
+        assert_eq!(
+            step(&mut l, 2 * HOUR, &["a"]),
+            [Transition::Shadowing("a".into())]
+        );
+    }
+
+    #[test]
+    fn rolling_back_touches_only_enforced_templates() {
+        let mut l = lifecycle();
+        for hour in [0, 12, 24] {
+            step(&mut l, hour * HOUR, &["a"]);
+        }
+        // `a` stays proven while `b` enters shadow; a seen, unproven `a` would roll back here.
+        step(&mut l, 24 * HOUR, &["a", "b"]);
+        let rolled = l.roll_back(&ids(&["a", "b", "zz"]));
+        assert_eq!(rolled, [Transition::RolledBack("a".into())]);
+        assert!(matches!(
+            l.stages().get(&TemplateId::new("b")),
+            Some(Stage::Shadow { .. })
+        ));
+    }
+
+    #[test]
+    fn only_enforced_templates_are_remembered_for_deployment() {
+        let mut l = lifecycle();
+        let template = sluice_core::template::Template {
+            id: "a".into(),
+            source: "s".into(),
+            logsource: sluice_core::logsource::LogSource::default(),
+            schema: sluice_core::schema::Schema::Sigma,
+            pattern: String::new(),
+            shape: sluice_core::template::TemplateShape::Keyset {
+                discriminators: Vec::new(),
+                paths: BTreeSet::new(),
+                variants: Vec::new(),
+            },
+            fields: BTreeSet::new(),
+            text_fields: BTreeSet::new(),
+            stats: sluice_core::template::TemplateStats::default(),
+        };
+        let recipe = EffectiveRecipe::passthrough("a".into());
+        l.remember(&template, &recipe);
+        assert!(l.deployed().is_empty(), "not enforced yet");
+        for hour in [0, 12, 24] {
+            step(&mut l, hour * HOUR, &["a"]);
+        }
+        l.remember(&template, &recipe);
+        assert_eq!(l.deployed().len(), 1);
+    }
+
+    #[test]
+    fn releasing_a_template_that_is_not_held_says_so() {
+        let mut l = lifecycle();
+        assert!(!l.release(&"a".into()));
+        assert_eq!(l.hold(&"a".into()), None, "nothing in shadow to stop");
+        assert!(l.release(&"a".into()));
     }
 }

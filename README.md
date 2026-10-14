@@ -157,7 +157,7 @@ still hold?" from the live status and look up original events in the archive:
 claude mcp add sluice -- sluice mcp --archive /var/lib/sluice/archive
 ```
 
-Replay is only offered with `--allow-replay`. For a remote assistant, `sluice mcp --http
+Replay is only offered with `--replay-to URL`, and only to the endpoints given there: log text can carry instructions to the assistant. For a remote assistant, `sluice mcp --http
 127.0.0.1:8687` serves MCP over HTTP; every request needs `Authorization: Bearer
 $SLUICE_MCP_TOKEN` (at least 32 characters).
 

@@ -162,3 +162,143 @@ fn received_at(fields: &Map<String, Value>) -> Option<Timestamp> {
     let time = DateTime::parse_from_rfc3339(text).ok()?;
     Some(Timestamp(time.timestamp()))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+
+    use super::*;
+
+    /// A fresh archive root for one test.
+    fn root(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("sluice-scan-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    /// Writes `lines` gzipped as `<root>/<source>/<date>/<hour>.ndjson.gz`.
+    fn archive(root: &Path, source: &str, date: &str, hour: &str, content: &[u8]) -> PathBuf {
+        let dir = root.join(source).join(date);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("{hour}.ndjson.gz"));
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(content).unwrap();
+        std::fs::write(&path, encoder.finish().unwrap()).unwrap();
+        path
+    }
+
+    fn query() -> Query {
+        Query::default()
+    }
+
+    #[test]
+    fn blank_and_broken_lines_are_counted_not_fatal() {
+        let dir = root("lines");
+        archive(
+            &dir,
+            "s",
+            "2026-10-14",
+            "08",
+            b"{\"a\":1}\n\n   \nnot json\n[1]\n{\"b\":2}",
+        );
+        let mut scan = Scan::new(&dir, query()).unwrap();
+        let found: Vec<Record> = scan.by_ref().collect();
+        assert_eq!(found.len(), 2, "the last line needs no newline");
+        assert_eq!(scan.stats().lines, 4, "blank lines do not count");
+        assert_eq!(scan.stats().bad_lines, 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_truncated_file_yields_what_it_holds_and_is_reported() {
+        let dir = root("truncated");
+        let path = archive(
+            &dir,
+            "s",
+            "2026-10-14",
+            "08",
+            "{\"a\":1}\n".repeat(1_000).as_bytes(),
+        );
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::write(&path, &bytes[..bytes.len() / 2]).unwrap();
+        let mut scan = Scan::new(&dir, query()).unwrap();
+        let found = scan.by_ref().count();
+        assert!(found > 0 && found < 1_000, "{found}");
+        assert_eq!(scan.stats().incomplete.len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_line_budget_stops_the_scan_and_says_so() {
+        let dir = root("budget");
+        archive(
+            &dir,
+            "s",
+            "2026-10-14",
+            "08",
+            "{\"a\":1}\n".repeat(10).as_bytes(),
+        );
+        let mut scan = Scan::new(&dir, query()).unwrap().with_line_budget(3);
+        assert_eq!(scan.by_ref().count(), 3);
+        assert!(scan.stats().budget_exhausted);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn time_comes_from_the_received_timestamp_else_the_files_hour() {
+        let dir = root("time");
+        archive(
+            &dir,
+            "s",
+            "2026-10-14",
+            "08",
+            b"{\"timestamp\":\"2026-10-14T08:30:00Z\"}\n{\"timestamp\":\"yesterday\"}\n{}\n",
+        );
+        let times: Vec<i64> = Scan::new(&dir, query())
+            .unwrap()
+            .map(|r| r.time.0)
+            .collect();
+        let hour = chrono::DateTime::parse_from_rfc3339("2026-10-14T08:00:00Z")
+            .unwrap()
+            .timestamp();
+        assert_eq!(times, [hour + 1_800, hour, hour]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn files_are_read_oldest_hour_first_then_by_source() {
+        let dir = root("order");
+        archive(&dir, "b", "2026-10-14", "09", b"{\"n\":3}\n");
+        archive(&dir, "b", "2026-10-14", "08", b"{\"n\":1}\n");
+        archive(&dir, "a", "2026-10-14", "09", b"{\"n\":2}\n");
+        let order: Vec<(String, i64)> = Scan::new(&dir, query())
+            .unwrap()
+            .map(|r| (r.source.to_string(), r.fields["n"].as_i64().unwrap()))
+            .collect();
+        assert_eq!(order, [("b".into(), 1), ("a".into(), 2), ("b".into(), 3)]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn names_outside_the_layout_are_skipped() {
+        let dir = root("layout");
+        archive(&dir, "s", "2026-10-14", "08", b"{\"ok\":1}\n");
+        archive(&dir, "s", "2026-13-40", "08", b"{\"bad_date\":1}\n");
+        archive(&dir, "s", "2026-10-14", "24", b"{\"bad_hour\":1}\n");
+        archive(&dir, "s", "2026-10-14", "xx", b"{\"bad_hour\":1}\n");
+        std::fs::write(dir.join("s").join("2026-10-14").join("notes.txt"), "x").unwrap();
+        std::fs::write(dir.join("README"), "x").unwrap();
+        let found: Vec<Record> = Scan::new(&dir, query()).unwrap().collect();
+        assert_eq!(found.len(), 1);
+        assert!(found[0].fields.contains_key("ok"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_missing_archive_is_an_error_not_an_empty_answer() {
+        assert!(Scan::new(&root("missing"), query()).is_err());
+    }
+}

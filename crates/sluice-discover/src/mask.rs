@@ -97,6 +97,49 @@ mod tests {
     }
 
     #[test]
+    fn hex_identifiers_start_at_eight_characters_with_a_digit() {
+        assert_eq!(
+            mask("abcdef1"),
+            "abcdef<NUM>",
+            "seven characters: digits only"
+        );
+        assert_eq!(mask("abcdef12"), HEX);
+        assert_eq!(mask("ABCDEF12"), HEX, "upper case");
+        assert_eq!(mask("0X1F"), HEX);
+        assert_eq!(mask("0x"), "<NUM>x", "a bare prefix is not an identifier");
+        assert_eq!(mask("0xZZ"), "<NUM>xZZ");
+    }
+
+    #[test]
+    fn tokens_without_alphanumerics_and_non_ascii_digits_stay() {
+        assert_eq!(mask("--"), "--");
+        assert_eq!(mask(""), "");
+        assert_eq!(mask("٣٤٥"), "٣٤٥", "only ASCII digits are masked");
+        assert_eq!(mask("ünï42"), "ünï<NUM>");
+    }
+
+    #[test]
+    fn masking_is_idempotent() {
+        for token in ["sshd[7107]:", "10.0.0.1", "0x1F", "%ASA-6-302013:", "a1b2"] {
+            assert_eq!(mask(&mask(token)), mask(token), "{token}");
+        }
+    }
+
+    #[test]
+    fn message_tags_need_three_parts_and_a_letter_in_the_facility() {
+        assert!(is_message_tag("%ASA-6-302013"));
+        assert!(is_message_tag("%ASA-6-302013::"));
+        assert!(
+            !is_message_tag("%123-6-302013:"),
+            "a facility with no letter"
+        );
+        assert!(!is_message_tag("%ASA-6:"));
+        assert!(!is_message_tag("%ASA-6-30-2013:"));
+        assert!(!is_message_tag("ASA-6-302013:"), "no percent sign");
+        assert!(!is_message_tag("%ASA-6-:"), "an empty mnemonic");
+    }
+
+    #[test]
     fn masks_hex_identifiers_whole() {
         assert_eq!(mask("0x1010"), HEX);
         assert_eq!(mask("844d7f3d6c98"), HEX);

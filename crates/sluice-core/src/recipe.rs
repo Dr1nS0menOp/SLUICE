@@ -230,6 +230,106 @@ mod tests {
         assert!(matches!(err, RecipeError::EmptySummaryKeys { .. }));
     }
 
+    fn drop_fields() -> Reduction {
+        Reduction::DropFields {
+            fields: ["Message".into()].into(),
+        }
+    }
+
+    #[test]
+    fn each_reduction_has_its_level_and_only_two_route() {
+        let forward = Reduction::ForwardMatching {
+            summary_keys: keys(),
+        };
+        let summarize = Reduction::Summarize {
+            summary_keys: keys(),
+        };
+        assert_eq!(drop_fields().level(), Level::Lossless);
+        assert_eq!(Reduction::DropEmptyFields.level(), Level::Lossless);
+        assert_eq!(forward.level(), Level::RuleGuided);
+        assert_eq!(summarize.level(), Level::Semantic);
+        assert!(!drop_fields().is_routing() && !Reduction::DropEmptyFields.is_routing());
+        assert!(forward.is_routing() && summarize.is_routing());
+    }
+
+    #[test]
+    fn rejects_rule_guided_forwarding_without_keys() {
+        let err = Recipe::new(
+            "t".into(),
+            vec![Reduction::ForwardMatching {
+                summary_keys: vec![],
+            }],
+            Provenance::Operator,
+            "",
+        )
+        .unwrap_err();
+        assert!(matches!(err, RecipeError::EmptySummaryKeys { .. }));
+    }
+
+    #[test]
+    fn accepts_lossless_reductions_with_one_route_and_keeps_everything_given() {
+        let recipe = Recipe::new(
+            "win-4624".into(),
+            vec![
+                drop_fields(),
+                Reduction::DropEmptyFields,
+                Reduction::ForwardMatching {
+                    summary_keys: keys(),
+                },
+            ],
+            Provenance::Ai { model: "m".into() },
+            "boilerplate",
+        )
+        .unwrap();
+        assert_eq!(recipe.template().as_str(), "win-4624");
+        assert_eq!(recipe.reductions().len(), 3);
+        assert_eq!(recipe.provenance(), &Provenance::Ai { model: "m".into() });
+        assert_eq!(recipe.rationale(), "boilerplate");
+    }
+
+    #[test]
+    fn a_recipe_with_no_reductions_is_valid_and_changes_nothing() {
+        let recipe = Recipe::new("t".into(), vec![], Provenance::Operator, "").unwrap();
+        assert_eq!(recipe.reductions().len(), 0);
+    }
+
+    #[test]
+    fn three_routes_are_counted_in_the_error() {
+        let route = || Reduction::Summarize {
+            summary_keys: keys(),
+        };
+        let err = Recipe::new(
+            "t".into(),
+            vec![route(), route(), route()],
+            Provenance::Operator,
+            "",
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            RecipeError::ConflictingRouting { count: 3, .. }
+        ));
+        assert!(err.to_string().contains("3 routing reductions"));
+    }
+
+    #[test]
+    fn levels_display_their_names() {
+        assert_eq!(Level::Lossless.to_string(), "L1 lossless");
+        assert_eq!(Level::RuleGuided.to_string(), "L2 rule-guided");
+        assert_eq!(Level::Semantic.to_string(), "L3 semantic");
+    }
+
+    #[test]
+    fn reductions_and_provenance_serialize_with_their_tags() {
+        let json = serde_json::to_value(drop_fields()).unwrap();
+        assert_eq!(json["op"], "drop_fields");
+        let json = serde_json::to_value(Provenance::Community {
+            recipe: "a/b".into(),
+        })
+        .unwrap();
+        assert_eq!(json["kind"], "community");
+    }
+
     #[test]
     fn levels_are_ordered_safest_first() {
         assert!(Level::Lossless < Level::RuleGuided && Level::RuleGuided < Level::Semantic);

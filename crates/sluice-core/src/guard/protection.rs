@@ -168,3 +168,6 @@ fn narrowed(claim: &Claim<'_>) -> Adjustment {
         },
     }
 }
+
+#[cfg(test)]
+mod tests;

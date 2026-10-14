@@ -90,6 +90,10 @@ impl Predicate {
                 other => flat.push(other),
             }
         }
+        // A nested disjunction built without this function may hold `Always` itself.
+        if flat.contains(&Self::Always) {
+            return Self::Always;
+        }
         let flat = merge_alternatives(flat);
         if flat.len() == 1 {
             flat.into_iter().next().unwrap_or_else(Self::never)
@@ -109,6 +113,7 @@ impl Predicate {
                 other => flat.push(other),
             }
         }
+        flat.retain(|child| !child.is_always());
         flat.sort();
         flat.dedup();
         match flat.len() {
@@ -272,8 +277,16 @@ fn merge_alternatives(parts: Vec<Predicate>) -> Vec<Predicate> {
 
 impl FieldTest {
     /// Whether this test can pass on a field whose value is `value` (its text form).
+    ///
+    /// Case-insensitive comparison is only decided for ASCII: engines fold other letters by
+    /// Unicode rules (`É` and `é`), which simple lower-casing does not reproduce, so a non-ASCII
+    /// value or test may always match (fail closed).
     fn may_match_value(&self, value: &str) -> bool {
         if matches!(self.op, MatchOp::Regex | MatchOp::Exists) {
+            return true;
+        }
+        if !self.case_sensitive && (!value.is_ascii() || self.values.iter().any(|v| !v.is_ascii()))
+        {
             return true;
         }
         let fold = |s: &str| {
@@ -298,135 +311,4 @@ impl FieldTest {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn eq(field: &str, value: &str) -> Predicate {
-        Predicate::Field(FieldTest {
-            field: field.into(),
-            op: MatchOp::Equals,
-            values: vec![value.into()],
-            case_sensitive: false,
-        })
-    }
-
-    #[test]
-    fn always_absorbs_disjunction() {
-        assert_eq!(
-            Predicate::any([eq("a", "1"), Predicate::Always]),
-            Predicate::Always
-        );
-    }
-
-    #[test]
-    fn always_is_neutral_in_conjunction() {
-        assert_eq!(
-            Predicate::all([eq("a", "1"), Predicate::Always]),
-            eq("a", "1")
-        );
-        assert_eq!(Predicate::all([]), Predicate::Always);
-    }
-
-    #[test]
-    fn nested_disjunctions_flatten_and_dedupe() {
-        let nested = Predicate::any([eq("a", "1"), Predicate::any([eq("b", "2"), eq("a", "1")])]);
-        assert_eq!(nested, Predicate::Any(vec![eq("a", "1"), eq("b", "2")]));
-    }
-
-    #[test]
-    fn a_fixed_value_rules_out_only_conflicting_tests() {
-        let fixed = [(FieldPath::from("EventID"), "7036".to_owned())];
-        let zerologon = Predicate::all([
-            Predicate::any([eq("EventID", "5805"), eq("EventID", "5723")]),
-            Predicate::Keywords(KeywordTest {
-                values: vec!["mimikatz".into()],
-                case_sensitive: false,
-            }),
-        ]);
-        assert!(!zerologon.may_match_with(&fixed, None));
-        assert!(eq("EventID", "7036").may_match_with(&fixed, None));
-        assert!(
-            eq("Image", "x").may_match_with(&fixed, None),
-            "other fields are unknown"
-        );
-        assert!(
-            Predicate::any([eq("EventID", "1"), Predicate::Always]).may_match_with(&fixed, None)
-        );
-        let regex = Predicate::Field(FieldTest {
-            field: "EventID".into(),
-            op: MatchOp::Regex,
-            values: vec!["^5".into()],
-            case_sensitive: false,
-        });
-        assert!(
-            regex.may_match_with(&fixed, None),
-            "regex is never decided here"
-        );
-        let case = [(FieldPath::from("Channel"), "System".to_owned())];
-        assert!(eq("Channel", "system").may_match_with(&case, None));
-
-        // A JSON template's exact key set rules out tests on fields it lacks.
-        let paths: BTreeSet<FieldPath> = ["EventID", "process.name"]
-            .into_iter()
-            .map(Into::into)
-            .collect();
-        assert!(!eq("CommandLine", "x").may_match_with(&[], Some(&paths)));
-        assert!(
-            eq("process", "x").may_match_with(&[], Some(&paths)),
-            "a parent is present"
-        );
-        assert!(
-            eq("process.name.raw", "x").may_match_with(&[], Some(&paths)),
-            "inside a leaf"
-        );
-        assert_eq!(
-            zerologon.may_match_with(&[], Some(&paths)),
-            zerologon.may_match_with(&[], None)
-        );
-        assert!(!Predicate::present("CommandLine".into()).may_match_with(&[], Some(&paths)));
-        let exists = Predicate::Field(FieldTest {
-            field: "g".into(),
-            op: MatchOp::Exists,
-            values: vec![],
-            case_sensitive: false,
-        });
-        assert!(
-            exists.may_match_with(&[], Some(&paths)),
-            "`g` may be an empty object"
-        );
-    }
-
-    #[test]
-    fn keyword_tests_in_a_disjunction_merge_by_case_sensitivity() {
-        let kw = |values: &[&str], case_sensitive| {
-            Predicate::Keywords(KeywordTest {
-                values: values.iter().map(|v| (*v).to_owned()).collect(),
-                case_sensitive,
-            })
-        };
-        let merged = Predicate::any([
-            kw(&["b", "a"], false),
-            eq("x", "1"),
-            kw(&["c", "a"], false),
-            kw(&["Z"], true),
-        ]);
-        assert_eq!(
-            merged,
-            Predicate::Any(vec![
-                eq("x", "1"),
-                kw(&["Z"], true),
-                kw(&["a", "b", "c"], false),
-            ])
-        );
-        assert_eq!(
-            Predicate::any([kw(&["a"], false), kw(&["b"], false)]),
-            kw(&["a", "b"], false)
-        );
-    }
-
-    #[test]
-    fn empty_disjunction_matches_nothing() {
-        assert_eq!(Predicate::any([]), Predicate::never());
-        assert!(!Predicate::never().is_always());
-    }
-}
+mod tests;

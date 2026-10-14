@@ -5,6 +5,7 @@
 //! replaced at once by the safe configuration, which saves nothing. Switching savings off only
 //! ever sends the SIEM more data, so Sluice may do it without asking.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::PoisonError;
@@ -60,12 +61,7 @@ impl Shared {
             self.set_running_status("safe configuration: nothing is saved");
             return Ok(changed);
         }
-        let tagged = self.profiles.len() > 1;
-        let failure = self.profiles.iter().find_map(|profile| {
-            self.prove_running(&deployed, profile, events, tagged)
-                .err()
-                .map(|why| format!("profile {}: {why}", profile.name))
-        });
+        let failure = self.prove_every_profile(&deployed, events).err();
         match failure {
             None => {
                 let changed = *running != deployed;
@@ -85,6 +81,34 @@ impl Shared {
         }
     }
 
+    /// Proves every profile's programs in `deployed`, and that they are all its programs: a
+    /// program Sluice cannot place (renamed, or from another profile layout) would run unproven.
+    fn prove_every_profile(&self, deployed: &str, events: &[Event]) -> Result<(), String> {
+        let tagged = self.profiles.len() > 1;
+        let mut proven = BTreeSet::new();
+        let mut programs = BTreeSet::new();
+        for profile in &self.profiles {
+            let read = self
+                .prove_running(deployed, profile, events, tagged)
+                .map_err(|why| format!("profile {}: {why}", profile.name))?;
+            proven.extend(read.read);
+            programs = read.programs;
+        }
+        let unproven: Vec<&String> = programs.difference(&proven).collect();
+        if unproven.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "it runs programs Sluice does not prove ({})",
+                unproven
+                    .iter()
+                    .map(|p| p.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        }
+    }
+
     /// Proves one profile's programs in `deployed` on `events`; the error says why not.
     fn prove_running(
         &self,
@@ -92,7 +116,7 @@ impl Shared {
         profile: &Profile,
         events: &[Event],
         tagged: bool,
-    ) -> Result<(), String> {
+    ) -> Result<sluice_vector::Deployed, String> {
         let name = tagged.then_some(profile.name.as_str());
         let read =
             sluice_vector::deployed(deployed, &self.sources, name).map_err(|e| e.to_string())?;
@@ -105,7 +129,7 @@ impl Shared {
         engines.extend(input.sentinel.and_then(|s| s.engine));
         let proof = prove(events, &Engines(engines), &read.reducer).map_err(|e| e.to_string())?;
         if proof.holds() {
-            Ok(())
+            Ok(read)
         } else {
             Err(format!(
                 "it changes detections ({} missing, {} extra alerts)",

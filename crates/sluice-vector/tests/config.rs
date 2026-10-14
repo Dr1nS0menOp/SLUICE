@@ -201,3 +201,90 @@ fn a_config_without_any_sluice_program_reduces_nothing() {
     let read = deployed(&yaml, &sample().sources, None).expect("nothing to refuse");
     assert_eq!(read.unreduced.len(), sample().sources.len());
 }
+
+#[test]
+fn the_generated_config_leaves_no_program_unproven() {
+    let read = deployed(&rendered(), &sample().sources, None).expect("Sluice's own config");
+    assert_eq!(read.unproven().len(), 0, "{:?}", read.unproven());
+    assert!(!read.programs.is_empty());
+}
+
+#[test]
+fn c3_a_program_under_another_name_is_reported_unproven() {
+    let yaml = edited(|c| {
+        let transforms = c["transforms"].as_object_mut().unwrap();
+        let program = transforms.remove("sluice_sysmon").unwrap();
+        transforms.insert("sluice_sysmon_old".into(), program);
+        transforms["sluice_sysmon_route"]["inputs"] = serde_json::json!(["sluice_sysmon_old"]);
+    });
+    let read = deployed(&yaml, &sample().sources, None).expect("readable");
+    let unproven: Vec<&str> = read.unproven().into_iter().map(String::as_str).collect();
+    assert_eq!(unproven, ["sluice_sysmon_old"]);
+}
+
+#[test]
+fn c3_an_extra_remap_that_changes_events_is_reported_unproven() {
+    let yaml = edited(|c| {
+        c["transforms"]["sluice_drop_messages"] = serde_json::json!({
+            "type": "remap", "inputs": ["sluice_sysmon_parse"], "source": "del(.Message)"
+        });
+    });
+    let read = deployed(&yaml, &sample().sources, None).expect("readable");
+    assert!(read.unproven().contains(&"sluice_drop_messages".to_owned()));
+}
+
+#[test]
+fn c3_a_parse_step_that_differs_from_sluices_is_refused() {
+    let yaml = edited(|c| {
+        c["transforms"]["sluice_sysmon_parse"]["source"] =
+            ". = parse_json!(string!(.message))\ndel(.Image)".into();
+    });
+    assert!(refused(&yaml).contains("parses lines differently"));
+}
+
+#[test]
+fn c3_a_remap_named_like_a_summary_step_that_takes_other_events_is_refused() {
+    let yaml = edited(|c| {
+        c["transforms"]["sluice_sysmon_summarize"]["inputs"] =
+            serde_json::json!(["sluice_sysmon_parse"]);
+    });
+    assert!(refused(&yaml).contains("summary step"));
+}
+
+fn json_source(id: &str) -> sluice_core::source::Source {
+    sluice_core::source::Source {
+        id: id.into(),
+        logsource: sluice_core::logsource::LogSource::default(),
+        format: sluice_core::source::SourceFormat::Json,
+        schema: sluice_core::schema::Schema::Sigma,
+        event_type: Vec::new(),
+    }
+}
+
+#[test]
+fn sources_whose_component_names_would_collide_are_refused() {
+    let paths = Paths {
+        input_dir: "./samples".to_owned(),
+        output_dir: "./out".to_owned(),
+    };
+    let reducer = VrlReducer::new(std::collections::BTreeMap::new());
+    for ids in [
+        &["windows-security", "windows_security"][..],
+        &["a", "a"],
+        &["Sysmon", "sysmon"],
+        &["../escape"],
+        &["with/slash"],
+        &[""],
+    ] {
+        let sources: Vec<_> = ids.iter().map(|id| json_source(id)).collect();
+        assert!(
+            vector_config(&sources, &[], &reducer, &[], &paths).is_err(),
+            "{ids:?}"
+        );
+    }
+    let fine: Vec<_> = ["windows-security", "sysmon", "linux.auth"]
+        .iter()
+        .map(|id| json_source(id))
+        .collect();
+    assert!(vector_config(&fine, &[], &reducer, &[], &paths).is_ok());
+}

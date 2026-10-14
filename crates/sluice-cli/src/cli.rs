@@ -53,9 +53,10 @@ pub(crate) struct McpArgs {
     /// The archive directory, to offer archive search.
     #[arg(long)]
     pub(crate) archive: Option<PathBuf>,
-    /// Also offer the `replay` tool, which sends archived events to a destination.
-    #[arg(long, requires = "archive")]
-    pub(crate) allow_replay: bool,
+    /// Also offer the `replay` tool, sending archived events only to this endpoint. Repeat for
+    /// several. The assistant cannot choose another: log text can carry instructions.
+    #[arg(long = "replay-to", value_name = "URL", requires = "archive")]
+    pub(crate) replay_to: Vec<String>,
     /// Also offer the `operator_action` tool: hold, release, approve, keep fields and acknowledge
     /// rollbacks, audited by the control plane (ADR 0016).
     #[arg(long)]

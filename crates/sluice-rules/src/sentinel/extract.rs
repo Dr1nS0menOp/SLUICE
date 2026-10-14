@@ -134,9 +134,10 @@ pub(super) fn reads(tokens: &[Token], known: &dyn Fn(&str) -> bool) -> Reads {
         if STATEFUL.contains(&name.as_str()) && is_symbol(previous, "|") {
             reads.stateful = true;
         }
-        if let Some(why) = any_field(name, previous, next, tokens.get(i + 2)) {
-            // `search` and `union *` read every table as well as every column.
-            reads.any_table |= name == "search" || name == "union";
+        let wildcard_union = name == "union" && union_wildcard(&tokens[i + 1..]);
+        if let Some(why) = any_field(name, previous, next, tokens.get(i + 2), wildcard_union) {
+            // These read every table as well as every column.
+            reads.any_table |= matches!(name.as_str(), "search" | "find" | "union" | "table");
             reads.any_field.get_or_insert(why);
         }
         if local.contains(name.as_str()) {
@@ -304,18 +305,43 @@ fn any_field(
     previous: Option<&Token>,
     next: Option<&Token>,
     after: Option<&Token>,
+    wildcard_union: bool,
 ) -> Option<String> {
     let piped = is_symbol(previous, "|") || previous.is_none();
     let call = is_symbol(next, "(");
     match name {
         "search" if piped => Some("`search` reads every column".into()),
-        "union" if is_symbol(next, "*") => Some("`union *` reads every table".into()),
+        "find" if piped => Some("`find` reads every column of every table".into()),
+        "union" if wildcard_union => Some("a `union` with a wildcard reads every table".into()),
+        "table" if call => Some("`table()` names its table at run time".into()),
         "pack_all" if call => Some("`pack_all()` reads every column".into()),
         "bag_pack" | "pack" if call && is_symbol(after, "*") => {
             Some("`pack(*)` reads every column".into())
         }
         _ => None,
     }
+}
+
+/// Whether a `union`'s own clause (up to the next `|` or `;` at its level) has a `*`: `union *`,
+/// `union isfuzzy=true *`, or a table wildcard such as `Security*`. A `*` inside a nested query
+/// is that query's arithmetic.
+fn union_wildcard(after: &[Token]) -> bool {
+    let mut depth = 0usize;
+    for token in after {
+        match token {
+            Token::Symbol(s) if s == "(" || s == "[" || s == "{" => depth += 1,
+            Token::Symbol(s) if s == ")" || s == "]" || s == "}" => {
+                if depth == 0 {
+                    return false;
+                }
+                depth -= 1;
+            }
+            Token::Symbol(s) if depth == 0 && (s == "|" || s == ";") => return false,
+            Token::Symbol(s) if depth == 0 && s == "*" => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Reads a watchlist, never a table.

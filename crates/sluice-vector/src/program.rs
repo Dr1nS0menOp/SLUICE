@@ -174,3 +174,6 @@ fn reduction(plan: &Plan<'_>) -> String {
         body.join("\n  ")
     )
 }
+
+#[cfg(test)]
+mod tests;

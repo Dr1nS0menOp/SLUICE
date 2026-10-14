@@ -10,7 +10,7 @@ use crate::rules::RequiredFields;
 use crate::schema::Schema;
 use crate::template::{TemplateShape, TemplateStats};
 
-fn windows_security() -> LogSource {
+pub(super) fn windows_security() -> LogSource {
     LogSource {
         product: Some("windows".into()),
         service: Some("security".into()),
@@ -30,7 +30,7 @@ const FIELDS: [&str; 7] = [
     "process.name",
 ];
 
-fn template() -> Template {
+pub(super) fn template() -> Template {
     Template {
         id: "win-4625".into(),
         source: "windows-security".into(),
@@ -52,7 +52,7 @@ fn template() -> Template {
     }
 }
 
-fn eq(field: &str, value: &str) -> Predicate {
+pub(super) fn eq(field: &str, value: &str) -> Predicate {
     Predicate::Field(FieldTest {
         field: field.into(),
         op: MatchOp::Equals,
@@ -61,7 +61,7 @@ fn eq(field: &str, value: &str) -> Predicate {
     })
 }
 
-fn rule(id: &str, fields: &[&str], prefilter: Predicate) -> RuleRequirements {
+pub(super) fn rule(id: &str, fields: &[&str], prefilter: Predicate) -> RuleRequirements {
     RuleRequirements {
         rule: id.into(),
         logsource: windows_security(),
@@ -90,7 +90,7 @@ fn forward_matching() -> Reduction {
     }
 }
 
-fn ctx(rules: &[RuleRequirements]) -> GuardContext<'_> {
+pub(super) fn ctx(rules: &[RuleRequirements]) -> GuardContext<'_> {
     GuardContext {
         rules,
         config: GuardrailConfig::default(),
@@ -743,4 +743,167 @@ fn c6_ai_recipe_gets_no_extra_trust() {
     .unwrap();
     let effective = guard(&template(), Some(&ai), ctx(&rules));
     assert!(effective.drop_fields.is_empty());
+}
+
+// ---------- the per-event test limit, and the order of refusals ----------
+
+/// The 4625 template with `n` extra fields `F0`…, so `n` rules can each test their own field
+/// (tests on one field merge into one).
+fn wide_template(n: usize) -> Template {
+    let mut wide = template();
+    let extra: Vec<FieldPath> = (0..n).map(|i| FieldPath::new(format!("F{i}"))).collect();
+    wide.fields.extend(extra.iter().cloned());
+    if let TemplateShape::Keyset {
+        paths, variants, ..
+    } = &mut wide.shape
+    {
+        paths.extend(extra.iter().cloned());
+        for variant in variants {
+            variant.extend(extra.iter().cloned());
+        }
+    }
+    wide
+}
+
+/// `n` rules, each reading `Message` on events whose own field `F<i>` is `x`.
+fn many_rules(n: usize) -> Vec<RuleRequirements> {
+    (0..n)
+        .map(|i| rule(&format!("r{i}"), &["Message"], eq(&format!("F{i}"), "x")))
+        .collect()
+}
+
+fn too_broad(effective: &EffectiveRecipe) -> bool {
+    effective
+        .adjustments
+        .iter()
+        .any(|a| matches!(a.reason, Reason::ProtectionTooBroad { .. }))
+}
+
+#[test]
+fn c3_a_route_of_exactly_256_tests_is_still_checked_per_event() {
+    let rules = many_rules(MAX_DATA_PLANE_TESTS);
+    let effective = guard(
+        &wide_template(300),
+        Some(&recipe(vec![forward_matching()])),
+        ctx(&rules),
+    );
+    assert!(
+        matches!(&effective.route, Route::ForwardMatching { prefilter, .. } if prefilter.tests() == 256)
+    );
+    assert!(!too_broad(&effective));
+}
+
+#[test]
+fn c3_a_route_of_257_tests_forwards_everything() {
+    let rules = many_rules(MAX_DATA_PLANE_TESTS + 1);
+    let effective = guard(
+        &wide_template(300),
+        Some(&recipe(vec![forward_matching()])),
+        ctx(&rules),
+    );
+    assert_eq!(effective.route, Route::ForwardAll);
+    assert!(too_broad(&effective));
+}
+
+#[test]
+fn c3_conditional_protection_of_257_tests_keeps_the_field_on_every_event() {
+    let rules = many_rules(MAX_DATA_PLANE_TESTS + 1);
+    let effective = guard(
+        &wide_template(300),
+        Some(&recipe(vec![drop(&["Message"])])),
+        ctx(&rules),
+    );
+    assert_eq!(effective.drop_fields.len(), 0);
+    assert_eq!(effective.keep_whole_when, None);
+    assert!(too_broad(&effective));
+}
+
+#[test]
+fn c3_conditional_protection_of_256_tests_drops_the_field_outside_them() {
+    let rules = many_rules(MAX_DATA_PLANE_TESTS);
+    let effective = guard(
+        &wide_template(300),
+        Some(&recipe(vec![drop(&["Message"])])),
+        ctx(&rules),
+    );
+    assert_eq!(effective.drop_fields, BTreeSet::from(["Message".into()]));
+    assert_eq!(
+        effective.keep_whole_when.as_ref().map(Predicate::tests),
+        Some(256)
+    );
+}
+
+#[test]
+fn c2_without_an_archive_a_rare_template_is_refused_for_the_archive_first() {
+    let mut rare = template();
+    rare.stats.events = 1;
+    let context = GuardContext {
+        archive_enabled: false,
+        ..ctx(&[])
+    };
+    let effective = guard(&rare, Some(&recipe(vec![drop(&["Message"])])), context);
+    assert_eq!(contracts(&effective), [ContractRule::ArchiveFirst]);
+}
+
+#[test]
+fn every_reduction_of_a_refused_recipe_gets_its_own_adjustment() {
+    let mut rare = template();
+    rare.stats.events = 1;
+    let proposal = recipe(vec![
+        drop(&["Message"]),
+        Reduction::DropEmptyFields,
+        forward_matching(),
+    ]);
+    let effective = guard(&rare, Some(&proposal), ctx(&[]));
+    let levels: Vec<Option<Level>> = effective.adjustments.iter().map(|a| a.level).collect();
+    assert_eq!(
+        levels,
+        [
+            Some(Level::Lossless),
+            Some(Level::Lossless),
+            Some(Level::RuleGuided)
+        ]
+    );
+}
+
+#[test]
+fn repeated_adjustments_are_reported_once_in_their_first_order() {
+    let mut adjustments = vec![
+        Adjustment {
+            contract: ContractRule::RareNeverCut,
+            level: None,
+            reason: Reason::NoRecipe,
+        },
+        Adjustment {
+            contract: ContractRule::ArchiveFirst,
+            level: None,
+            reason: Reason::NoArchive,
+        },
+        Adjustment {
+            contract: ContractRule::RareNeverCut,
+            level: None,
+            reason: Reason::NoRecipe,
+        },
+    ];
+    dedup(&mut adjustments);
+    let reasons: Vec<&Reason> = adjustments.iter().map(|a| &a.reason).collect();
+    assert_eq!(reasons, [&Reason::NoRecipe, &Reason::NoArchive]);
+}
+
+#[test]
+fn c3_semantic_summaries_without_applicable_rules_summarize_everything() {
+    let proposal = recipe(vec![Reduction::Summarize {
+        summary_keys: vec!["TargetUserName".into()],
+    }]);
+    let effective = guard(&template(), Some(&proposal), ctx(&[]));
+    assert!(
+        matches!(&effective.route, Route::ForwardMatching { prefilter, .. } if prefilter.is_never())
+    );
+    assert!(
+        !effective
+            .adjustments
+            .iter()
+            .any(|a| a.reason == Reason::SemanticOnCoveredTemplate),
+        "no rule covers it"
+    );
 }

@@ -338,6 +338,47 @@ async fn c5_a_deployed_proposal_is_proven_and_switched_off_the_moment_it_fails()
 }
 
 #[tokio::test]
+async fn c3_a_deployed_program_sluice_cannot_place_switches_savings_off() {
+    let dir = scratch("renamed");
+    let shared = proposing(&dir).await;
+    let safe = std::fs::read_to_string(dir.join("vector.yaml")).unwrap();
+    let now = 1_791_622_800;
+    shared.run_cycle(now).unwrap();
+    shared.run_cycle(now + 60).unwrap();
+    // The proposal, deployed with its program under a name Sluice does not look for.
+    let mut config: Value = serde_yaml_ng::from_str(
+        &std::fs::read_to_string(dir.join("proposals/vector.yaml")).unwrap(),
+    )
+    .unwrap();
+    let transforms = config["transforms"].as_object_mut().unwrap();
+    let program = transforms.remove("sluice_windows_security").unwrap();
+    transforms.insert("sluice_windows_security_v2".into(), program);
+    transforms["sluice_windows_security_route"]["inputs"] = json!(["sluice_windows_security_v2"]);
+    std::fs::write(
+        dir.join("vector.yaml"),
+        serde_yaml_ng::to_string(&config).unwrap(),
+    )
+    .unwrap();
+
+    let report = shared.run_cycle(now + 120).unwrap();
+    assert!(report.config_changed);
+    assert_eq!(
+        std::fs::read_to_string(dir.join("vector.yaml")).unwrap(),
+        safe
+    );
+    let status = shared.profile(None).unwrap().status.read().unwrap().clone();
+    let last = status.history.last().unwrap();
+    assert_eq!(last.kind, "switched_off");
+    assert!(
+        last.reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("does not prove"),
+        "{last:?}"
+    );
+}
+
+#[tokio::test]
 async fn c5_each_destination_is_proven_against_its_own_siems_rules() {
     let dir = scratch("profiles");
     let mut destinations = Map::new();

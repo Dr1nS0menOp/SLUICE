@@ -131,7 +131,7 @@ impl Sluice {
         if config.archive.is_none() {
             tool_router.remove_route("search_archive");
         }
-        if config.archive.is_none() || !config.allow_replay {
+        if config.archive.is_none() || config.replay_to.is_empty() {
             tool_router.remove_route("replay");
         }
         if !config.allow_actions {
@@ -355,6 +355,12 @@ impl Sluice {
         &self,
         Parameters(request): Parameters<ReplayRequest>,
     ) -> Result<CallToolResult, ErrorData> {
+        if !self.config.replay_to.contains(&request.url) {
+            return Ok(failure(format!(
+                "replay only sends to the endpoints Sluice was started with (--replay-to): {}",
+                self.config.replay_to.join(", ")
+            )));
+        }
         let mut scan = match self.scan(&request.selection) {
             Ok(scan) => scan,
             Err(message) => return Ok(failure(message)),
@@ -373,7 +379,7 @@ impl Sluice {
 }
 
 // The router field, not a fresh `Self::tool_router()`: `new` removes the tools this server must
-// not offer, such as `replay` without `--allow-replay`.
+// not offer, such as `replay` without `--replay-to`.
 #[tool_handler(router = self.tool_router)]
 #[allow(
     clippy::unused_async_trait_impl,
