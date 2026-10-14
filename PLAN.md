@@ -606,7 +606,8 @@ between M11 and M12. In order:
 1. **Code review by the maintainer** of the whole workspace, for bugs, before the test phase
    starts: `sluice-core` first (guard, proof, predicate), then outward through rules, vector,
    autopilot, server and cli.
-2. **Bug hunt in very small tests.** Every public function, and every non-trivial private one,
+2. **Bug hunt in very small tests** ([docs/testing-plan.md](docs/testing-plan.md): order,
+   targets and example cases per crate). Every public function, and every non-trivial private one,
    gets its own small tests aimed at breaking it: edge values, empty and huge input, hostile
    strings, every branch, every error path. One focused test module per function where it
    helps. Unit tests next to the code; cross-crate behaviour in `tests/`; a property test
@@ -622,6 +623,23 @@ between M11 and M12. In order:
 goal is to make Sluice work with as many SIEMs as possible, natively and proven. Its scope is
 planned when it starts; it includes at least:
 
+- **Advice first, configs for every tool (decided 2026-10-14).** Today the only thing that
+  carries out a saving is `vector.yaml`; a Sentinel user without Vector gets a report and
+  nothing to run. M12 makes the output tool-neutral:
+  1. **A savings plan as the main product**: `plan.json`, per source and kind of event, what
+     may be removed, what may be counted instead of sent, which rules protect what, and the
+     proof. The report becomes a view of it.
+  2. **One generator per tool** turning the plan into configuration: Vector (exists), then a
+     Sentinel DCR `transformKql` (finish ADR 0013: L1 only, since a DCR cannot summarize),
+     then Elastic ingest pipelines and Splunk (ingest actions or props/transforms), then
+     agents such as Fluent Bit and the OpenTelemetry Collector.
+  3. **Each generator is labelled** *proven* (checked against the real engine, as Vector and
+     the Kusto emulator are) or *advisory* (cannot be checked), per CLAUDE.md.
+  4. **The report says per saving where it can run**: natively in the SIEM's ingestion, or
+     only in a pipeline tool (counting needs Vector or similar).
+
+  Order: the plan and the Sentinel DCR generator first (Sentinel is the first audience), then
+  Elastic and Splunk.
 - Requirements extractors and, where an engine can run offline, proofs for each SIEM's own rule
   language, in this order (decided 2026-10-14): Elastic first (KQL, EQL, ES|QL, detection
   rules; OpenSearch and the SIEMs built on it follow), then Splunk SPL (correlation searches),
