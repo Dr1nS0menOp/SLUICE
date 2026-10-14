@@ -13,6 +13,7 @@ pub mod common_security_log;
 mod config;
 mod connect;
 mod custom_table;
+mod deployed;
 mod error;
 mod live;
 mod predicate;
@@ -30,6 +31,7 @@ use sluice_core::ids::SourceId;
 pub use crate::config::{Paths, vector_config};
 pub use crate::connect::{SECRET_BACKEND, Target};
 pub use crate::custom_table::{Column, ColumnKind, CustomTable};
+pub use crate::deployed::{Deployed, deployed};
 pub use crate::error::VectorError;
 pub use crate::live::{
     FORMATS_KEY, LiveProfile, LiveSettings, LiveSource, RULES_KEY, SOURCES_KEY,

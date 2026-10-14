@@ -166,6 +166,9 @@ from the `EventData` XML (ADR 0020), so the summary records keep their keys.
 and writes `report.html` and a `vector.yaml` with Vector unit tests drawn from the sample, so
 `vector validate` and `vector test` show that the real Vector does what was proven. You deploy
 that configuration with your own tooling. `sluice demo` does the same on synthetic data.
+`sluice prove` closes the loop for review (ADR 0022): it reads the programs back out of a
+configuration, as it stands in a pull request, and proves them on a sample; `sluice up` with
+`proposals_dir` writes its proven configurations there instead of applying them.
 
 ## Where the model is weak today
 

@@ -36,6 +36,12 @@ pub struct ServerConfig {
     pub oidc: Option<crate::oidc::OidcConfig>,
     /// Where Sluice writes the Vector configuration.
     pub vector_config: PathBuf,
+    /// Review before deployment (M11): write each proven configuration here as a proposal (`vector.yaml` and
+    /// `proposal.json`) instead of applying it. The running Vector keeps the configuration
+    /// with nothing enforced (archive and tap only) until the operator deploys a proposal with
+    /// their own tooling, after review.
+    #[serde(default)]
+    pub proposals_dir: Option<PathBuf>,
     /// The Vector binary.
     #[serde(default = "default_vector")]
     pub vector_binary: PathBuf,

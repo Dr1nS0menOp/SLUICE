@@ -84,6 +84,7 @@ fn build_with(
         operators_file: None,
         oidc: None,
         vector_config: dir.join("vector.yaml"),
+        proposals_dir: None,
         vector_binary: PathBuf::from("vector"),
         tap_rate: 10,
         cycle_secs: 60,
@@ -225,6 +226,47 @@ async fn cycles_shadow_then_enforce_and_rewrite_the_config() {
             .any(|s| s.source == "nginx" && s.volume.events == 0),
         "a silent source shows up with no events"
     );
+}
+
+#[tokio::test]
+async fn c5_with_a_proposals_directory_the_proven_config_is_proposed_not_applied() {
+    let dir = scratch("proposals");
+    let mut destinations = Map::new();
+    destinations.insert("siem".into(), json!({"type": "blackhole"}));
+    let mut built = build(&dir, None, destinations, false).unwrap();
+    built.config.proposals_dir = Some(dir.join("proposals"));
+    let shared = Arc::new(built);
+    shared.write_initial_config().unwrap();
+    let initial = std::fs::read_to_string(dir.join("vector.yaml")).unwrap();
+
+    post(
+        &shared,
+        "/tap/windows-security",
+        ndjson("windows-security", 10),
+    )
+    .await;
+    let now = 1_791_622_800;
+    shared.run_cycle(now).unwrap();
+    let second = shared.run_cycle(now + 60).unwrap();
+    assert!(!second.config_changed, "nothing for Vector to reload");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("vector.yaml")).unwrap(),
+        initial,
+        "the running configuration is untouched"
+    );
+    let proposed = std::fs::read_to_string(dir.join("proposals/vector.yaml")).unwrap();
+    assert!(proposed.contains("sluice_windows_security_route"));
+    let proposal: Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.join("proposals/proposal.json")).unwrap(),
+    )
+    .unwrap();
+    let profile = &proposal["profiles"][0];
+    assert_eq!(profile["proof"]["holds"], true);
+    assert_eq!(
+        profile["proof"]["alerts_full"],
+        profile["proof"]["alerts_forwarded"]
+    );
+    assert_ne!(profile["enforced_templates"], json!([]));
 }
 
 #[tokio::test]

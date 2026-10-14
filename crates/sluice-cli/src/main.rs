@@ -13,6 +13,7 @@ mod input;
 mod inventory;
 mod live;
 mod output;
+mod prove;
 
 use std::process::ExitCode;
 
@@ -27,6 +28,7 @@ fn main() -> ExitCode {
         Command::Analyze(args) => commands::analyze(&args),
         Command::Recipes(args) => commands::recipes(&args),
         Command::Rules(args) => commands::rules(&args),
+        Command::Prove(args) => prove::prove(&args),
         Command::Up(args) => live::up(&args),
         Command::Status(args) => live::status(&args),
         Command::Search(args) => archive::search(&args),
