@@ -141,3 +141,137 @@ fn api_errors_fail_closed() {
     let fake = Fake::new(json!({"error": 1, "message": "permission denied"}));
     assert!(client(&fake).fired(&event()).is_err());
 }
+
+#[test]
+fn an_expired_jwt_is_renewed_once() {
+    /// Accepts only the second JWT it hands out, like a manager whose first token expired.
+    struct Expiring {
+        issued: RefCell<u32>,
+        bearers: RefCell<Vec<String>>,
+    }
+    impl Transport for &Expiring {
+        fn send(
+            &self,
+            _: &str,
+            url: &str,
+            headers: &[(&str, String)],
+            _: Option<&str>,
+        ) -> Result<(u16, String), WazuhError> {
+            if url.ends_with("/security/user/authenticate") {
+                *self.issued.borrow_mut() += 1;
+                let token = format!("jwt-{}", self.issued.borrow());
+                return Ok((
+                    200,
+                    json!({"error": 0, "data": {"token": token}}).to_string(),
+                ));
+            }
+            let bearer = headers[0].1.clone();
+            self.bearers.borrow_mut().push(bearer.clone());
+            if bearer == "Bearer jwt-2" {
+                Ok((
+                    200,
+                    json!({"error": 0, "data": {"alert": false}}).to_string(),
+                ))
+            } else {
+                Ok((401, json!({"title": "Unauthorized"}).to_string()))
+            }
+        }
+    }
+    let manager = Expiring {
+        issued: RefCell::new(0),
+        bearers: RefCell::new(Vec::new()),
+    };
+    let logtest = Logtest::new(
+        LogtestConfig {
+            url: "https://wazuh:55000".into(),
+            user: "u".into(),
+            password: "p".into(),
+        },
+        &manager,
+    );
+    assert_eq!(logtest.alert_line("x").unwrap(), None);
+    assert_eq!(*manager.bearers.borrow(), ["Bearer jwt-1", "Bearer jwt-2"]);
+}
+
+#[test]
+fn a_401_after_renewal_fails_closed() {
+    struct Never;
+    impl Transport for &Never {
+        fn send(
+            &self,
+            _: &str,
+            url: &str,
+            _: &[(&str, String)],
+            _: Option<&str>,
+        ) -> Result<(u16, String), WazuhError> {
+            if url.ends_with("/authenticate") {
+                return Ok((200, json!({"error": 0, "data": {"token": "t"}}).to_string()));
+            }
+            Ok((401, "{}".into()))
+        }
+    }
+    let logtest = Logtest::new(
+        LogtestConfig {
+            url: "https://wazuh:55000".into(),
+            user: "u".into(),
+            password: "p".into(),
+        },
+        &Never,
+    );
+    assert!(matches!(logtest.alert_line("x"), Err(WazuhError::Http(_))));
+}
+
+#[test]
+fn a_numeric_rule_id_is_read_and_an_alert_without_one_fails() {
+    let fake =
+        Fake::new(json!({"error": 0, "data": {"alert": true, "output": {"rule": {"id": 5715}}}}));
+    assert_eq!(
+        client(&fake).alert_line("x").unwrap().as_deref(),
+        Some("5715")
+    );
+    let fake = Fake::new(json!({"error": 0, "data": {"alert": true, "output": {}}}));
+    assert!(matches!(
+        client(&fake).alert_line("x"),
+        Err(WazuhError::Invalid(_))
+    ));
+}
+
+#[test]
+fn only_an_alert_flag_of_true_is_an_alert() {
+    for flag in [json!("true"), json!(1), Value::Null] {
+        let fake = Fake::new(
+            json!({"error": 0, "data": {"alert": flag, "output": {"rule": {"id": "1"}}}}),
+        );
+        assert_eq!(client(&fake).alert_line("x").unwrap(), None, "{flag}");
+    }
+}
+
+#[test]
+fn a_raw_line_is_sent_as_syslog() {
+    let fake = Fake::new(json!({"error": 0, "data": {"alert": false}}));
+    client(&fake)
+        .fired_line("sshd[1]: Failed password")
+        .unwrap();
+    assert_eq!(fake.last_body()["log_format"], "syslog");
+    assert_eq!(fake.last_body()["event"], "sshd[1]: Failed password");
+}
+
+#[test]
+fn error_bodies_are_cut_to_an_excerpt() {
+    let long = "x".repeat(10_000);
+    let Err(WazuhError::Http(m)) = ok_json(500, &long) else {
+        panic!("expected an HTTP error");
+    };
+    assert!(m.len() < 400, "{}", m.len());
+    assert!(m.ends_with('…'));
+    assert_eq!(excerpt("short"), "short");
+    assert_eq!(excerpt(&"é".repeat(300)), "é".repeat(300));
+}
+
+#[test]
+fn a_non_zero_error_field_or_a_missing_one_fails() {
+    assert!(ok_json(200, r#"{"error": 1}"#).is_err());
+    assert!(ok_json(200, r#"{"data": {}}"#).is_err());
+    assert!(ok_json(200, "not json").is_err());
+    assert!(ok_json(200, r#"{"error": 0}"#).is_ok());
+}

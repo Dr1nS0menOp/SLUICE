@@ -239,7 +239,7 @@ fn merge_alternatives(parts: Vec<Predicate>) -> Vec<Predicate> {
     let mut rest = Vec::new();
     for part in parts {
         match part {
-            Predicate::Field(test) if test.op != MatchOp::Exists => {
+            Predicate::Field(test) => {
                 let same = fields.iter_mut().find(|f| {
                     f.field == test.field
                         && f.op == test.op

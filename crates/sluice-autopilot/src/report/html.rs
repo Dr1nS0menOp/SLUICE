@@ -258,4 +258,19 @@ mod tests {
         assert_eq!(bytes(123_456), "123 KB");
         assert_eq!(bytes(56_000_000), "56 MB");
     }
+
+    #[test]
+    fn bytes_switch_unit_at_ten_thousand_and_stop_at_gigabytes() {
+        assert_eq!(bytes(0), "0 B");
+        assert_eq!(bytes(9_999), "9999 B");
+        assert_eq!(bytes(10_000), "10 KB");
+        assert_eq!(bytes(9_999_999_999), "9999 MB");
+        assert_eq!(bytes(u64::MAX), "18446744073 GB");
+    }
+
+    #[test]
+    fn plain_text_is_unchanged_by_escaping() {
+        assert_eq!(escape(""), "");
+        assert_eq!(escape("EventID 4625 · é ✓"), "EventID 4625 · é ✓");
+    }
 }

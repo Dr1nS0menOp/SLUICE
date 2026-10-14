@@ -169,6 +169,14 @@ explains the terms.
   0.59 does not expand `${VAR}` (ADR 0010).
 - An optional bearer token for the control plane (`SLUICE_CONTROL_TOKEN`), handed to Vector as a
   secret file; without one, `sluice up` only listens on loopback.
+- Hardening from the unit-test phase (`docs/testing-plan.md`, "Bugs found"):
+  - The Sentinel client follows a `nextLink` only on its own host and never twice.
+  - The client secret is kept out of error messages.
+  - An alert rule without an `enabled` flag is read.
+  - The Wazuh inventory fails when its file listing doesn't add up to the reported total.
+  - `logtest` renews an expired JWT.
+  - Rule directories with symbolic link loops are read once.
+  - Rule files with upper-case extensions are no longer skipped.
 
 ### Interfaces and packaging
 

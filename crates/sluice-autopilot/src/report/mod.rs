@@ -228,3 +228,6 @@ fn coverage_gaps(requirements: &[&RuleRequirements], templates: &[Template]) -> 
     gaps.sort();
     gaps
 }
+
+#[cfg(test)]
+mod tests;

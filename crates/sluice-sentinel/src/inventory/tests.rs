@@ -10,6 +10,8 @@ struct Azure {
     searches: Vec<Value>,
     /// Splits the alert rules over two pages.
     paged: bool,
+    /// The query log's answer.
+    log: Value,
     requests: RefCell<Vec<(String, Option<String>)>>,
 }
 
@@ -51,6 +53,9 @@ impl Azure {
                 search("l1", "Log Management", "All events", "Event", None),
             ],
             paged: false,
+            log: json!({ "tables": [{ "name": "PrimaryResult",
+                "columns": [{ "name": "QueryText", "type": "string" }, { "name": "Runs", "type": "long" }],
+                "rows": [["SecurityEvent | count", 9], ["Heartbeat | take 5", 2]] }] }),
             requests: RefCell::new(Vec::new()),
         }
     }
@@ -96,9 +101,7 @@ impl Transport for Azure {
         } else if url.contains("/savedSearches") {
             json!({ "value": self.searches })
         } else if url.contains("api.loganalytics.io") {
-            json!({ "tables": [{ "name": "PrimaryResult",
-                "columns": [{ "name": "QueryText", "type": "string" }, { "name": "Runs", "type": "long" }],
-                "rows": [["SecurityEvent | count", 9], ["Heartbeat | take 5", 2]] }] })
+            self.log.clone()
         } else if url.contains("/workspaces/ws?") {
             json!({ "properties": { "customerId": "abcd-1234" } })
         } else {
@@ -277,4 +280,149 @@ fn colliding_file_names_get_a_suffix() {
     let inventory = fetch(&azure, &credentials(), &options()).unwrap();
     assert!(file(&inventory, "rules/a_b.yaml").is_some());
     assert!(file(&inventory, "rules/a_b-2.yaml").is_some());
+}
+
+#[test]
+fn c3_a_rule_without_an_enabled_flag_is_read() {
+    let mut azure = Azure::new();
+    let mut unknown = rule("u1", "Scheduled", true, Some("Syslog"));
+    unknown["properties"]
+        .as_object_mut()
+        .unwrap()
+        .remove("enabled");
+    azure.rules = vec![unknown];
+    let inventory = fetch(&azure, &credentials(), &options()).unwrap();
+    assert!(file(&inventory, "rules/u1.yaml").is_some());
+    assert!(!inventory.manifest.counts.contains_key("disabled"));
+}
+
+#[test]
+fn c3_a_scheduled_rule_without_a_query_reads_everything() {
+    let mut azure = Azure::new();
+    azure.rules = vec![rule("s1", "Scheduled", true, None)];
+    let inventory = fetch(&azure, &credentials(), &options()).unwrap();
+    assert_eq!(
+        file(&inventory, "rules/s1.yaml").unwrap()["query"],
+        "search *"
+    );
+}
+
+#[test]
+fn an_alert_rule_without_a_name_fails_the_fetch() {
+    let mut azure = Azure::new();
+    azure.rules =
+        vec![json!({ "kind": "Scheduled", "properties": { "enabled": true, "query": "Syslog" } })];
+    assert!(matches!(
+        fetch(&azure, &credentials(), &options()),
+        Err(SentinelError::Invalid(_))
+    ));
+}
+
+#[test]
+fn saved_searches_without_a_query_or_with_an_empty_alias_are_handled() {
+    let mut azure = Azure::new();
+    azure.searches = vec![
+        json!({ "name": "nq", "properties": { "category": "Hunting Queries" } }),
+        search("ea", "Hunting Queries", "Empty alias", "Syslog", Some("")),
+    ];
+    let inventory = fetch(&azure, &credentials(), &options()).unwrap();
+    assert!(file(&inventory, "saved/nq.yaml").is_none());
+    assert!(
+        file(&inventory, "saved/ea.yaml").is_some(),
+        "a hunting query"
+    );
+    let searches = inventory
+        .files
+        .iter()
+        .filter(|(p, _)| !p.starts_with("rules/"))
+        .count();
+    assert_eq!(searches, 1);
+}
+
+#[test]
+fn the_hunting_category_is_matched_without_case() {
+    let mut azure = Azure::new();
+    azure.searches = vec![search("h", "hunting queries", "H", "Syslog", None)];
+    let inventory = fetch(&azure, &credentials(), &options()).unwrap();
+    assert!(file(&inventory, "saved/h.yaml").is_some());
+}
+
+#[test]
+fn an_empty_query_log_says_auditing_may_be_off() {
+    let mut azure = Azure::new();
+    azure.log = json!({ "tables": [{ "columns": [{ "name": "QueryText" }], "rows": [] }] });
+    let with_log = Options {
+        query_log_days: Some(7),
+        ..options()
+    };
+    let inventory = fetch(&azure, &credentials(), &with_log).unwrap();
+    assert_eq!(inventory.manifest.counts["queries"], 0);
+    assert!(
+        inventory
+            .manifest
+            .not_modeled
+            .iter()
+            .any(|n| n.contains("query auditing"))
+    );
+}
+
+#[test]
+fn a_query_log_without_a_query_column_fails_the_fetch() {
+    let mut azure = Azure::new();
+    azure.log = json!({ "tables": [{ "columns": [{ "name": "Other" }], "rows": [["x"]] }] });
+    let with_log = Options {
+        query_log_days: Some(7),
+        ..options()
+    };
+    assert!(matches!(
+        fetch(&azure, &credentials(), &with_log),
+        Err(SentinelError::Invalid(_))
+    ));
+}
+
+#[test]
+fn a_query_log_at_the_cap_says_it_was_cut_short() {
+    let mut azure = Azure::new();
+    let rows: Vec<Value> = (0..MAX_LOGGED_QUERIES)
+        .map(|i| json!([format!("Syslog | take {i}"), 1]))
+        .collect();
+    azure.log = json!({ "tables": [{ "columns": [{ "name": "QueryText" }, { "name": "Runs" }], "rows": rows }] });
+    let with_log = Options {
+        query_log_days: Some(7),
+        ..options()
+    };
+    let inventory = fetch(&azure, &credentials(), &with_log).unwrap();
+    assert_eq!(inventory.manifest.counts["queries"], MAX_LOGGED_QUERIES);
+    assert!(
+        inventory
+            .manifest
+            .not_modeled
+            .iter()
+            .any(|n| n.contains("run most often"))
+    );
+}
+
+#[test]
+fn the_same_query_text_gets_the_same_id() {
+    assert_eq!(fnv1a("Syslog"), fnv1a("Syslog"));
+    assert_ne!(fnv1a("Syslog"), fnv1a("syslog"));
+    assert_eq!(fnv1a(""), 0xcbf2_9ce4_8422_2325);
+}
+
+#[test]
+fn a_trailing_slash_on_the_workspace_id_is_accepted() {
+    let azure = Azure::new();
+    let options = Options {
+        workspace: format!("{WORKSPACE}/"),
+        ..options()
+    };
+    let inventory = fetch(&azure, &credentials(), &options).unwrap();
+    assert_eq!(inventory.manifest.from, WORKSPACE);
+    assert!(
+        azure
+            .requests
+            .borrow()
+            .iter()
+            .all(|(url, _)| !url.contains("ws//"))
+    );
 }

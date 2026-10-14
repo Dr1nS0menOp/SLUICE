@@ -96,3 +96,80 @@ fn boolean_structure_is_balanced() {
     }
     assert!(deepest < 40, "depth {deepest}");
 }
+
+#[test]
+fn a_field_or_column_name_kql_cannot_quote_widens_to_true() {
+    let odd = compile(&test("a\u{7}b", MatchOp::Equals, &["x"], true), &[]);
+    assert_eq!(odd, "true");
+    let keywords = Predicate::Keywords(KeywordTest {
+        values: vec!["x".into()],
+        case_sensitive: true,
+    });
+    assert_eq!(compile(&keywords, &["Message", "bad\u{1}"]), "true");
+    let newline = compile(&test("a\nb", MatchOp::Equals, &["x"], true), &[]);
+    assert!(newline.contains(r"['a\nb']"), "{newline}");
+}
+
+#[test]
+fn many_columns_nest_their_concatenation() {
+    let columns: Vec<String> = (0..200).map(|n| format!("c{n}")).collect();
+    let names: Vec<&str> = columns.iter().map(String::as_str).collect();
+    let keywords = Predicate::Keywords(KeywordTest {
+        values: vec!["x".into()],
+        case_sensitive: true,
+    });
+    let kql = compile(&keywords, &names);
+    for name in &names {
+        assert!(
+            kql.contains(&format!("tostring(['{name}'])")),
+            "{name} missing"
+        );
+    }
+    // No strcat_delim call takes more than STRCAT_MAX arguments.
+    for call in kql.split("strcat_delim(").skip(1) {
+        let mut depth = 1usize;
+        let mut arguments = 1usize;
+        for c in call.chars() {
+            match c {
+                '(' => depth += 1,
+                ')' if depth == 1 => break,
+                ')' => depth -= 1,
+                ',' if depth == 1 => arguments += 1,
+                _ => {}
+            }
+        }
+        assert!(arguments <= 60, "{arguments} arguments");
+    }
+}
+
+#[test]
+fn case_sensitive_non_ascii_values_are_compared_not_widened() {
+    let kql = compile(&test("x", MatchOp::Equals, &["straße"], true), &[]);
+    assert!(kql.contains(r#"tostring(['x']) == "straße""#), "{kql}");
+}
+
+#[test]
+fn every_operator_has_its_case_sensitive_and_insensitive_form() {
+    for (op, insensitive, sensitive) in [
+        (MatchOp::Equals, "=~", "=="),
+        (MatchOp::Contains, "contains", "contains_cs"),
+        (MatchOp::StartsWith, "startswith", "startswith_cs"),
+        (MatchOp::EndsWith, "endswith", "endswith_cs"),
+    ] {
+        let folded = compile(&test("x", op, &["v"], false), &[]);
+        assert!(
+            folded.contains(&format!(" {insensitive} \"v\"")),
+            "{folded}"
+        );
+        let exact = compile(&test("x", op, &["v"], true), &[]);
+        assert!(exact.contains(&format!(" {sensitive} \"v\"")), "{exact}");
+    }
+}
+
+#[test]
+fn several_values_are_alternatives() {
+    let kql = compile(&test("x", MatchOp::Equals, &["a", "b"], true), &[]);
+    assert!(kql.contains(r#"== "a""#) && kql.contains(r#"== "b""#) && kql.contains(" or "));
+    let empty_all = Predicate::All(vec![]);
+    assert_eq!(compile(&empty_all, &[]), "true");
+}

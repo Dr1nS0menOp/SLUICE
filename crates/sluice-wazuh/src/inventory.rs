@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 use sluice_core::inventory::{Inventory, Manifest, is_safe_relative_path};
 
-use crate::client::{Transport, WazuhError, basic_auth, ok_json};
+use crate::client::{Transport, WazuhError, basic_auth, excerpt, ok_json};
 
 /// Files per listing request; the API allows up to 100,000.
 const PAGE: u64 = 500;
@@ -84,10 +84,13 @@ impl<T: Transport> Api<'_, T> {
     }
 
     /// Every enabled file of `kind` (`rules` or `decoders`), as `(relative_dirname, filename)`.
+    ///
+    /// The listing must add up to the total the API reports: a missing total, or a listing
+    /// that comes up short or long, fails rather than passing as complete.
     fn list(&self, kind: &str) -> Result<Vec<(String, String)>, WazuhError> {
         let mut files = Vec::new();
         let mut offset = 0;
-        loop {
+        let total = loop {
             let (status, body) = self.get(&format!(
                 "/{kind}/files?status=enabled&limit={PAGE}&offset={offset}"
             ))?;
@@ -105,11 +108,20 @@ impl<T: Transport> Api<'_, T> {
                 files.push((field("relative_dirname")?, field("filename")?));
             }
             offset += PAGE;
-            let total = data["total_affected_items"].as_u64().unwrap_or(0);
+            let total = data["total_affected_items"].as_u64().ok_or_else(|| {
+                WazuhError::Invalid(format!("no data.total_affected_items listing {kind} files"))
+            })?;
             if items.is_empty() || offset >= total {
-                return Ok(files);
+                break total;
             }
+        };
+        if u64::try_from(files.len()).ok() != Some(total) {
+            return Err(WazuhError::Invalid(format!(
+                "listed {} {kind} files of {total}; did the ruleset change while it was read?",
+                files.len()
+            )));
         }
+        Ok(files)
     }
 
     /// One file's contents, as the manager has it on disk.
@@ -121,13 +133,15 @@ impl<T: Transport> Api<'_, T> {
         ))?;
         if !(200..300).contains(&status) {
             return Err(WazuhError::Http(format!(
-                "HTTP {status} reading {kind} file {dirname}/{filename}: {body}"
+                "HTTP {status} reading {kind} file {dirname}/{filename}: {}",
+                excerpt(&body)
             )));
         }
         // An error comes back as JSON even with `raw=true`.
         if serde_json::from_str::<Value>(&body).is_ok_and(|v| v.get("error").is_some()) {
             return Err(WazuhError::Invalid(format!(
-                "reading {kind} file {dirname}/{filename}: {body}"
+                "reading {kind} file {dirname}/{filename}: {}",
+                excerpt(&body)
             )));
         }
         Ok(body)

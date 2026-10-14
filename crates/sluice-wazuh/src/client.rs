@@ -159,7 +159,6 @@ impl<T: Transport> Logtest<T> {
     }
 
     fn logtest(&self, event: &str, log_format: &str) -> Result<Option<String>, WazuhError> {
-        let jwt = self.authenticate()?;
         let mut request = json!({
             "event": event,
             "log_format": log_format,
@@ -168,13 +167,14 @@ impl<T: Transport> Logtest<T> {
         if let Some(session) = self.session.borrow().clone() {
             request["token"] = json!(session);
         }
-        let (status, body) = self.transport.send(
-            "PUT",
-            &self.url("/logtest"),
-            &[("authorization", format!("Bearer {jwt}"))],
-            Some(&request.to_string()),
-        )?;
-        let response = ok_json(status, &body)?;
+        let request = request.to_string();
+        let mut sent = self.put_logtest(&request)?;
+        if sent.0 == 401 {
+            // The JWT expired (Wazuh's default lifetime is 900 s): authenticate again, once.
+            *self.jwt.borrow_mut() = None;
+            sent = self.put_logtest(&request)?;
+        }
+        let response = ok_json(sent.0, &sent.1)?;
         let data = &response["data"];
         if let Some(session) = data["token"].as_str() {
             *self.session.borrow_mut() = Some(session.to_owned());
@@ -189,6 +189,16 @@ impl<T: Transport> Logtest<T> {
             _ => return Err(WazuhError::Invalid("alert without output.rule.id".into())),
         };
         Ok(Some(id))
+    }
+
+    fn put_logtest(&self, request: &str) -> Result<(u16, String), WazuhError> {
+        let jwt = self.authenticate()?;
+        self.transport.send(
+            "PUT",
+            &self.url("/logtest"),
+            &[("authorization", format!("Bearer {jwt}"))],
+            Some(request),
+        )
     }
 }
 
@@ -212,17 +222,32 @@ fn rule_ids(alert: Result<Option<String>, WazuhError>) -> Result<BTreeSet<RuleId
 
 pub(crate) fn ok_json(status: u16, body: &str) -> Result<Value, WazuhError> {
     if !(200..300).contains(&status) {
-        return Err(WazuhError::Http(format!("HTTP {status}: {body}")));
+        return Err(WazuhError::Http(format!(
+            "HTTP {status}: {}",
+            excerpt(body)
+        )));
     }
     let value: Value =
         serde_json::from_str(body).map_err(|e| WazuhError::Invalid(e.to_string()))?;
     if value["error"] != json!(0) {
         return Err(WazuhError::Invalid(format!(
-            "error {} in {body}",
-            value["error"]
+            "error {} in {}",
+            value["error"],
+            excerpt(body)
         )));
     }
     Ok(value)
+}
+
+/// The start of a response body, for an error message: bodies can be large and can repeat the
+/// event that was sent.
+pub(crate) fn excerpt(body: &str) -> String {
+    const MAX: usize = 300;
+    let mut out: String = body.chars().take(MAX).collect();
+    if body.chars().nth(MAX).is_some() {
+        out.push('…');
+    }
+    out
 }
 
 /// The `Authorization` header value for HTTP Basic authentication.

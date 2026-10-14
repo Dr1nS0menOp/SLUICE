@@ -39,13 +39,14 @@ pub struct SigmaRules {
 impl SigmaRules {
     /// Parses Sigma YAML documents (one string per file; files may hold several documents).
     ///
-    /// Documents rsigma cannot understand do not fail the load. Each becomes an opaque
-    /// requirement, which blocks every cut, and a [`problem`](Self::problems). The SIEM still
-    /// runs that rule, so ignoring it would hide regressions from the proof.
+    /// Documents rsigma cannot understand, and files that are not YAML at all, do not fail the
+    /// load. Each becomes an opaque requirement, which blocks every saving, and a
+    /// [`problem`](Self::problems). The SIEM still runs that rule, so ignoring it would hide
+    /// regressions from the proof.
     ///
     /// # Errors
     ///
-    /// Returns [`RulesError::SigmaParse`] if a file is not valid YAML at all.
+    /// Returns [`RulesError::SigmaParse`] if rsigma refuses a file outright.
     pub fn parse<'a>(files: impl IntoIterator<Item = &'a str>) -> Result<Self, RulesError> {
         Self::parse_with(files, &[])
     }
@@ -332,3 +333,6 @@ impl<'a> RuleIndex<'a> {
         resolved
     }
 }
+
+#[cfg(test)]
+mod tests;

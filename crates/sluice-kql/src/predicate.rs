@@ -60,7 +60,9 @@ fn field(test: &FieldTest) -> String {
     if test.op == MatchOp::Exists || test.values.is_empty() {
         return "true".to_owned();
     }
-    let value = syntax::path(&test.field);
+    let Some(value) = syntax::path(&test.field) else {
+        return "true".to_owned();
+    };
     let rendered = format!("tostring({value})");
     let comparisons: Option<Vec<String>> = test
         .values
@@ -88,7 +90,13 @@ fn keywords(test: &KeywordTest, columns: &[&str]) -> String {
     if columns.is_empty() {
         return "true".to_owned();
     }
-    let names: Vec<String> = columns.iter().map(|c| syntax::quoted_name(c)).collect();
+    let Some(names) = columns
+        .iter()
+        .map(|c| syntax::quoted_name(c))
+        .collect::<Option<Vec<String>>>()
+    else {
+        return "true".to_owned();
+    };
     let rendered = joined(
         &names
             .iter()
