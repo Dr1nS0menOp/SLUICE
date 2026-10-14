@@ -143,6 +143,44 @@ fn c5_prove_passes_the_generated_config_and_fails_one_that_loses_alerts() {
 }
 
 #[test]
+fn c5_prove_fails_an_empty_proof_unless_told_otherwise() {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli-empty-proof");
+    let _ = std::fs::remove_dir_all(&root);
+    let demo = root.join("demo");
+    sluice(&["demo", "--out", demo.to_str().unwrap(), "--scale", "5"]);
+    // A rule no event of the sample can match: the proof compares two empty alert sets.
+    let rules = root.join("rules");
+    std::fs::create_dir_all(&rules).unwrap();
+    std::fs::write(
+        rules.join("never.yml"),
+        "title: Never\nid: 00000000-0000-4000-8000-000000000999\nlogsource: { product: windows }\n\
+         detection:\n  selection: { EventID: 999999 }\n  condition: selection\n",
+    )
+    .unwrap();
+    let prove = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_sluice"))
+            .arg("prove")
+            .arg("--config")
+            .arg(demo.join("vector.yaml"))
+            .arg("--input")
+            .arg(demo.join("samples"))
+            .arg("--sources")
+            .arg(demo.join("sluice.yaml"))
+            .arg("--rules")
+            .arg(&rules)
+            .args(extra)
+            .output()
+            .expect("sluice runs")
+    };
+    let failed = prove(&[]);
+    assert_eq!(failed.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("raised no alerts"));
+    let allowed = prove(&["--allow-no-alerts"]);
+    assert!(allowed.status.success());
+    assert!(String::from_utf8_lossy(&allowed.stdout).contains("raised no alerts"));
+}
+
+#[test]
 fn rules_requirements_include_filter_fields_and_correlations() {
     let rules = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/rules/sigma");
     let out = sluice(&["rules", "requirements", "--rules", rules.to_str().unwrap()]);

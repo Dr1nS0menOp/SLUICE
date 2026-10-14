@@ -60,6 +60,15 @@ explains the terms.
   (`not summarized: the rules are not known to be complete`). `sluice analyze` takes
   `--sentinel-rules`, `--kusto` and `--sentinel-table` to prove against Sentinel rules and
   queries in the Kusto emulator, as `sluice up` does.
+- **Breaking:** `sluice up` proposes instead of applying (ADR 0022). Proven configurations go
+  to `<data_dir>/proposals` (`vector.yaml`, `proposal.json`); you deploy one by writing it over
+  `vector_config`. Every cycle Sluice proves what runs and switches Vector to the safe
+  configuration (everything sent unchanged) the moment that proof fails. `auto_apply: true`
+  lets Sluice apply its own proposals, for demos and labs.
+- Reports say when a proof is empty ("The sample raised no alerts, so this proof could not
+  show that your detections still work."), on what grounds the rules count as complete, and
+  list every rule next to what Sluice made of it ("Rules in the SIEM", `rules.json`).
+  `sluice prove` fails an empty proof unless `--allow-no-alerts`.
 - Configurations as the product (ADR 0022). `sluice prove` proves a generated Vector
   configuration as it is, reading its programs back from the file, and exits 1 when it would
   change a detection; it refuses wiring Sluice did not generate. A GitHub Action

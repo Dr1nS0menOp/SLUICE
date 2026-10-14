@@ -42,13 +42,19 @@ events breaks when events become summaries, even though no alert changes.
    profile summarizes only when every set it names is complete.
 3. **Without a complete inventory, no L2 or L3.** The guardrails refuse rule-guided forwarding
    and summaries with `Reason::RulesNotComplete` (contract rule 3) and keep L1. The report
-   names the reason on each held-back template, next to its bytes, and `sluice analyze` prints
-   a hint saying how to make the rules complete.
-4. **Queries are rules.** Hunting queries and the queries people ran (the query log) go through
+   names the reason on each held-back template, next to its bytes.
+4. **Every report says what the completeness rests on, and lists every rule.** One sentence
+   (`RulesBasis`: fetched, claimed by the operator, the demo's own, or not known) in the
+   report, the CLI summary, the status and `proposal.json`; and a table "Rules in the SIEM"
+   (`report.html`, and `rules.json` next to it) with every rule and query, its name where the
+   SIEM gives one, its status (understood, read broadly, not read) and what Sluice took from
+   it, closed by one verdict ("All 37 rules were understood"). For a fetched inventory this is
+   the SIEM's own list, so a reader can check completeness instead of trusting it.
+5. **Queries are rules.** Hunting queries and the queries people ran (the query log) go through
    the same KQL extractor and the same emulator proof as analytics rules: "same alerts" becomes
    "same rows". A query that counts events keeps them forwarded, because its pre-filter covers
    them; a query Sluice cannot bound blocks cuts in its scope.
-5. **`sluice analyze` proves against them offline.** `--sentinel-rules DIR --kusto URL
+6. **`sluice analyze` proves against them offline.** `--sentinel-rules DIR --kusto URL
    --sentinel-table SOURCE=TABLE` runs the fetched rules and queries in the Kusto emulator on
    the sample, as `sluice up` does.
 

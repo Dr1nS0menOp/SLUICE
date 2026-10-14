@@ -1,6 +1,6 @@
 //! The report as one self-contained HTML page: no scripts, no external resources.
 
-use super::{Report, TemplateRow, percent};
+use super::{Report, RuleRow, TemplateRow, percent, rules::label};
 
 const STYLE: &str = r#"
 :root { --bg:#ffffff; --fg:#1b1f24; --muted:#5b6470; --line:#e3e6ea; --card:#f6f8fa;
@@ -36,10 +36,11 @@ pub fn render_html(report: &Report) -> String {
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">".to_owned(),
         format!("<title>Sluice report</title><style>{STYLE}</style></head><body><main>"),
         "<h1>Sluice report</h1>".to_owned(),
-        "<p class=\"sub\">What the autopilot enforces, why, and the proof that no detection \
-         changes.</p>"
+        "<p class=\"sub\">What the generated configuration saves, why, and the proof that no \
+         detection changes. You decide what runs.</p>"
             .to_owned(),
         summary(report),
+        notes(report),
         rules(report),
         "<h2>Templates</h2>".to_owned(),
         templates(&report.templates),
@@ -89,6 +90,48 @@ fn summary(report: &Report) -> String {
     format!("<div class=\"cards\">{}</div>", cards.concat())
 }
 
+/// The sentences a reader must not miss: an empty proof, and what the rules' completeness
+/// rests on.
+fn notes(report: &Report) -> String {
+    let empty = report
+        .proof_note()
+        .map(|note| format!("<p class=\"bad\">{}</p>", escape(note)))
+        .unwrap_or_default();
+    format!(
+        "{empty}<p class=\"muted\">{}</p>",
+        escape(report.rules_basis.describe())
+    )
+}
+
+/// "Rules in the SIEM": each rule next to what Sluice made of it, folded away by default.
+fn rule_table(rows: &[RuleRow]) -> String {
+    let body: Vec<String> = rows
+        .iter()
+        .map(|row| {
+            let class = match row.status {
+                super::RuleStatus::Understood => "good",
+                super::RuleStatus::ReadBroadly => "muted",
+                super::RuleStatus::NotRead => "bad",
+            };
+            format!(
+                "<tr><td>{set}</td><td>{name}<div class=\"muted\"><code>{id}</code></div></td>\
+                 <td class=\"{class}\">{status}</td><td>{detail}</td></tr>",
+                set = escape(&row.set),
+                name = escape(row.name.as_deref().unwrap_or("")),
+                id = escape(&row.rule),
+                status = label(row.status),
+                detail = escape(&row.detail),
+            )
+        })
+        .collect();
+    format!(
+        "<details><summary>Every rule, and what Sluice made of it</summary><div class=\"scroll\">\
+         <table><tr><th>Set</th><th>Rule</th><th>Status</th><th>What Sluice took from it</th>\
+         </tr>{}</table></div></details>",
+        body.concat()
+    )
+}
+
 fn rules(report: &Report) -> String {
     let counts: Vec<String> = report
         .rules
@@ -96,10 +139,15 @@ fn rules(report: &Report) -> String {
         .map(|(engine, n)| format!("{n} {}", escape(engine)))
         .collect();
     let mut out = format!(
-        "<h2>Rules</h2><p>{} rules loaded. Sigma rules are evaluated in the proof; Wazuh rules \
-         constrain the guardrails.</p>",
-        counts.join(", ")
+        "<h2>Rules in the SIEM</h2><p>{} rules loaded. {}</p>",
+        counts.join(", "),
+        escape(&report.rules_verdict())
     );
+    if !report.inventory_notes.is_empty() {
+        out.push_str("<p class=\"muted\">Rules that run without a query to read:</p>");
+        out.push_str(&list(&report.inventory_notes));
+    }
+    out.push_str(&rule_table(&report.rule_rows));
     if !report.scope_hints.is_empty() {
         out.push_str(
             "<p class=\"muted\">Scope: rules that apply only because a source's log source is \

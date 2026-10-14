@@ -120,6 +120,22 @@ impl SigmaRules {
         &self.problems
     }
 
+    /// Each rule's and correlation's title, by rule id.
+    #[must_use]
+    pub fn names(&self) -> BTreeMap<RuleId, String> {
+        let rules = self
+            .collection
+            .rules
+            .iter()
+            .map(|r| (rule_id(r.id.as_deref(), &r.title), r.title.clone()));
+        let correlations = self
+            .collection
+            .correlations
+            .iter()
+            .map(|c| (rule_id(c.id.as_deref(), &c.title), c.title.clone()));
+        rules.chain(correlations).collect()
+    }
+
     /// An engine evaluating these rules, scoped by the given sources' log sources.
     ///
     /// # Errors

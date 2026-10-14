@@ -50,7 +50,9 @@ pub(crate) fn build(
             .unwrap()
         }),
         sentinel: None,
-        complete: ["sigma", "wazuh", "sentinel"].map(String::from).into(),
+        bases: ["sigma", "wazuh", "sentinel"]
+            .map(|set| (set.to_owned(), sluice_autopilot::RulesBasis::SelfContained))
+            .into(),
     };
     build_with(dir, token, destinations, rules)
 }
@@ -85,6 +87,8 @@ fn build_with(
         oidc: None,
         vector_config: dir.join("vector.yaml"),
         proposals_dir: None,
+        // These tests drive the lifecycle; the proposal tests switch it off.
+        auto_apply: true,
         vector_binary: PathBuf::from("vector"),
         tap_rate: 10,
         cycle_secs: 60,
@@ -228,23 +232,29 @@ async fn cycles_shadow_then_enforce_and_rewrite_the_config() {
     );
 }
 
-#[tokio::test]
-async fn c5_with_a_proposals_directory_the_proven_config_is_proposed_not_applied() {
-    let dir = scratch("proposals");
+/// A control plane in its default mode: it proposes, the operator deploys.
+async fn proposing(dir: &std::path::Path) -> Arc<Shared> {
     let mut destinations = Map::new();
     destinations.insert("siem".into(), json!({"type": "blackhole"}));
-    let mut built = build(&dir, None, destinations, false).unwrap();
+    let mut built = build(dir, None, destinations, false).unwrap();
+    built.config.auto_apply = false;
     built.config.proposals_dir = Some(dir.join("proposals"));
     let shared = Arc::new(built);
-    shared.write_initial_config().unwrap();
-    let initial = std::fs::read_to_string(dir.join("vector.yaml")).unwrap();
-
+    shared.write_startup_config().unwrap();
     post(
         &shared,
         "/tap/windows-security",
         ndjson("windows-security", 10),
     )
     .await;
+    shared
+}
+
+#[tokio::test]
+async fn c5_with_a_proposals_directory_the_proven_config_is_proposed_not_applied() {
+    let dir = scratch("proposals");
+    let shared = proposing(&dir).await;
+    let initial = std::fs::read_to_string(dir.join("vector.yaml")).unwrap();
     let now = 1_791_622_800;
     shared.run_cycle(now).unwrap();
     let second = shared.run_cycle(now + 60).unwrap();
@@ -267,6 +277,64 @@ async fn c5_with_a_proposals_directory_the_proven_config_is_proposed_not_applied
         profile["proof"]["alerts_forwarded"]
     );
     assert_ne!(profile["enforced_templates"], json!([]));
+    assert_eq!(
+        shared.profile(None).unwrap().status.read().unwrap().mode,
+        "proposing"
+    );
+}
+
+#[tokio::test]
+async fn c5_a_deployed_proposal_is_proven_and_switched_off_the_moment_it_fails() {
+    let dir = scratch("deployed");
+    let shared = proposing(&dir).await;
+    let safe = std::fs::read_to_string(dir.join("vector.yaml")).unwrap();
+    let now = 1_791_622_800;
+    shared.run_cycle(now).unwrap();
+    shared.run_cycle(now + 60).unwrap();
+
+    // The operator reviews the proposal and deploys it.
+    std::fs::copy(dir.join("proposals/vector.yaml"), dir.join("vector.yaml")).unwrap();
+    let deployed = shared.run_cycle(now + 120).unwrap();
+    assert!(
+        deployed.config_changed,
+        "Vector loads the proven deployment"
+    );
+    let status = shared.profile(None).unwrap().status.read().unwrap().clone();
+    assert!(status.running.unwrap().contains("proven"));
+
+    // Someone deploys a configuration that summarizes every Windows Security event.
+    let mut config: Value =
+        serde_yaml_ng::from_str(&std::fs::read_to_string(dir.join("vector.yaml")).unwrap())
+            .unwrap();
+    let program = &mut config["transforms"]["sluice_windows_security"]["source"];
+    *program = format!(
+        "{}\n%sluice.route = \"summarize\"\n",
+        program.as_str().unwrap()
+    )
+    .into();
+    std::fs::write(
+        dir.join("vector.yaml"),
+        serde_yaml_ng::to_string(&config).unwrap(),
+    )
+    .unwrap();
+    let failed = shared.run_cycle(now + 180).unwrap();
+    assert!(
+        failed.config_changed,
+        "Vector reloads the safe configuration"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("vector.yaml")).unwrap(),
+        safe,
+        "every event is forwarded unchanged again"
+    );
+    let status = shared.profile(None).unwrap().status.read().unwrap().clone();
+    assert!(
+        status
+            .running
+            .unwrap()
+            .starts_with("safe configuration since")
+    );
+    assert_eq!(status.history.last().unwrap().kind, "switched_off");
 }
 
 #[tokio::test]
@@ -397,7 +465,9 @@ async fn c5_a_sentinel_engine_takes_part_in_its_profiles_proof() {
             rules: sluice_rules::SentinelRules::parse(std::iter::empty::<(&str, &str)>()),
             engine: Some(Box::new(EveryField)),
         }),
-        complete: ["sigma", "wazuh", "sentinel"].map(String::from).into(),
+        bases: ["sigma", "wazuh", "sentinel"]
+            .map(|set| (set.to_owned(), sluice_autopilot::RulesBasis::SelfContained))
+            .into(),
     };
     let shared = Arc::new(build_with(&dir, None, destinations, rules).unwrap());
     let names: Vec<&str> = shared.profiles.iter().map(|p| p.name.as_str()).collect();

@@ -75,16 +75,6 @@ pub fn deployed(
             CompiledProgram::compile(&c.program, text.to_owned())?,
         );
     }
-    if programs.is_empty() && !sources.is_empty() {
-        let hint = if profile.is_none() {
-            "; for a configuration with several rule profiles, name one"
-        } else {
-            ""
-        };
-        return Err(VectorError::NotProvable(format!(
-            "no Sluice program for any of the sources in this configuration{hint}"
-        )));
-    }
     Ok(Deployed {
         reducer: VrlReducer::new(programs),
         unreduced,

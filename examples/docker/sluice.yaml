@@ -5,6 +5,8 @@
 listen: 0.0.0.0:8686
 vector_binary: /usr/local/bin/vector   # where the timberio/vector image installs it
 vector_config: /var/lib/sluice/vector.yaml
+auto_apply: true       # demo: Sluice applies its own proven configurations. Without it (the
+                       # default) it only proposes them, under data_dir/proposals, for review.
 archive_dir: /var/lib/sluice/archive
 data_dir: /var/lib/sluice/vector-data
 tap_rate: 1            # demo: tap every event; in production 1 in 10 or fewer

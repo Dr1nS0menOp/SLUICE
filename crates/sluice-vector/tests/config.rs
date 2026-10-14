@@ -188,7 +188,7 @@ fn c3_a_filter_or_an_aborting_remap_is_refused() {
 }
 
 #[test]
-fn a_config_without_any_sluice_program_is_refused() {
+fn a_config_without_any_sluice_program_reduces_nothing() {
     let yaml = edited(|c| {
         let transforms = c["transforms"].as_object_mut().unwrap();
         transforms.retain(|id, _| {
@@ -198,5 +198,6 @@ fn a_config_without_any_sluice_program_is_refused() {
                 .any(|s| *id == format!("sluice_{}", s.id.as_str().replace('-', "_")))
         });
     });
-    assert!(refused(&yaml).contains("no Sluice program"));
+    let read = deployed(&yaml, &sample().sources, None).expect("nothing to refuse");
+    assert_eq!(read.unreduced.len(), sample().sources.len());
 }

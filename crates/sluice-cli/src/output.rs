@@ -66,6 +66,11 @@ pub(crate) fn summary(report: &Report, templates: usize, sources: usize) {
         .map(|(e, n)| format!("{n} {e}"))
         .collect();
     println!("  rules   {}", rules.join(", "));
+    println!("          {}", report.rules_verdict());
+    println!("          {}", report.rules_basis.describe());
+    if let Some(note) = report.proof_note() {
+        println!("  note    {note}");
+    }
     if let Some(check) = &report.spot_check {
         println!(
             "  siem    logtest compared {} events ({} fired a rule), rolled back {} templates",

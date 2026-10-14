@@ -240,7 +240,7 @@ function proofBadge(cycle, profile) {
   if (!cycle) {
     return h("div", { class: "proof", role: "status" },
       h("div", {}, h("div", { class: "proof-title" }, "Waiting for the first cycle"),
-        h("div", { class: "proof-detail" }, "Nothing is cut before a recipe is proven.")));
+        h("div", { class: "proof-detail" }, "Nothing is saved before a recipe is proven.")));
   }
   const ok = cycle.proven;
   return h("div", { class: "proof " + (ok ? "ok" : "bad"), role: "status" },
@@ -278,11 +278,18 @@ function overviewView() {
   ];
   if (s.profiles && s.profiles.length > 1) view.push(profilePicker(s));
   if (s.last_error) view.push(h("div", { class: "banner", role: "alert" }, "Last cycle failed: " + s.last_error));
+  if (s.running && s.running.startsWith("safe configuration")) {
+    view.push(h("div", { class: "banner", role: "alert" }, "Savings switched off: " + s.running));
+  } else if (s.mode === "proposing") {
+    view.push(h("p", { class: "sub" }, "Sluice proposes configurations for review; you deploy them. Running: " +
+      (s.running || "not checked yet")));
+  }
+  for (const note of s.notes || []) view.push(h("p", { class: "sub" }, note));
   if (cycle) {
     view.push(h("section", { class: "kpis", "aria-label": "Last cycle" },
       kpi("Ingest, last cycle", `${mb(cycle.bytes_in)} → ${mb(cycle.bytes_out)}`,
         saved(cycle) + " less to the SIEM", "cut"),
-      kpi("Events, last cycle", num(cycle.events), "all archived before any cut"),
+      kpi("Events, last cycle", num(cycle.events), "all archived before any saving"),
       kpi("Templates", `${counts.enforced} / ${cycle.templates}`, `enforced · ${counts.shadow} in shadow`),
       kpi("Rollbacks", num(counts.rolled_back), counts.rolled_back ? "see the template's history" : "no failed proof in recent history")));
   }
@@ -614,7 +621,7 @@ function archiveView() {
 
   const view = [
     h("header", {}, h("h1", {}, "Archive"),
-      h("p", { class: "sub" }, "Every event exactly as it arrived, before any cut.")),
+      h("p", { class: "sub" }, "Every event exactly as it arrived, before any saving.")),
     form,
   ];
   if (state.searchError) view.push(h("div", { class: "banner", role: "alert" }, state.searchError));

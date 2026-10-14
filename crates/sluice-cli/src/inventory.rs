@@ -122,14 +122,18 @@ pub(crate) fn manifest(dir: &Path) -> Option<Manifest> {
     serde_json::from_str(&text).ok()
 }
 
-/// Whether `dir`, or the directory a fetch wrote it into (`OUT/rules` → `OUT`), is a complete
-/// fetched inventory.
-pub(crate) fn is_complete(dir: &Path) -> bool {
+/// The manifest of the fetched inventory `dir` belongs to: in `dir` itself, or in the
+/// directory a fetch wrote it into (`OUT/rules` → `OUT`).
+pub(crate) fn find_manifest(dir: &Path) -> Option<Manifest> {
     [Some(dir), dir.parent()]
         .into_iter()
         .flatten()
-        .filter_map(manifest)
-        .any(|m| m.complete)
+        .find_map(manifest)
+}
+
+/// Whether `dir` belongs to a complete fetched inventory.
+pub(crate) fn is_complete(dir: &Path) -> bool {
+    find_manifest(dir).is_some_and(|m| m.complete)
 }
 
 fn env(name: &str) -> Result<String> {

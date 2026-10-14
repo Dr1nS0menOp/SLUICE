@@ -12,6 +12,9 @@ config: |
   listen: 0.0.0.0:8686
   vector_binary: /usr/local/bin/vector
   vector_config: /var/lib/sluice/vector.yaml
+  # Sluice proposes proven configurations in /var/lib/sluice/vector-data/proposals; deploy one
+  # by copying its vector.yaml over vector_config (for example with `kubectl cp`). Sluice proves
+  # what runs every cycle and switches to the safe configuration if it fails (ADR 0022).
   archive_dir: /var/lib/sluice/archive
   data_dir: /var/lib/sluice/vector-data
   sources:

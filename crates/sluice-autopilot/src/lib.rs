@@ -8,6 +8,7 @@
 //! 5. Compile the proven recipes into the VRL that Vector runs ([`sluice_vector`]).
 
 mod analyze;
+mod basis;
 mod error;
 mod lifecycle;
 mod live;
@@ -18,9 +19,10 @@ mod spot;
 pub use crate::analyze::{
     Analysis, Helpers, Input, Sentinel, Settings, analyze, analyze_proposals,
 };
+pub use crate::basis::RulesBasis;
 pub use crate::error::AutopilotError;
 pub use crate::lifecycle::{Evidence, Lifecycle, Policy, Stage, Transition};
 pub use crate::live::{Cycle, cycle};
 pub use crate::recipes::{RecipeBook, Resolution};
-pub use crate::report::{Report, TemplateRow, render_html};
+pub use crate::report::{EMPTY_PROOF, Report, RuleRow, RuleStatus, TemplateRow, render_html};
 pub use crate::spot::SpotCheck;

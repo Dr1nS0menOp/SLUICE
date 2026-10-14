@@ -34,14 +34,19 @@ pub struct ServerConfig {
     /// Single sign-on for the console with an OIDC provider (ADR 0016).
     #[serde(default)]
     pub oidc: Option<crate::oidc::OidcConfig>,
-    /// Where Sluice writes the Vector configuration.
+    /// The configuration the Vector that `sluice up` starts runs. Sluice writes the safe
+    /// configuration here (nothing saved: every event forwarded unchanged); the operator
+    /// deploys a reviewed proposal here; with `auto_apply`, Sluice writes its own.
     pub vector_config: PathBuf,
-    /// Review before deployment (M11): write each proven configuration here as a proposal (`vector.yaml` and
-    /// `proposal.json`) instead of applying it. The running Vector keeps the configuration
-    /// with nothing enforced (archive and tap only) until the operator deploys a proposal with
-    /// their own tooling, after review.
+    /// Where proven configurations are proposed (`vector.yaml` and `proposal.json`), for review
+    /// before the operator deploys them to `vector_config` (ADR 0022). Default:
+    /// `<data_dir>/proposals`.
     #[serde(default)]
     pub proposals_dir: Option<PathBuf>,
+    /// Let Sluice apply its own proven configurations, without review: for demos and labs.
+    /// Off by default: Sluice proposes, and only ever switches savings off by itself.
+    #[serde(default)]
+    pub auto_apply: bool,
     /// The Vector binary.
     #[serde(default = "default_vector")]
     pub vector_binary: PathBuf,
@@ -57,6 +62,18 @@ pub struct ServerConfig {
     /// When proven recipes are enforced.
     #[serde(default)]
     pub promotion: PromotionConfig,
+}
+
+impl ServerConfig {
+    /// Where proposals are written, or `None` when Sluice applies its own configurations.
+    #[must_use]
+    pub fn proposals(&self) -> Option<PathBuf> {
+        (!self.auto_apply).then(|| {
+            self.proposals_dir
+                .clone()
+                .unwrap_or_else(|| self.data_dir.join("proposals"))
+        })
+    }
 }
 
 /// A source plus the Vector source that receives it.

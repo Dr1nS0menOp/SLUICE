@@ -20,9 +20,10 @@ use crate::answers::{self, utc};
 /// model's context.
 const MAX_EVENTS: usize = 100;
 
-const INSTRUCTIONS: &str = "Sluice cuts SIEM ingest without changing any detection: it proves \
-each reduction against the rules before enforcing it, re-proves it continuously and rolls back \
-on any mismatch. Every event is archived in full before any cut. Use `status` for savings and \
+const INSTRUCTIONS: &str = "Sluice writes Vector configurations that send less data to a SIEM \
+without changing any detection: it proves each saving against the rules before proposing it, \
+re-proves what runs continuously, and switches savings off on any mismatch. Every event is \
+archived in full before any saving. Use `status` for savings and \
 proof, `explain` for what is done to a kind of event and why, `what_breaks` for which detections \
 depend on a field or source, `coverage_gaps` and `source_health` for data problems, and \
 `search_archive` to look at original events, including fields a reduction removed.";
