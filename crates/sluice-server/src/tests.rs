@@ -50,6 +50,7 @@ pub(crate) fn build(
             .unwrap()
         }),
         sentinel: None,
+        complete: ["sigma", "wazuh", "sentinel"].map(String::from).into(),
     };
     build_with(dir, token, destinations, rules)
 }
@@ -354,6 +355,7 @@ async fn c5_a_sentinel_engine_takes_part_in_its_profiles_proof() {
             rules: sluice_rules::SentinelRules::parse(std::iter::empty::<(&str, &str)>()),
             engine: Some(Box::new(EveryField)),
         }),
+        complete: ["sigma", "wazuh", "sentinel"].map(String::from).into(),
     };
     let shared = Arc::new(build_with(&dir, None, destinations, rules).unwrap());
     let names: Vec<&str> = shared.profiles.iter().map(|p| p.name.as_str()).collect();

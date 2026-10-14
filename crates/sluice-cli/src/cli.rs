@@ -191,6 +191,51 @@ pub(crate) enum RulesCommand {
         #[arg(long)]
         sentinel_rules: Option<PathBuf>,
     },
+    /// Read the rules a SIEM runs from its API (read-only) into a directory, with an
+    /// `inventory.json` that marks them complete (ADR 0021). Fetching again replaces it.
+    Fetch(FetchArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct FetchArgs {
+    #[command(subcommand)]
+    pub(crate) target: FetchTarget,
+    /// The directory to write: new, empty, or an earlier fetch (which is replaced).
+    #[arg(long, global = true)]
+    pub(crate) out: Option<PathBuf>,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum FetchTarget {
+    /// Microsoft Sentinel: enabled analytics rules, hunting queries and workspace functions.
+    /// Credentials: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` (an app with
+    /// Microsoft Sentinel Reader on the workspace). Then `--sentinel-rules OUT`.
+    Sentinel {
+        /// The workspace's resource id, `/subscriptions/…/workspaces/NAME`.
+        #[arg(long)]
+        workspace: String,
+        /// Also read saved searches that are not hunting queries or functions.
+        #[arg(long)]
+        all_saved_searches: bool,
+        /// Also read the distinct queries people ran in this many days (`LAQueryLogs`; needs
+        /// query auditing on the workspace and Log Analytics Reader).
+        #[arg(long, value_name = "DAYS", value_parser = clap::value_parser!(u32).range(1..=730))]
+        query_log_days: Option<u32>,
+    },
+    /// Wazuh: the rule and decoder files the manager loads. The password is read from
+    /// `WAZUH_API_PASSWORD` (a user with `rules:read` and `decoders:read`). Then
+    /// `--wazuh-rules OUT/rules --wazuh-decoders OUT/decoders`.
+    Wazuh {
+        /// The manager API, such as `https://wazuh:55000`.
+        #[arg(long)]
+        api: String,
+        /// The API user.
+        #[arg(long)]
+        user: String,
+        /// Accept the API's self-signed certificate. Only on a trusted network path.
+        #[arg(long)]
+        insecure: bool,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -286,6 +331,10 @@ pub(crate) struct UpArgs {
     /// still constrain every cut, but the proof covers the other rule sets only.
     #[arg(long, requires = "sentinel_rules")]
     pub(crate) kusto: Option<String>,
+    /// The rule sets given are every rule and query their SIEMs run, so profiles may summarize
+    /// (L2, L3). Sets fetched with `sluice rules fetch` count as complete without it (ADR 0021).
+    #[arg(long)]
+    pub(crate) rules_complete: bool,
     /// Feed synthetic traffic into the configured `http_server` sources (for trying it out).
     #[arg(long)]
     pub(crate) demo_traffic: bool,
@@ -343,6 +392,18 @@ pub(crate) struct AnalyzeArgs {
     /// (for example a copy of `/var/ossec/ruleset/decoders` and `/var/ossec/etc/decoders`).
     #[arg(long, requires = "wazuh_rules")]
     pub(crate) wazuh_decoders: Option<PathBuf>,
+    /// Directory of Microsoft Sentinel analytics rules, hunting queries and functions, such as
+    /// a `sluice rules fetch sentinel` directory. Their requirements constrain every cut.
+    #[arg(long)]
+    pub(crate) sentinel_rules: Option<PathBuf>,
+    /// URL of a Kusto emulator: the proof then runs the Sentinel rules themselves on full and
+    /// forwarded records of the sources named with `--sentinel-table`.
+    #[arg(long, requires_all = ["sentinel_rules", "sentinel_table"])]
+    pub(crate) kusto: Option<String>,
+    /// The Sentinel table a source's sample records are stored in, as `SOURCE=TABLE` (such as
+    /// `windows-security=SecurityEvent`). Repeatable.
+    #[arg(long, value_name = "SOURCE=TABLE", requires = "kusto")]
+    pub(crate) sentinel_table: Vec<String>,
     /// Wazuh manager API (for example `https://wazuh:55000`) to spot-check reductions with its
     /// real decoders and rules through `logtest`. The password is read from
     /// `WAZUH_API_PASSWORD`.
@@ -357,6 +418,11 @@ pub(crate) struct AnalyzeArgs {
     /// Directory of extra recipes, used next to the built-in ones.
     #[arg(long)]
     pub(crate) recipes: Option<PathBuf>,
+    /// The rules given are every rule and query the SIEM runs. Only then are events summarized
+    /// (L2, L3); otherwise Sluice makes lossless cuts only. Rules fetched with `sluice rules
+    /// fetch` count as complete without it (ADR 0021).
+    #[arg(long)]
+    pub(crate) rules_complete: bool,
     /// Directory for `vector.yaml` and `report.html`.
     #[arg(long, default_value = "out")]
     pub(crate) out: PathBuf,

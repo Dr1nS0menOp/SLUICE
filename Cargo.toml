@@ -21,6 +21,7 @@ sluice-discover = { path = "crates/sluice-discover" }
 sluice-kql = { path = "crates/sluice-kql" }
 sluice-mcp = { path = "crates/sluice-mcp" }
 sluice-rules = { path = "crates/sluice-rules" }
+sluice-sentinel = { path = "crates/sluice-sentinel" }
 sluice-server = { path = "crates/sluice-server" }
 sluice-vector = { path = "crates/sluice-vector" }
 sluice-wazuh = { path = "crates/sluice-wazuh" }

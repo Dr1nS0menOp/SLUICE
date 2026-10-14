@@ -68,6 +68,7 @@ pub(crate) fn guarded(template: &Template, reductions: Vec<Reduction>) -> Effect
             rules: rules().requirements(),
             config: GuardrailConfig::default(),
             archive_enabled: true,
+            rules_complete: true,
         },
     )
 }

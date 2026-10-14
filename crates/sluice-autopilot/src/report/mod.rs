@@ -10,10 +10,9 @@ use sluice_core::logsource::LogSource;
 use sluice_core::proof::Volume;
 use sluice_core::rules::RuleRequirements;
 use sluice_core::template::Template;
-use sluice_rules::{SigmaRules, WazuhRules};
 
 pub use self::html::render_html;
-use crate::analyze::Analysis;
+use crate::analyze::{Analysis, Input};
 use crate::spot::SpotCheck;
 
 /// The report of one analysis.
@@ -62,9 +61,9 @@ pub struct TemplateRow {
 }
 
 impl Report {
-    /// Builds the report of an analysis.
+    /// Builds the report of an analysis of `input`.
     #[must_use]
-    pub fn new(analysis: &Analysis, sigma: &SigmaRules, wazuh: Option<&WazuhRules>) -> Self {
+    pub fn new(analysis: &Analysis, input: Input<'_>) -> Self {
         let proof = &analysis.selection.proof;
         let mut templates: Vec<TemplateRow> = analysis
             .discovery
@@ -80,11 +79,15 @@ impl Report {
                 .then(a.id.cmp(&b.id))
         });
 
-        let mut rules = vec![("Sigma".to_owned(), sigma.requirements().len())];
-        let mut requirements: Vec<&RuleRequirements> = sigma.requirements().iter().collect();
-        if let Some(wazuh) = wazuh {
+        let mut rules = vec![("Sigma".to_owned(), input.sigma.requirements().len())];
+        let mut requirements: Vec<&RuleRequirements> = input.sigma.requirements().iter().collect();
+        if let Some(wazuh) = input.wazuh {
             rules.push(("Wazuh".to_owned(), wazuh.requirements().len()));
             requirements.extend(wazuh.requirements());
+        }
+        if let Some(sentinel) = input.sentinel {
+            rules.push(("Sentinel".to_owned(), sentinel.rules.requirements().len()));
+            requirements.extend(sentinel.rules.requirements());
         }
         Self {
             total: proof.total,

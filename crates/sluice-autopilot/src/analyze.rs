@@ -32,6 +32,10 @@ pub struct Settings {
     /// Requirements operators added (ADR 0016), such as fields to keep. They constrain the
     /// guardrails like any rule, but are not evaluated in the proof.
     pub operator_rules: Vec<RuleRequirements>,
+    /// Whether the rules are every rule and query the SIEM runs (ADR 0021). Off by default:
+    /// then only lossless cuts are made, since a rule Sluice was not given could match any
+    /// event that would be summarized.
+    pub rules_complete: bool,
 }
 
 impl Default for Settings {
@@ -41,6 +45,19 @@ impl Default for Settings {
             guardrails: GuardrailConfig::default(),
             archive_enabled: true,
             operator_rules: Vec::new(),
+            rules_complete: false,
+        }
+    }
+}
+
+impl Settings {
+    /// The default settings for rules known to be complete, such as a fetched inventory or a
+    /// self-contained demo.
+    #[must_use]
+    pub fn with_complete_rules() -> Self {
+        Self {
+            rules_complete: true,
+            ..Self::default()
         }
     }
 }
@@ -251,6 +268,7 @@ pub fn analyze_proposals(
         rules: &requirements,
         config: settings.guardrails,
         archive_enabled: settings.archive_enabled,
+        rules_complete: settings.rules_complete,
     };
     let candidates: Vec<EffectiveRecipe> = discovery
         .templates

@@ -64,6 +64,24 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
      --wazuh-rules wazuh/rules --wazuh-decoders wazuh/decoders
    ```
 
+   Sluice only summarizes events (L2, L3) when the rules are **every** rule and query your SIEM
+   runs: a rule it was not given could match what it summarizes. Read them from the SIEM, or
+   say they are complete:
+
+   ```sh
+   # Wazuh: the rule and decoder files the manager loads (password in WAZUH_API_PASSWORD)
+   sluice rules fetch --out inventory/wazuh wazuh --api https://manager:55000 --user reader
+   # Sentinel: enabled analytics rules, hunting queries and functions
+   # (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET; Microsoft Sentinel Reader)
+   sluice rules fetch --out inventory/sentinel sentinel \
+     --workspace /subscriptions/…/resourceGroups/…/providers/Microsoft.OperationalInsights/workspaces/…
+   ```
+
+   Then pass `--wazuh-rules inventory/wazuh/rules --wazuh-decoders inventory/wazuh/decoders` or
+   `--sentinel-rules inventory/sentinel`. Sigma rules have no SIEM API to read them from: pass
+   `--rules-complete` when the directory holds every Sigma rule your SIEM runs. Without either,
+   Sluice makes lossless cuts only and says so (ADR 0021).
+
 4. **Read the report.** `report.html` shows the saving per source and template, the proof, and
    for every template that was not cut the reason (a rule reads that field, the template is rare,
    no recipe matches). `sluice analyze` also prints hints when a vague source description keeps
@@ -180,8 +198,11 @@ sluice up --config sluice.yaml --rules sigma/rules \
   --sentinel-rules sentinel-rules/ --kusto http://127.0.0.1:8090
 ```
 
-- The directory holds your rules as YAML (exported from your workspace, or the ones you use from
-  [Azure/Azure-Sentinel](https://github.com/Azure/Azure-Sentinel)). Add the ASIM parsers
+- The directory holds your rules as YAML. `sluice rules fetch sentinel` writes exactly what the
+  workspace runs, hunting queries and workspace functions included, and marks it complete;
+  `--query-log-days 30` adds every query people ran in Logs (with query auditing on). Rules
+  you copy from [Azure/Azure-Sentinel](https://github.com/Azure/Azure-Sentinel) yourself need
+  `--rules-complete` to allow summaries. Add the ASIM parsers
   (`Parsers/ASim*/Parsers` and `ASIM/lib/functions` from the same repository), so rules that use
   a parser are bounded by what the parser reads.
 - With `--kusto`, every cycle runs those rules in the [Kusto
@@ -190,6 +211,9 @@ sluice up --config sluice.yaml --rules sigma/rules \
   starts the emulator in Docker.
 - Point it at the rules you actually run. A rule that reads `EventData` on every event keeps
   `EventData` on every event, which is right for that rule and costly if you never enabled it.
+- `sluice analyze` proves the same way on a sample, offline: add `--sentinel-rules DIR --kusto
+  http://127.0.0.1:8090 --sentinel-table windows-security=SecurityEvent` (one `SOURCE=TABLE`
+  per source whose sample records are stored as that table).
 
 ## 5. Several SIEMs at once
 

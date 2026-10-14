@@ -95,6 +95,7 @@ fn ctx(rules: &[RuleRequirements]) -> GuardContext<'_> {
         rules,
         config: GuardrailConfig::default(),
         archive_enabled: true,
+        rules_complete: true,
     }
 }
 
@@ -118,6 +119,7 @@ fn c2_without_archive_nothing_is_cut() {
     let recipe = recipe(vec![drop(&["Message"]), Reduction::DropEmptyFields]);
     let context = GuardContext {
         archive_enabled: false,
+        rules_complete: true,
         ..ctx(&[])
     };
     let effective = guard(&template(), Some(&recipe), context);
@@ -544,6 +546,58 @@ fn c3_a_rule_in_another_convention_does_not_widen_what_its_log_source_excludes()
     let proposal = recipe(vec![drop(&["Message"])]);
     let effective = guard(&ecs_template(), Some(&proposal), ctx(&[sysmon]));
     assert_eq!(effective.drop_fields, BTreeSet::from(["Message".into()]));
+}
+
+// ---------- rule 3, a complete rule inventory (ADR 0021) ----------
+
+fn incomplete(rules: &[RuleRequirements]) -> GuardContext<'_> {
+    GuardContext {
+        rules_complete: false,
+        ..ctx(rules)
+    }
+}
+
+#[test]
+fn c3_without_a_complete_inventory_nothing_is_summarized() {
+    for routing in [
+        forward_matching(),
+        Reduction::Summarize {
+            summary_keys: vec!["TargetUserName".into()],
+        },
+    ] {
+        let level = routing.level();
+        let proposal = recipe(vec![drop(&["Keywords"]), routing]);
+        let effective = guard(&template(), Some(&proposal), incomplete(&[]));
+        assert_eq!(effective.route, Route::ForwardAll, "{effective:?}");
+        assert!(
+            effective
+                .adjustments
+                .iter()
+                .any(|a| a.reason == Reason::RulesNotComplete
+                    && a.level == Some(level)
+                    && a.contract == ContractRule::RuleMatchesForwarded)
+        );
+    }
+}
+
+#[test]
+fn c3_without_a_complete_inventory_lossless_cuts_still_apply() {
+    let proposal = recipe(vec![drop(&["Keywords"]), forward_matching()]);
+    let effective = guard(&template(), Some(&proposal), incomplete(&[]));
+    assert_eq!(effective.drop_fields, BTreeSet::from(["Keywords".into()]));
+}
+
+#[test]
+fn c3_with_a_complete_inventory_the_same_proposal_is_routed() {
+    let proposal = recipe(vec![forward_matching()]);
+    let effective = guard(&template(), Some(&proposal), ctx(&[]));
+    assert!(matches!(effective.route, Route::ForwardMatching { .. }));
+    assert!(
+        !effective
+            .adjustments
+            .iter()
+            .any(|a| a.reason == Reason::RulesNotComplete)
+    );
 }
 
 // ---------- rule 3, fields parsed out of text lines (ADR 0020) ----------

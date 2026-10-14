@@ -164,7 +164,7 @@ fn odd_names_and_values_compile_and_keep_every_alert() {
             rarity_min_events: 0,
             rarity_min_share_ppm: 0,
         },
-        ..Settings::default()
+        ..Settings::with_complete_rules()
     };
     runner
         .run(
@@ -246,7 +246,7 @@ fn odd_text_lines_compile_and_keep_every_alert() {
             rarity_min_events: 0,
             rarity_min_share_ppm: 0,
         },
-        ..Settings::default()
+        ..Settings::with_complete_rules()
     };
     let mut runner = TestRunner::new_with_rng(
         Config {

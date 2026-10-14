@@ -9,7 +9,6 @@ use serde_json::Value;
 use sluice_autopilot::RecipeBook;
 use sluice_core::event::Timestamp;
 use sluice_kql::{KustoEngine, Table};
-use sluice_rules::SentinelRules;
 use sluice_rules::SigmaRules;
 use sluice_server::{Rules, SentinelRuleSet, ServerConfig, Shape, Status};
 use sluice_synth::{SynthConfig, generate};
@@ -36,6 +35,7 @@ pub(crate) fn up(args: &UpArgs) -> Result<()> {
         )?,
         wazuh: input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?,
         sentinel: sentinel(args, &config)?,
+        complete: complete_sets(args),
     };
     let analysis_sources: Vec<_> = config
         .sources
@@ -176,18 +176,9 @@ fn utc(at: i64) -> String {
 /// The Sentinel rules, with the emulator that runs them if `--kusto` is given. Each source's
 /// `shape` says which Sentinel table its records land in.
 fn sentinel(args: &UpArgs, config: &ServerConfig) -> Result<Option<SentinelRuleSet>> {
-    let Some(dir) = &args.sentinel_rules else {
+    let Some(rules) = input::sentinel(args.sentinel_rules.as_deref())? else {
         return Ok(None);
     };
-    let files = input::files(dir, &["yaml", "yml"])?;
-    let rules = SentinelRules::parse(
-        files
-            .iter()
-            .map(|(path, text)| (path.as_str(), text.as_str())),
-    );
-    for problem in rules.problems() {
-        eprintln!("warning: {problem}");
-    }
     let Some(url) = &args.kusto else {
         eprintln!(
             "note: without --kusto the proof does not run the Sentinel rules; their \
@@ -226,6 +217,48 @@ fn sentinel(args: &UpArgs, config: &ServerConfig) -> Result<Option<SentinelRuleS
         rules,
         engine: Some(Box::new(engine)),
     }))
+}
+
+/// The rule sets known to be complete (ADR 0021): every set with `--rules-complete`, otherwise
+/// those read from a complete `sluice rules fetch`. Sigma has no SIEM API, so only the flag
+/// marks it. Says so when a set is not.
+fn complete_sets(args: &UpArgs) -> std::collections::BTreeSet<String> {
+    let sets = [
+        ("sigma", args.rules.as_deref(), false),
+        (
+            "wazuh",
+            args.wazuh_rules.as_deref(),
+            args.wazuh_rules
+                .as_deref()
+                .is_some_and(crate::inventory::is_complete),
+        ),
+        (
+            "sentinel",
+            args.sentinel_rules.as_deref(),
+            args.sentinel_rules
+                .as_deref()
+                .is_some_and(crate::inventory::is_complete),
+        ),
+    ];
+    let mut complete = std::collections::BTreeSet::new();
+    // Without `--rules` the Sigma set is empty. It is complete only next to a fetched set, whose
+    // SIEM it then stands beside; alone, an empty set would let everything be summarized.
+    let any_fetched = sets.iter().any(|(_, _, fetched)| *fetched);
+    if args.rules.is_none() && any_fetched {
+        complete.insert("sigma".to_owned());
+    }
+    for (name, dir, fetched) in sets {
+        if args.rules_complete || fetched {
+            complete.insert(name.to_owned());
+        } else if dir.is_some() {
+            eprintln!(
+                "hint: the {name} rules are not known to be complete, so profiles with them \
+                 make lossless cuts only. Fetch them with `sluice rules fetch`, or pass \
+                 --rules-complete if they are (docs/adr/0021-rule-inventory.md)."
+            );
+        }
+    }
+    complete
 }
 
 fn read(dir: Option<&Path>, extensions: &[&str]) -> Result<Vec<String>> {

@@ -37,8 +37,13 @@ fn demo() -> &'static Demo {
             wazuh: None,
             sentinel: None,
         };
-        let analysis = analyze(input, &book, &Settings::default(), Helpers::default())
-            .expect("analysis succeeds");
+        let analysis = analyze(
+            input,
+            &book,
+            &Settings::with_complete_rules(),
+            Helpers::default(),
+        )
+        .expect("analysis succeeds");
         Demo {
             sample,
             rules,

@@ -51,6 +51,15 @@ explains the terms.
   line (`fields the SIEM parses out of the line`); keyword rules are compared as before.
   Summary keys are read where a shaped record keeps them, `EventData` object or XML included, so
   `SecurityEvent` summaries no longer lose their keys.
+- The rule inventory comes from the SIEM (ADR 0021). `sluice rules fetch sentinel` reads a
+  workspace's enabled analytics rules, hunting queries, workspace functions and, with
+  `--query-log-days`, the queries people ran; `sluice rules fetch wazuh` reads the rule and
+  decoder files the manager loads. Both are read-only and write an `inventory.json`.
+  **Breaking:** events are only summarized (L2, L3) when every rule set is complete: fetched, or
+  claimed with `--rules-complete`; otherwise Sluice makes lossless cuts only
+  (`not summarized: the rules are not known to be complete`). `sluice analyze` takes
+  `--sentinel-rules`, `--kusto` and `--sentinel-table` to prove against Sentinel rules and
+  queries in the Kusto emulator, as `sluice up` does.
 
 ### Live operation
 

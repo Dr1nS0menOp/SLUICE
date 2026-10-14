@@ -60,6 +60,12 @@ impl Table {
         Self::ASimWebSessionLogs,
     ];
 
+    /// The table with this name in a Log Analytics workspace, if Sluice can load it.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|t| t.name() == name)
+    }
+
     /// The table's name in a Log Analytics workspace.
     #[must_use]
     pub fn name(self) -> &'static str {

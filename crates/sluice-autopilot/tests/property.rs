@@ -122,7 +122,7 @@ fn any_proposals_yield_an_alert_preserving_data_plane() {
                 input,
                 discovery().clone(),
                 proposals,
-                &Settings::default(),
+                &Settings::with_complete_rules(),
                 Helpers::default(),
                 Vec::new(),
             )

@@ -81,7 +81,7 @@ fn eager_advice_is_guarded_and_proven() {
     let analysis = analyze(
         input,
         &book,
-        &Settings::default(),
+        &Settings::with_complete_rules(),
         Helpers {
             advisor: Some(&advisor),
             ..Helpers::default()
@@ -139,7 +139,7 @@ fn a_failing_advisor_is_reported_not_fatal() {
     let analysis = analyze(
         input,
         &book,
-        &Settings::default(),
+        &Settings::with_complete_rules(),
         Helpers {
             advisor: Some(&Broken),
             ..Helpers::default()

@@ -145,6 +145,53 @@ pub(crate) fn wazuh(
     )?))
 }
 
+/// Sentinel analytics rules, hunting queries and functions from `dir`, if given; problems are
+/// printed as warnings.
+pub(crate) fn sentinel(dir: Option<&Path>) -> Result<Option<sluice_rules::SentinelRules>> {
+    let Some(dir) = dir else {
+        return Ok(None);
+    };
+    let files = files(dir, &["yaml", "yml"])?;
+    let rules = sluice_rules::SentinelRules::parse(
+        files
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str())),
+    );
+    for problem in rules.problems() {
+        eprintln!("warning: {problem}");
+    }
+    Ok(Some(rules))
+}
+
+/// The Kusto emulator at `url`, running `rules` on the sources `--sentinel-table` names.
+pub(crate) fn kusto(
+    url: &str,
+    rules: &sluice_rules::SentinelRules,
+    specs: &[String],
+) -> Result<sluice_kql::KustoEngine> {
+    let tables = specs
+        .iter()
+        .map(|spec| {
+            let (source, table) = spec
+                .split_once('=')
+                .with_context(|| format!("--sentinel-table {spec}: expected SOURCE=TABLE"))?;
+            let table = sluice_kql::Table::from_name(table.trim()).with_context(|| {
+                format!("--sentinel-table {spec}: Sluice cannot load table `{table}`")
+            })?;
+            Ok((sluice_core::ids::SourceId::new(source.trim()), table))
+        })
+        .collect::<Result<_>>()?;
+    let engine = sluice_kql::KustoEngine::connect(url, rules.queries(), tables)
+        .with_context(|| format!("connecting to the Kusto emulator at {url}"))?;
+    eprintln!(
+        "Sentinel: {} rules run in the emulator, {} cannot run there and are covered by their \
+         requirements only",
+        engine.rules().count(),
+        engine.skipped().len()
+    );
+    Ok(engine)
+}
+
 /// Every file under `dir` with one of `extensions`, as `(path, contents)`, sorted by path.
 pub(crate) fn files(dir: &Path, extensions: &[&str]) -> Result<Vec<(String, String)>> {
     let mut paths = Vec::new();

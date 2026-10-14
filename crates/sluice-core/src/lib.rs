@@ -16,6 +16,7 @@ pub mod event;
 pub mod field;
 pub mod guard;
 pub mod ids;
+pub mod inventory;
 pub mod logsource;
 pub mod predicate;
 pub mod proof;

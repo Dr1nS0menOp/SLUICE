@@ -62,10 +62,10 @@
 <text x="36" y="555" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">Sigma field rules keep text</text>
 <text x="36" y="572" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">sources whole.</text>
 <rect x="312" y="500" width="270" height="96" rx="6" fill="#FBEAE6" stroke="#B3261E" stroke-width="2" stroke-dasharray="6 4"/>
-<text x="324" y="520" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#B3261E" text-anchor="start" letter-spacing="0.6">LIMIT · D · M10</text>
-<text x="324" y="538" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">Rules come from directories;</text>
-<text x="324" y="555" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">hunts, dashboards and other</text>
-<text x="324" y="572" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">SIEM languages are not read.</text>
+<text x="324" y="520" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#B3261E" text-anchor="start" letter-spacing="0.6">LIMIT · D · M12</text>
+<text x="324" y="538" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">Only Sentinel and Wazuh rules</text>
+<text x="324" y="555" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">are fetched; SPL, EQL, YARA-L</text>
+<text x="324" y="572" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">rules are not read yet.</text>
 <rect x="600" y="500" width="240" height="96" rx="6" fill="#FFFFFF" stroke="#15232D" stroke-width="1.5"/>
 <text x="612" y="524" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#15232D">Operators</text>
 <text x="612" y="544" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">console, sluice status, MCP:</text>

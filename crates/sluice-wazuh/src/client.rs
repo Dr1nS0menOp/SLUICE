@@ -121,11 +121,13 @@ impl<T: Transport> Logtest<T> {
         if let Some(jwt) = self.jwt.borrow().clone() {
             return Ok(jwt);
         }
-        let basic = base64(&format!("{}:{}", self.config.user, self.config.password));
         let (status, body) = self.transport.send(
             "POST",
             &self.url("/security/user/authenticate"),
-            &[("authorization", format!("Basic {basic}"))],
+            &[(
+                "authorization",
+                basic_auth(&self.config.user, &self.config.password),
+            )],
             None,
         )?;
         let jwt = ok_json(status, &body)?["data"]["token"]
@@ -208,7 +210,7 @@ fn rule_ids(alert: Result<Option<String>, WazuhError>) -> Result<BTreeSet<RuleId
         .collect())
 }
 
-fn ok_json(status: u16, body: &str) -> Result<Value, WazuhError> {
+pub(crate) fn ok_json(status: u16, body: &str) -> Result<Value, WazuhError> {
     if !(200..300).contains(&status) {
         return Err(WazuhError::Http(format!("HTTP {status}: {body}")));
     }
@@ -221,6 +223,11 @@ fn ok_json(status: u16, body: &str) -> Result<Value, WazuhError> {
         )));
     }
     Ok(value)
+}
+
+/// The `Authorization` header value for HTTP Basic authentication.
+pub(crate) fn basic_auth(user: &str, password: &str) -> String {
+    format!("Basic {}", base64(&format!("{user}:{password}")))
 }
 
 /// Standard base64, for the Basic authorization header.
