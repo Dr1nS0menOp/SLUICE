@@ -31,7 +31,7 @@ first, how, what "done" means, and where the gaps are today (counted 2026-10-14)
 | sluice-autopilot | 2,472 | 27 | 20 | medium | `analyze.rs`, `live.rs`, `spot.rs`, `report/` |
 | sluice-server | 4,579 | 27 | 0 | medium; **high** for auth | `running.rs`, `control.rs`, `routes.rs`, `config.rs`, `status.rs` (most covered only through `tests.rs`) |
 | sluice-kql | 1,724 | 10 | 2 | medium | `schema.rs` (data) |
-| sluice-sentinel, sluice-wazuh | 1,553 | 20 | 0 | medium: credentials, untrusted API data | `sentinel/azure.rs` |
+| sluice-sentinel, sluice-wazuh | 1,553 | 20 | 0 | medium: credentials, untrusted API data | none (`azure.rs` done 2026-10-14) |
 | sluice-archive, sluice-mcp, sluice-ai | 2,699 | 24 | 6 | medium | `scan.rs`, `layout.rs`, `advisor.rs`, `prompt.rs` |
 | sluice-cli | 2,249 | 6 | 14 | low: thin wiring | most modules; covered end to end |
 | sluice-synth | 1,887 | 4 | 8 | low: test data | the generators |
@@ -127,24 +127,41 @@ Each was fixed with a regression test named after what it broke.
 | 3 | `sluice-core` `predicate.rs` | `any()` did not absorb an `Always` nested in a hand-built `Any` | An unbounded rule was not recognized as one (safe, but not simplified) | `c3_always_nested_in_a_hand_built_disjunction_absorbs_it` |
 | 4 | `sluice-rules` Sentinel extraction | `table("SecurityEvent")`, `union isfuzzy=true *`, `union Security*` and `find` were not read as reading tables | A query read Windows tables Sluice did not see: fail-open | `c3_tables_named_at_run_time_by_wildcard_or_by_find_may_read_every_windows_table` |
 | 5 | `sluice-rules` Wazuh decoders | `program_name` with `type="osregex"` or `pcre2` was read as a literal | `^ssh.` as a regex also takes `sshX`, which the keyword bound missed: fail-open | `c3_a_program_name_that_is_a_regex_does_not_bound_its_rules` |
-
 | 6 | `sluice-vector` `predicate.rs` | A field test compared a float value by its text (`4625.0`), while keyword tests already widened floats | A rule on `EventID: 4625` could miss a record whose value is the float `4625.0`: fail-open | `c3_a_float_value_may_match_any_number_text` |
 | 7 | `sluice-core` `proof.rs` | The roll-back loop of `select_proven` had no bound: mutation testing showed a broken roll-back loops forever | A bug there would hang the control plane instead of failing the cycle | `c5_the_selection_never_needs_more_rounds_than_recipes_plus_one` |
-
 | 8 | `sluice-vector` `predicate.rs` | The VRL compiler used three variables per test; VRL's type checker is quadratic in the number of variables (measured: 100 tests 3.5 s, 800 tests 271 s in a debug build) | Large rule sets made every cycle's compile slow; 3,000 tests did not finish in 20 minutes | `thousands_of_alternatives_compile_without_overflowing_the_stack` (now 3,000 tests, bounded at 30 s; one variable per nesting level, short-circuiting) |
-
 | 9 | `sluice-discover` `shape.rs` | Discovery rendered a `null` discriminator as `null` and a whole float as `4624.0`; VRL's `to_string` gives `""` and `4624` | Events of such templates were never classified in the data plane: always forwarded, no saving (safe, but lost) | `discriminators_render_as_vrl_to_string_does`, `null_and_whole_floats_render_as_discovery_now_renders_them` |
-
 | 10 | `sluice-vector` `deployed.rs` (used by `sluice prove` and the guard of what runs) | Only programs under the names Sluice expects were proven; a program under another name (left from a one-profile layout, or renamed) or an extra `sluice_` remap that changes events passed as "nothing reduced" | A configuration could run reductions no proof covered: fail-open | `c3_a_program_under_another_name_is_reported_unproven`, `c3_an_extra_remap_that_changes_events_is_reported_unproven`, `c3_a_deployed_program_sluice_cannot_place_switches_savings_off` |
-
 | 11 | `sluice-ai` `redact.rs` | Redaction before a sample goes to a model missed IPv6 and MAC addresses, JWTs, and base64 secrets with `/`, `+` or `=` (an AWS secret key split into pieces shorter than 20) | Those values reached a cloud model unchanged: a privacy leak | `ipv6_addresses_are_replaced`, `mac_addresses_are_replaced`, `jwts_and_base64_secrets_are_replaced` |
-
 | 12 | `sluice-mcp` `replay` | With `--allow-replay` the assistant chose the destination URL; log text it reads through `search_archive` can carry injected instructions | An attacker who can write a log line could have archived events sent to their own server: exfiltration | `replay_refuses_any_destination_it_was_not_started_with` (now `--replay-to URL`, an allowlist) |
-
 | 13 | `sluice-vector` `config.rs`, `live.rs` | Source ids that differ only in case, `-` or `_` (`windows-security`, `windows_security`) became the same Vector component names, and the second overwrote the first; ids with `/` or `..` name archive and sample paths | One source's events went nowhere (a detection gap), or paths left their directory | `sources_whose_component_names_would_collide_are_refused` |
+| 14 | `sluice-sentinel` `azure.rs` | A list followed any `nextLink` with the bearer token, to any host, and without noticing a link that repeats | A tampered or buggy response could send the ARM token elsewhere, or loop the fetch forever | `c1_a_next_link_to_another_host_never_gets_the_token`, `a_next_link_that_repeats_stops_the_list` |
+| 15 | `sluice-sentinel` `inventory.rs` | An alert rule without an `enabled` flag was counted as disabled and not read | A running rule could be missing from the inventory while it claimed to be complete: fail-open | `c3_a_rule_without_an_enabled_flag_is_read` |
+| 16 | `sluice-sentinel` `azure.rs` | A token endpoint or proxy that repeats the request in its error put the client secret, form-encoded, into the error message | The secret could reach a terminal or a log | `c1_the_secret_never_appears_in_a_token_error` |
+| 17 | `sluice-wazuh` `inventory.rs` | A file listing without `total_affected_items` stopped after its first page, and a listing that came up short was not noticed | Rule files missing from an inventory that said it was complete: fail-open | `c3_a_listing_without_a_total_fails_instead_of_passing_as_complete`, `c3_a_listing_that_comes_up_short_fails` |
+| 18 | `sluice-wazuh` `client.rs` | `logtest` never renewed its JWT (Wazuh's default lifetime is 900 s), and error messages carried whole response bodies | A proof against a large sample failed after 15 minutes (safe, but no proof); errors could repeat event text at any length | `an_expired_jwt_is_renewed_once`, `a_401_after_renewal_fails_closed`, `error_bodies_are_cut_to_an_excerpt` |
+| 19 | `sluice-cli` `input.rs` | Reading a rules directory followed symbolic links without end; `.XML`/`.YAML` files were skipped; a sample with a byte order mark failed on line 1 | A link loop crashed the run (stack overflow); a rule file in upper case was silently left out: fail-open | `a_symbolic_link_loop_ends_and_each_directory_is_read_once`, `files_are_found_recursively_sorted_and_by_extension_in_any_case`, `a_byte_order_mark_and_crlf_line_ends_are_not_part_of_a_record` |
+| 20 | `sluice-autopilot` `analyze.rs` | Problems reading Sentinel rules were printed by the CLI but not added to the analysis, unlike Sigma's and Wazuh's | The report, the server's status and MCP showed no problem for a Sentinel rule file that could not be read | `sentinel_rule_problems_are_listed_in_the_analysis` |
+| 21 | `sluice-kql` `syntax.rs` | A field or column name with a newline, tab or other control character was put into `['…']` unescaped | A JSON key from a log line could make the generated KQL fail to parse (the KQL is advisory, so no data was lost, but the check broke) | `names_escape_what_a_literal_escapes_and_refuse_the_rest`, `a_field_or_column_name_kql_cannot_quote_widens_to_true` |
 
-Mutation testing (`cargo-mutants` 27.1.0, MIT) on `sluice-core`, 2026-10-14: 241 mutants, 217
-caught, 0 missed, 18 unviable, 6 timeouts (all in the roll-back loop, which bug 7 bounds).
+Mutation testing (`cargo-mutants` 27.1.0, MIT) on `sluice-core`, 2026-10-14: 246 mutants, 214
+caught, 30 unviable, 0 timeouts, 2 missed. Both are closed:
+- `attribute_may_match` with one side alone non-ASCII now has a test (the Kelvin sign `K`).
+- The `op != Exists` guard in `merge_alternatives` was redundant and is gone: merging two
+  `exists` tests on one field changes nothing.
+
+A first run, with a shared target directory, reported 0 missed: its results were noise (see
+below).
+
+Running it:
+- `unset CARGO_TARGET_DIR` first. `scripts/wsl.ps1` points every build at
+  `~/.cache/sluice-target`, and with `--jobs` above 1 the mutants then overwrite each other's test
+  binaries.
+- `ulimit -v 6000000` caps each process. A mutant can make a test allocate without end; one
+  `sluice-rules` mutant reached 12.6 GB, and the OOM killer took WSL down with it
+  (`wsl --shutdown` recovers).
+- Then `cargo mutants -p CRATE --jobs 2 --timeout 180 --output DIR`. Each job builds in its own
+  copy.
 
 Known limits found, not fixed: a workspace function whose name is all lower case looks like a
 KQL built-in to the Sentinel extractor, so a rule calling it is not widened unless the function

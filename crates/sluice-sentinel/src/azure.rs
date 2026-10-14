@@ -1,5 +1,6 @@
 //! A minimal, read-only client for Azure Resource Manager and the Log Analytics query API.
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -129,16 +130,19 @@ impl<'a, T: Transport> Client<'a, T> {
             "https://login.microsoftonline.com/{}/oauth2/v2.0/token",
             encode(&credentials.tenant)
         );
-        let (status, body) = transport.send(
-            "POST",
-            &url,
-            &[(
-                "content-type",
-                "application/x-www-form-urlencoded".to_owned(),
-            )],
-            Some(&form),
-        )?;
-        let token = json(status, &body)?["access_token"]
+        let secret = credentials.client_secret.as_str();
+        let (status, body) = transport
+            .send(
+                "POST",
+                &url,
+                &[(
+                    "content-type",
+                    "application/x-www-form-urlencoded".to_owned(),
+                )],
+                Some(&form),
+            )
+            .map_err(|e| scrub(e, secret))?;
+        let token = json(status, &body).map_err(|e| scrub(e, secret))?["access_token"]
             .as_str()
             .map(str::to_owned)
             .ok_or_else(|| {
@@ -167,10 +171,27 @@ impl<'a, T: Transport> Client<'a, T> {
     }
 
     /// Every item of a Resource Manager list, following `nextLink`.
+    ///
+    /// A `nextLink` must stay on the list's own origin, so the bearer token never goes to a
+    /// host the response names, and must not repeat, so a misbehaving API cannot loop us.
     pub(crate) fn list(&self, url: &str) -> Result<Vec<Value>, SentinelError> {
+        let home = origin(url);
+        let mut seen = BTreeSet::new();
         let mut items = Vec::new();
         let mut next = Some(url.to_owned());
         while let Some(url) = next.take() {
+            if origin(&url) != home {
+                return Err(SentinelError::Invalid(format!(
+                    "a nextLink leaves {home}: {}",
+                    short(&url)
+                )));
+            }
+            if !seen.insert(url.clone()) {
+                return Err(SentinelError::Invalid(format!(
+                    "a nextLink repeats: {}",
+                    short(&url)
+                )));
+            }
             let page = self.get(&url)?;
             let Some(values) = page["value"].as_array() else {
                 return Err(SentinelError::Invalid(format!(
@@ -200,6 +221,30 @@ fn short(url: &str) -> &str {
     url.split('?').next().unwrap_or(url)
 }
 
+/// `scheme://host[:port]`, lowercased; the whole string when it has no `://`.
+fn origin(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_ascii_lowercase();
+    };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    format!("{scheme}://{host}").to_ascii_lowercase()
+}
+
+/// Replaces the secret, raw and form-encoded, wherever an error message repeats it.
+fn scrub(error: SentinelError, secret: &str) -> SentinelError {
+    if secret.is_empty() {
+        return error;
+    }
+    let clean = |m: String| {
+        m.replace(secret, "<redacted>")
+            .replace(&encode(secret), "<redacted>")
+    };
+    match error {
+        SentinelError::Http(m) => SentinelError::Http(clean(m)),
+        SentinelError::Invalid(m) => SentinelError::Invalid(clean(m)),
+    }
+}
+
 /// Percent-encodes a form or query value: everything but unreserved characters.
 pub(crate) fn encode(value: &str) -> String {
     value
@@ -213,3 +258,6 @@ pub(crate) fn encode(value: &str) -> String {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

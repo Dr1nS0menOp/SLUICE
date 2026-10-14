@@ -74,6 +74,12 @@ pub fn fetch(
                  enabled on the workspace (diagnostic setting \"Audit\")?"
             ));
         }
+        if queries.len() >= MAX_LOGGED_QUERIES {
+            out.inventory.manifest.not_modeled.push(format!(
+                "the query log has more than {MAX_LOGGED_QUERIES} distinct queries; only the \
+                 {MAX_LOGGED_QUERIES} run most often were read"
+            ));
+        }
         out.inventory
             .manifest
             .counts
@@ -199,7 +205,8 @@ impl Out {
             .as_str()
             .ok_or_else(|| SentinelError::Invalid("an alert rule without a name".into()))?;
         let display = properties["displayName"].as_str().unwrap_or(id);
-        if properties["enabled"] != json!(true) {
+        // Only a rule that says it is off is skipped; a missing flag reads as on (fail closed).
+        if properties["enabled"] == json!(false) {
             self.count("disabled");
             return Ok(());
         }

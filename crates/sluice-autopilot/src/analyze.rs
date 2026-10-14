@@ -171,6 +171,9 @@ pub fn analyze(
     if let Some(wazuh) = input.wazuh {
         problems.extend(wazuh.problems().iter().cloned());
     }
+    if let Some(sentinel) = input.sentinel {
+        problems.extend(sentinel.rules.problems().iter().cloned());
+    }
     if let Some(advisor) = helpers.advisor {
         let advice = advise(
             advisor,

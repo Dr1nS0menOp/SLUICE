@@ -87,3 +87,77 @@ fn hour_files(dir: &Path) -> Result<Vec<(i64, PathBuf)>, ArchiveError> {
         })
         .collect())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("sluice-layout-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn touch(root: &Path, relative: &str) {
+        let path = root.join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, b"").unwrap();
+    }
+
+    /// 2026-10-14T00:00:00Z.
+    const DAY: i64 = 1_791_936_000;
+
+    #[test]
+    fn only_names_in_the_layout_are_listed_oldest_hour_first_then_by_source() {
+        let root = scratch("layout");
+        for file in [
+            "b/2026-10-14/01.ndjson.gz",
+            "a/2026-10-14/01.ndjson.gz",
+            "a/2026-10-14/00.ndjson.gz",
+            "a/2026-10-14/24.ndjson.gz",
+            "a/2026-10-14/-1.ndjson.gz",
+            "a/2026-10-14/xx.ndjson.gz",
+            "a/2026-10-14/02.ndjson",
+            "a/2026-13-01/00.ndjson.gz",
+            "a/not-a-date/00.ndjson.gz",
+            "loose.ndjson.gz",
+        ] {
+            touch(&root, file);
+        }
+        let found = files(&root, &Query::default()).unwrap();
+        let listed: Vec<(i64, &str)> = found
+            .iter()
+            .map(|f| (f.hour.0 - DAY, f.source.as_str()))
+            .collect();
+        assert_eq!(listed, [(0, "a"), (3_600, "a"), (3_600, "b")]);
+    }
+
+    #[test]
+    fn the_query_selects_sources_and_hours() {
+        let root = scratch("select");
+        for file in [
+            "a/2026-10-14/00.ndjson.gz",
+            "a/2026-10-14/05.ndjson.gz",
+            "b/2026-10-14/05.ndjson.gz",
+        ] {
+            touch(&root, file);
+        }
+        let query = Query {
+            sources: [SourceId::new("a")].into(),
+            from: Some(Timestamp(DAY + 5 * HOUR + 1_800)),
+            ..Query::default()
+        };
+        let found = files(&root, &query).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].hour, Timestamp(DAY + 5 * HOUR));
+        assert_eq!(found[0].source, SourceId::new("a"));
+    }
+
+    #[test]
+    fn a_missing_root_is_an_error_and_an_empty_one_lists_nothing() {
+        let root = scratch("empty");
+        assert_eq!(files(&root, &Query::default()).unwrap().len(), 0);
+        assert!(files(&root.join("nope"), &Query::default()).is_err());
+    }
+}

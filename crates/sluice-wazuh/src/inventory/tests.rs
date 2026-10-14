@@ -166,3 +166,121 @@ fn values_are_percent_encoded() {
     assert_eq!(encode("a b&c=d"), "a%20b%26c%3Dd");
     assert_eq!(encode("0010-rules_config.xml"), "0010-rules_config.xml");
 }
+
+#[test]
+fn c3_a_listing_without_a_total_fails_instead_of_passing_as_complete() {
+    struct NoTotal;
+    impl Transport for NoTotal {
+        fn send(
+            &self,
+            _: &str,
+            url: &str,
+            _: &[(&str, String)],
+            _: Option<&str>,
+        ) -> Result<(u16, String), WazuhError> {
+            let body = if url.ends_with("/authenticate") {
+                json!({"data": {"token": "jwt"}, "error": 0})
+            } else {
+                let page: Vec<_> = (0..PAGE)
+                    .map(|n| json!({"filename": format!("{n}.xml"), "relative_dirname": "r"}))
+                    .collect();
+                json!({"data": {"affected_items": page}, "error": 0})
+            };
+            Ok((200, body.to_string()))
+        }
+    }
+    assert!(matches!(
+        fetch(&NoTotal, "https://wazuh:55000", "u", "p", "t"),
+        Err(WazuhError::Invalid(m)) if m.contains("total")
+    ));
+}
+
+#[test]
+fn c3_a_listing_that_comes_up_short_fails() {
+    struct Short;
+    impl Transport for Short {
+        fn send(
+            &self,
+            _: &str,
+            url: &str,
+            _: &[(&str, String)],
+            _: Option<&str>,
+        ) -> Result<(u16, String), WazuhError> {
+            let body = if url.ends_with("/authenticate") {
+                json!({"data": {"token": "jwt"}, "error": 0})
+            } else if url.contains("offset=0") {
+                json!({"data": {"affected_items": [{"filename": "a.xml", "relative_dirname": "r"}],
+                    "total_affected_items": PAGE * 3}, "error": 0})
+            } else {
+                json!({"data": {"affected_items": [], "total_affected_items": PAGE * 3}, "error": 0})
+            };
+            Ok((200, body.to_string()))
+        }
+    }
+    assert!(matches!(
+        fetch(&Short, "https://wazuh:55000", "u", "p", "t"),
+        Err(WazuhError::Invalid(m)) if m.contains("listed 1")
+    ));
+}
+
+#[test]
+fn a_listing_item_without_a_name_fails() {
+    struct Nameless;
+    impl Transport for Nameless {
+        fn send(
+            &self,
+            _: &str,
+            url: &str,
+            _: &[(&str, String)],
+            _: Option<&str>,
+        ) -> Result<(u16, String), WazuhError> {
+            let body = if url.ends_with("/authenticate") {
+                json!({"data": {"token": "jwt"}, "error": 0})
+            } else {
+                json!({"data": {"affected_items": [{"relative_dirname": "r"}], "total_affected_items": 1}, "error": 0})
+            };
+            Ok((200, body.to_string()))
+        }
+    }
+    assert!(matches!(
+        fetch(&Nameless, "https://wazuh:55000", "u", "p", "t"),
+        Err(WazuhError::Invalid(_))
+    ));
+}
+
+#[test]
+fn a_file_answered_with_a_json_error_fails_the_fetch() {
+    struct ErrorFile;
+    impl Transport for ErrorFile {
+        fn send(
+            &self,
+            _: &str,
+            url: &str,
+            _: &[(&str, String)],
+            _: Option<&str>,
+        ) -> Result<(u16, String), WazuhError> {
+            let path = url.trim_start_matches("https://wazuh:55000");
+            let body = if path.ends_with("/authenticate") {
+                json!({"data": {"token": "jwt"}, "error": 0}).to_string()
+            } else if path.starts_with("/rules/files?") {
+                Manager::listing(&[("etc/rules".into(), "local_rules.xml".into())], path)
+            } else {
+                json!({"error": 1, "message": "no such file"}).to_string()
+            };
+            Ok((200, body))
+        }
+    }
+    assert!(matches!(
+        fetch(&ErrorFile, "https://wazuh:55000", "u", "p", "t"),
+        Err(WazuhError::Invalid(m)) if m.contains("local_rules.xml")
+    ));
+}
+
+#[test]
+fn an_empty_ruleset_is_complete_with_zero_counts() {
+    let mut manager = Manager::new();
+    manager.rule_files = vec![];
+    let inventory = run(&manager);
+    assert_eq!(inventory.manifest.counts["rules"], 0);
+    assert!(inventory.manifest.complete);
+}

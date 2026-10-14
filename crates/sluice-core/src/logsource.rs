@@ -136,6 +136,14 @@ mod tests {
         let rule = source(Some("äpp"), None, None);
         assert!(rule.may_apply_to(&source(Some("ÄPP"), None, None)));
         assert!(rule.may_apply_to(&source(Some("äpp"), None, None)));
+        // One side alone non-ASCII is enough: the Kelvin sign folds to an ASCII `k`.
+        let ascii = source(Some("k8s"), None, None);
+        assert!(ascii.may_apply_to(&source(Some("\u{212a}8s"), None, None)));
+        assert!(source(Some("\u{212a}8s"), None, None).may_apply_to(&source(
+            Some("K8S"),
+            None,
+            None
+        )));
         assert!(!source(Some("app"), None, None).may_apply_to(&source(Some("web"), None, None)));
     }
 

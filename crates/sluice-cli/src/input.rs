@@ -1,5 +1,6 @@
 //! Reading sources, samples, rules and recipes from disk.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -36,7 +37,9 @@ pub(crate) fn events(dir: &Path, sources: &[Source]) -> Result<Vec<Event>> {
         let path = dir.join(format!("{}.ndjson", source.id));
         let text =
             fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        // Editors on Windows write a byte order mark; it is not part of the first record.
         for (number, line) in text
+            .trim_start_matches('\u{feff}')
             .lines()
             .enumerate()
             .filter(|(_, l)| !l.trim().is_empty())
@@ -192,10 +195,12 @@ pub(crate) fn kusto(
     Ok(engine)
 }
 
-/// Every file under `dir` with one of `extensions`, as `(path, contents)`, sorted by path.
+/// Every file under `dir` with one of `extensions` (in any case), as `(path, contents)`, sorted
+/// by path. Symbolic links are followed, each directory once, so a link loop ends.
 pub(crate) fn files(dir: &Path, extensions: &[&str]) -> Result<Vec<(String, String)>> {
     let mut paths = Vec::new();
-    collect(dir, extensions, &mut paths).with_context(|| format!("reading {}", dir.display()))?;
+    collect(dir, extensions, &mut BTreeSet::new(), &mut paths)
+        .with_context(|| format!("reading {}", dir.display()))?;
     paths.sort();
     paths
         .into_iter()
@@ -207,18 +212,29 @@ pub(crate) fn files(dir: &Path, extensions: &[&str]) -> Result<Vec<(String, Stri
         .collect()
 }
 
-fn collect(dir: &Path, extensions: &[&str], out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+fn collect(
+    dir: &Path,
+    extensions: &[&str],
+    seen: &mut BTreeSet<PathBuf>,
+    out: &mut Vec<PathBuf>,
+) -> std::io::Result<()> {
+    if !seen.insert(fs::canonicalize(dir)?) {
+        return Ok(());
+    }
     for entry in fs::read_dir(dir)? {
         let path = entry?.path();
         if path.is_dir() {
-            collect(&path, extensions, out)?;
+            collect(&path, extensions, seen, out)?;
         } else if path
             .extension()
             .and_then(|e| e.to_str())
-            .is_some_and(|e| extensions.contains(&e))
+            .is_some_and(|e| extensions.iter().any(|x| x.eq_ignore_ascii_case(e)))
         {
             out.push(path);
         }
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
