@@ -59,6 +59,29 @@ mod tests {
     }
 
     #[test]
+    fn arrays_of_objects_and_keys_with_dots_are_leaves_as_written() {
+        let event = object(json!({"list": [{"a": 1}], "x.y": 2, "deep": {"a": {"b": {"c": 3}}}}));
+        let mut seen = Vec::new();
+        for_each_leaf(&event, &mut |path, _| seen.push(path.to_owned()));
+        assert_eq!(seen, ["deep.a.b.c", "list", "x.y"]);
+    }
+
+    #[test]
+    fn an_empty_event_has_no_leaves() {
+        let mut count = 0;
+        for_each_leaf(&Map::new(), &mut |_, _| count += 1);
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn get_does_not_descend_into_arrays_or_scalars() {
+        let event = object(json!({"list": [{"a": 1}], "n": 5}));
+        assert_eq!(get(&event, &"list.a".into()), None);
+        assert_eq!(get(&event, &"n.x".into()), None);
+        assert_eq!(get(&event, &"".into()), None);
+    }
+
+    #[test]
     fn gets_nested_values() {
         let event = object(json!({"event": {"code": 4624}, "flat": "x"}));
         assert_eq!(get(&event, &"event.code".into()), Some(&json!(4624)));

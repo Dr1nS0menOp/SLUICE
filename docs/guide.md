@@ -125,7 +125,7 @@ line`); a keyword rule is matched against the line as it is.
 | `sluice replay … --url URL` | Sends archived events to an HTTP endpoint as NDJSON. |
 | `sluice connect TARGET` | Prints a destination for `sluice up`: `splunk`, `elastic`, `sentinel`, `chronicle`, `wazuh`, `http`. For `sentinel`, `--standard-table syslog\|common-security-log\|asim-network-session\|asim-dns\|asim-web-session --out DIR` writes the data collection rule for a standard table, and `--sample FILE --table NAME --out DIR` a custom table and its rule. |
 | `sluice agent windows --to URL [--events-to URL] [--channel C]...` | Prints the Vector configuration for a Windows host that sends its event logs to `sluice up`; `--dcr FILE --workspace ID` also writes the Sentinel data collection rule for them. |
-| `sluice mcp [--archive DIR] [--allow-replay] [--allow-actions] [--http ADDR]` | An MCP server for AI assistants, over stdio or bearer-token HTTP. `--allow-actions` offers the operator actions (ADR 0016). |
+| `sluice mcp [--archive DIR] [--replay-to URL]… [--allow-actions] [--http ADDR]` | An MCP server for AI assistants, over stdio or bearer-token HTTP. `--allow-actions` offers the operator actions (ADR 0016). |
 | `sluice recipes [schema \| export --out DIR]` | Lists the built-in recipes, prints their JSON Schema, or exports them to edit. |
 | `sluice rules fetch --out DIR sentinel\|wazuh …` | Reads the rules a SIEM runs from its API, read-only, into `DIR` with an `inventory.json` that marks them complete (ADR 0021). |
 | `sluice rules requirements --rules DIR` | Prints, as JSON, what each rule needs: log source, fields, raw text, state. Also for Wazuh (`--wazuh-rules`) and Sentinel (`--sentinel-rules`) rules. |

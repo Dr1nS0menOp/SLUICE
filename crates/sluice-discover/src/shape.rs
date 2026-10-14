@@ -146,10 +146,20 @@ pub(crate) fn cluster_identity(source: &SourceId, tokens: &[String]) -> (Templat
     (template_id(source, "", hash), pattern)
 }
 
-fn render(value: &Value) -> String {
+/// A discriminator value as text, exactly as the data plane renders it with VRL's `to_string`,
+/// so the classifier recognises the template's events: strings as they are, floats without a
+/// trailing `.0`, `null` (and arrays and objects, which `to_string` refuses) as `""`.
+pub(crate) fn render(value: &Value) -> String {
     match value {
         Value::String(s) => s.clone(),
-        other => other.to_string(),
+        Value::Null | Value::Array(_) | Value::Object(_) => String::new(),
+        Value::Number(n) => match (n.as_i64(), n.as_u64(), n.as_f64()) {
+            (Some(i), _, _) => i.to_string(),
+            (None, Some(u), _) => u.to_string(),
+            (None, None, Some(f)) => f.to_string(),
+            (None, None, None) => n.to_string(),
+        },
+        Value::Bool(b) => b.to_string(),
     }
 }
 
@@ -309,4 +319,126 @@ pub(crate) fn merge(existing: &mut Template, other: &Template) {
         .extend(other.text_fields.iter().cloned());
     existing.stats.events += other.stats.events;
     existing.stats.bytes += other.stats.bytes;
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn discriminators_render_as_vrl_to_string_does() {
+        for (value, rendered) in [
+            (json!("4624"), "4624"),
+            (json!(4624), "4624"),
+            (json!(-1), "-1"),
+            (json!(u64::MAX), "18446744073709551615"),
+            (json!(4624.0), "4624"),
+            (json!(4624.5), "4624.5"),
+            (json!(true), "true"),
+            (json!(null), ""),
+            (json!([1]), ""),
+            (json!({"a": 1}), ""),
+        ] {
+            assert_eq!(render(&value), rendered, "{value}");
+        }
+    }
+
+    #[test]
+    fn sanitize_replaces_separators_and_whitespace() {
+        assert_eq!(sanitize("a:b/c d\te"), "a_b_c_d_e");
+        assert_eq!(sanitize("ünï"), "ünï");
+    }
+
+    #[test]
+    fn a_group_counts_events_bytes_fields_and_free_text() {
+        let mut group = Group::new("s".into());
+        let event = |fields: serde_json::Value| Event {
+            id: sluice_core::ids::EventId(0),
+            timestamp: sluice_core::event::Timestamp(0),
+            source: "s".into(),
+            fields: fields.as_object().cloned().unwrap_or_default(),
+        };
+        group.add(&event(
+            json!({"Message": "a free text line of well over forty characters", "Id": "x"}),
+        ));
+        group.add(&event(
+            json!({"Message": "another line of well over forty characters too", "Id": "y"}),
+        ));
+        assert_eq!(group.events(), 2);
+        let template = group.into_template(
+            "t".into(),
+            String::new(),
+            TemplateShape::Text {
+                field: "Message".into(),
+                header: LineHeader::None,
+                tokens: Vec::new(),
+            },
+            &DiscoverConfig::default(),
+        );
+        assert!(
+            template.text_fields.contains("Message"),
+            "40+ characters on average, spaces"
+        );
+        assert!(!template.text_fields.contains("Id"), "short, no whitespace");
+        assert!(template.stats.bytes > 0);
+    }
+
+    #[test]
+    fn free_text_needs_both_length_and_whitespace() {
+        let event = |message: &str| Event {
+            id: sluice_core::ids::EventId(0),
+            timestamp: sluice_core::event::Timestamp(0),
+            source: "s".into(),
+            fields: json!({ "M": message })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+        };
+        let text_fields = |messages: &[&str]| {
+            let mut group = Group::new("s".into());
+            for message in messages {
+                group.add(&event(message));
+            }
+            group
+                .into_template(
+                    "t".into(),
+                    String::new(),
+                    TemplateShape::Text {
+                        field: "M".into(),
+                        header: LineHeader::None,
+                        tokens: Vec::new(),
+                    },
+                    &DiscoverConfig::default(),
+                )
+                .text_fields
+        };
+        let thirty_nine = "x".repeat(38) + " ";
+        let forty = "x".repeat(39) + " ";
+        assert!(text_fields(&[&thirty_nine]).is_empty(), "39 characters");
+        assert!(text_fields(&[&forty]).contains("M"), "40 characters");
+        assert!(text_fields(&[&"x".repeat(80)]).is_empty(), "no whitespace");
+        assert!(
+            text_fields(&[&forty, &"y".repeat(40)]).contains("M"),
+            "half with whitespace"
+        );
+    }
+
+    #[test]
+    fn headers_become_mixed_only_when_lines_disagree() {
+        let mut group = Group::new("s".into());
+        assert_eq!(group.header(), LineHeader::None);
+        group.note_header(true);
+        group.note_header(true);
+        assert_eq!(group.header(), LineHeader::Syslog);
+        group.note_header(false);
+        assert_eq!(group.header(), LineHeader::Mixed);
+        let mut other = Group::new("s".into());
+        other.note_header(false);
+        let mut syslog = Group::new("s".into());
+        syslog.note_header(true);
+        syslog.absorb(other);
+        assert_eq!(syslog.header(), LineHeader::Mixed);
+    }
 }

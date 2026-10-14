@@ -97,3 +97,65 @@ impl RuleRequirements {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn narrow() -> RuleRequirements {
+        RuleRequirements {
+            rule: RuleId::new("sigma:x"),
+            logsource: LogSource {
+                product: Some("windows".into()),
+                ..LogSource::default()
+            },
+            field_names: Some(Schema::Sigma),
+            fields: RequiredFields::known([FieldPath::from("Image")]),
+            matches_raw_text: false,
+            stateful: false,
+            text_lines_only: true,
+            prefilter: Predicate::never(),
+        }
+    }
+
+    #[test]
+    fn c3_an_opaque_rule_may_read_and_match_anything_anywhere() {
+        let opaque = RuleRequirements::opaque(RuleId::new("r"));
+        assert_eq!(opaque.logsource, LogSource::default());
+        assert_eq!(opaque.fields, RequiredFields::Unknown);
+        assert!(opaque.matches_raw_text && opaque.stateful && !opaque.text_lines_only);
+        assert!(opaque.prefilter.is_always());
+        assert_eq!(opaque.field_names, None);
+    }
+
+    #[test]
+    fn c3_widening_keeps_only_the_rule_and_where_it_applies() {
+        let widened = narrow().widened();
+        assert_eq!(widened.rule, narrow().rule);
+        assert_eq!(widened.logsource, narrow().logsource);
+        assert_eq!(widened.text_lines_only, narrow().text_lines_only);
+        assert_eq!(widened.fields, RequiredFields::Unknown);
+        assert!(widened.prefilter.is_always() && widened.matches_raw_text && widened.stateful);
+        assert_eq!(
+            widened.field_names, None,
+            "a widened rule compares with any records"
+        );
+    }
+
+    #[test]
+    fn known_fields_are_a_set() {
+        let fields = RequiredFields::known(["b", "a", "b"].map(FieldPath::from));
+        assert_eq!(
+            fields,
+            RequiredFields::Known(["a", "b"].map(FieldPath::from).into())
+        );
+    }
+
+    #[test]
+    fn older_requirements_without_newer_fields_still_parse() {
+        let json = r#"{"rule":"r","logsource":{},"fields":"unknown","matches_raw_text":true,"stateful":false,"prefilter":"always"}"#;
+        let parsed: RuleRequirements = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.field_names, None);
+        assert!(!parsed.text_lines_only);
+    }
+}

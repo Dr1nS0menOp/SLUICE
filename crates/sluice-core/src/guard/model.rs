@@ -279,3 +279,152 @@ pub struct GuardContext<'a> {
     /// claimed by the operator (ADR 0021). Without it, only lossless cuts are allowed.
     pub rules_complete: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::template::{LineHeader, TemplateShape, TemplateStats};
+
+    fn template(events: u64, source_events: u64) -> Template {
+        Template {
+            id: "t".into(),
+            source: "s".into(),
+            logsource: crate::logsource::LogSource::default(),
+            schema: Schema::Sigma,
+            pattern: String::new(),
+            shape: TemplateShape::Text {
+                field: "message".into(),
+                header: LineHeader::None,
+                tokens: Vec::new(),
+            },
+            fields: BTreeSet::new(),
+            text_fields: BTreeSet::new(),
+            stats: TemplateStats {
+                events,
+                bytes: 0,
+                source_events,
+            },
+        }
+    }
+
+    #[test]
+    fn c4_the_event_floor_is_100_events() {
+        let config = GuardrailConfig::default();
+        assert!(config.is_rare_count(99, 99));
+        assert!(!config.is_rare_count(100, 100));
+    }
+
+    #[test]
+    fn c4_the_share_floor_is_one_in_a_thousand_inclusive() {
+        let config = GuardrailConfig::default();
+        assert!(
+            !config.is_rare_count(100, 100_000),
+            "exactly 0.1 % is not rare"
+        );
+        assert!(config.is_rare_count(100, 100_001));
+        assert!(!config.is_rare_count(1_000, 1_000_000));
+    }
+
+    #[test]
+    fn c4_an_empty_source_and_huge_counts_do_not_overflow() {
+        let config = GuardrailConfig::default();
+        assert!(config.is_rare_count(0, 0));
+        assert!(!config.is_rare_count(u64::MAX, u64::MAX));
+        assert!(config.is_rare_count(100, u64::MAX));
+    }
+
+    #[test]
+    fn c4_zero_thresholds_make_nothing_rare() {
+        let config = GuardrailConfig {
+            rarity_min_events: 0,
+            rarity_min_share_ppm: 0,
+        };
+        assert!(!config.is_rare_count(0, 1_000));
+    }
+
+    #[test]
+    fn c4_is_rare_reads_the_templates_counts() {
+        let config = GuardrailConfig::default();
+        assert!(config.is_rare(&template(99, 1_000)));
+        assert!(!config.is_rare(&template(100, 1_000)));
+    }
+
+    #[test]
+    fn c4_a_new_recipe_needs_a_quarter_above_the_floor() {
+        let config = GuardrailConfig::default();
+        assert!(config.is_near_rare(&template(124, 124)));
+        assert!(!config.is_near_rare(&template(125, 125)));
+        // 0.125 % of the source is the raised share floor.
+        assert!(config.is_near_rare(&template(1_000, 800_001)));
+        assert!(!config.is_near_rare(&template(1_000, 800_000)));
+    }
+
+    #[test]
+    fn contract_rules_are_numbered_one_to_six_in_order() {
+        let rules = [
+            ContractRule::UnknownPassesThrough,
+            ContractRule::ArchiveFirst,
+            ContractRule::RuleMatchesForwarded,
+            ContractRule::RareNeverCut,
+            ContractRule::ProvenBeforeEnforced,
+            ContractRule::AiProposesGuardrailsDecide,
+        ];
+        for (rule, number) in rules.iter().zip(1u8..) {
+            assert_eq!(rule.number(), number);
+            assert!(
+                rule.to_string()
+                    .starts_with(&format!("contract rule {number}: "))
+            );
+        }
+    }
+
+    #[test]
+    fn a_passthrough_recipe_changes_nothing_and_any_reduction_changes_it() {
+        let passthrough = EffectiveRecipe::passthrough("t".into());
+        assert!(passthrough.is_passthrough());
+        assert_eq!(passthrough.route, Route::ForwardAll);
+        let mut empty_drop = passthrough.clone();
+        empty_drop.drop_empty_except = Some(BTreeSet::new());
+        assert!(!empty_drop.is_passthrough());
+        let mut dropping = passthrough.clone();
+        dropping.drop_fields.insert("Message".into());
+        assert!(!dropping.is_passthrough());
+        let mut routing = passthrough.clone();
+        routing.route = Route::ForwardMatching {
+            prefilter: Predicate::never(),
+            summary_keys: vec![],
+        };
+        assert!(!routing.is_passthrough());
+        let mut conditional = passthrough;
+        conditional.keep_whole_when = Some(Predicate::Always);
+        assert!(
+            conditional.is_passthrough(),
+            "a condition with nothing to keep from changes nothing"
+        );
+    }
+
+    #[test]
+    fn adjustments_serialize_their_reason_inline() {
+        let adjustment = Adjustment {
+            contract: ContractRule::RareNeverCut,
+            level: Some(Level::Lossless),
+            reason: Reason::RareTemplate {
+                events: 3,
+                source_events: 9,
+            },
+        };
+        let json = serde_json::to_value(&adjustment).unwrap();
+        assert_eq!(json["reason"], "rare_template");
+        assert_eq!(json["events"], 3);
+        assert_eq!(json["contract"], "rare_never_cut");
+        let back: Adjustment = serde_json::from_value(json).unwrap();
+        assert_eq!(back, adjustment);
+    }
+
+    #[test]
+    fn an_effective_recipe_without_a_condition_omits_it_in_json() {
+        let json = serde_json::to_value(EffectiveRecipe::passthrough("t".into())).unwrap();
+        assert!(json.get("keep_whole_when").is_none());
+        assert_eq!(json["route"]["route"], "forward_all");
+    }
+}

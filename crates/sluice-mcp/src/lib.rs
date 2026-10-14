@@ -29,8 +29,10 @@ pub struct McpConfig {
     pub control_token: Option<String>,
     /// The archive directory. Without it, the archive tools are not offered.
     pub archive: Option<PathBuf>,
-    /// Offer the `replay` tool.
-    pub allow_replay: bool,
+    /// The endpoints `replay` may send to; empty: no `replay` tool. Log text is written by
+    /// whoever can produce a log line, and an assistant reads it: a free choice of destination
+    /// would let an injected instruction send the archive anywhere.
+    pub replay_to: Vec<String>,
     /// Offer the `operator_action` tool (ADR 0016).
     pub allow_actions: bool,
 }

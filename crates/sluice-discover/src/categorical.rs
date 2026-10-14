@@ -67,6 +67,48 @@ mod tests {
         );
     }
 
+    fn lines_with(values: &[&str]) -> Vec<Vec<String>> {
+        values.iter().map(|v| tokens(&format!("x {v} y"))).collect()
+    }
+
+    #[test]
+    fn the_value_limit_is_inclusive() {
+        let cluster = tokens("x <*> y");
+        let six = lines_with(&["a", "b", "c", "d", "e", "f"]);
+        let refs: Vec<&[String]> = six.iter().map(Vec::as_slice).collect();
+        assert_eq!(positions(&cluster, &refs, 6), [1]);
+        let seven = lines_with(&["a", "b", "c", "d", "e", "f", "g"]);
+        let refs: Vec<&[String]> = seven.iter().map(Vec::as_slice).collect();
+        assert_eq!(positions(&cluster, &refs, 6), [0usize; 0]);
+    }
+
+    #[test]
+    fn only_wildcard_positions_are_considered() {
+        let cluster = tokens("x <*> y");
+        let lines = lines_with(&["a", "b"]);
+        let refs: Vec<&[String]> = lines.iter().map(Vec::as_slice).collect();
+        assert!(!positions(&cluster, &refs, 6).contains(&0));
+        assert!(!positions(&cluster, &refs, 6).contains(&2));
+    }
+
+    #[test]
+    fn a_mix_of_message_ids_and_words_beyond_the_limit_is_not_categorical() {
+        let cluster = tokens("x <*> y");
+        let mut values: Vec<String> = (0..10).map(|n| format!("%ASA-6-3020{n:02}:")).collect();
+        values.push("plain".into());
+        let refs_owned = lines_with(&values.iter().map(String::as_str).collect::<Vec<_>>());
+        let refs: Vec<&[String]> = refs_owned.iter().map(Vec::as_slice).collect();
+        assert_eq!(positions(&cluster, &refs, 6), [0usize; 0]);
+    }
+
+    #[test]
+    fn specializing_a_short_line_keeps_the_cluster_token() {
+        let cluster = tokens("x <*> y");
+        let short = tokens("x");
+        assert_eq!(specialize(&cluster, &short, &[1]), cluster);
+        assert_eq!(specialize(&cluster, &tokens("x a y"), &[]), cluster);
+    }
+
     #[test]
     fn message_ids_are_categorical_however_many_there_are() {
         let cluster = tokens("<*> Built connection");

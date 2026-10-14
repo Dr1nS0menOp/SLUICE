@@ -86,7 +86,13 @@ impl Decoders {
                             .map(str::to_owned),
                     );
                 }
-                let program = child_text(&element, "program_name").and_then(programs);
+                // Only the default `osmatch` reads `.` as itself; as a regex it bounds nothing here.
+                let program = element
+                    .children
+                    .iter()
+                    .find(|c| c.tag == "program_name")
+                    .filter(|c| c.attributes.get("type").is_none_or(|t| t == "osmatch"))
+                    .and_then(|c| programs(c.text.trim()));
                 let prematch = element
                     .children
                     .iter()

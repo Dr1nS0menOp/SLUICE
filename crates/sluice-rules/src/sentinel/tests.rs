@@ -425,3 +425,30 @@ fn syslog_rules_apply_to_syslog_records_of_any_product() {
         "the emulator runs Syslog rules too"
     );
 }
+
+#[test]
+fn c3_tables_named_at_run_time_by_wildcard_or_by_find_may_read_every_windows_table() {
+    for query in [
+        "table('SecurityEvent') | where EventID == 4625",
+        "union isfuzzy=true * | where EventID == 4625",
+        "union withsource=SourceTable Security* | take 1",
+        "union kind=outer (WindowsEvent | take 1), Security*",
+        "find \"mimikatz\"",
+        "find in (SecurityEvent) where Account has 'x'",
+    ] {
+        let r = rule(query);
+        assert_eq!(r.fields, RequiredFields::Unknown, "{query}");
+        assert_eq!(r.logsource.product, None, "{query}: any product's records");
+        assert_eq!(r.prefilter, shaped_records(), "{query}");
+    }
+}
+
+#[test]
+fn a_union_of_named_tables_reads_only_those() {
+    let r = rule("union SecurityEvent, WindowsEvent | where EventID == 4625");
+    assert_eq!(r.logsource.product.as_deref(), Some("windows"));
+    assert!(matches!(r.fields, RequiredFields::Known(_)));
+    // A `*` inside a nested query is arithmetic, not a wildcard.
+    let r = rule("union (SecurityEvent | where EventID * 2 == 9250)");
+    assert!(matches!(r.fields, RequiredFields::Known(_)));
+}

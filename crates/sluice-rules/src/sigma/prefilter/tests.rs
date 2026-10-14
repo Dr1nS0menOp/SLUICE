@@ -186,3 +186,181 @@ fn glob_matches_sigma_selector_patterns() {
     assert!(!glob_match("selection_*", "filter"));
     assert!(glob_match("exact", "exact"));
 }
+
+/// One selection `s` with `item` as its only line, and `condition: s`.
+fn item(item: &str) -> Predicate {
+    prefilter(&format!("    s:\n        {item}\n    condition: s\n"))
+}
+
+fn present(field: &str) -> Predicate {
+    Predicate::present(field.into())
+}
+
+#[test]
+fn c3_each_inexpressible_modifier_widens_to_a_present_field() {
+    for (modifier, value) in [
+        ("windash", "'-a'"),
+        ("cidr", "'10.0.0.0/8'"),
+        ("base64offset|contains", "'abc'"),
+        ("base64|contains", "'abc'"),
+        ("wide|base64offset|contains", "'abc'"),
+        ("gt", "1"),
+        ("lte", "1"),
+        ("fieldref", "'Y'"),
+        ("re|m", "'a'"),
+    ] {
+        let p = item(&format!("X|{modifier}: {value}"));
+        assert_eq!(p, present("X"), "{modifier}");
+    }
+}
+
+#[test]
+fn regexes_are_case_sensitive_unless_i() {
+    assert_eq!(item("X|re: 'a.b'"), test("X", MatchOp::Regex, "a.b", true));
+    assert_eq!(
+        item("X|re|i: 'a.b'"),
+        test("X", MatchOp::Regex, "a.b", false)
+    );
+}
+
+#[test]
+fn a_regex_value_is_kept_whole_even_with_wildcard_characters() {
+    // In a regex `*` is a quantifier, not a Sigma wildcard.
+    assert_eq!(item("X|re: 'a*b'"), test("X", MatchOp::Regex, "a*b", true));
+}
+
+#[test]
+fn c3_null_and_empty_value_lists_are_unbounded() {
+    assert!(item("X: null").is_always());
+    assert!(item("X:\n            - 'a'\n            - null").is_always());
+}
+
+#[test]
+fn integers_compare_as_text_and_only_by_equality() {
+    assert_eq!(
+        item("EventID: 4625"),
+        test("EventID", MatchOp::Equals, "4625", false)
+    );
+    assert_eq!(
+        item("EventID|contains: '46'"),
+        test("EventID", MatchOp::Contains, "46", false)
+    );
+}
+
+#[test]
+fn booleans_and_floats_need_a_present_field() {
+    assert_eq!(item("Elevated: true"), present("Elevated"));
+    assert_eq!(item("Ratio: 1.5"), present("Ratio"));
+}
+
+#[test]
+fn a_lone_wildcard_or_question_mark_needs_only_a_value() {
+    assert_eq!(item("X: '*'"), test("X", MatchOp::Exists, "", false));
+    assert_eq!(
+        item("X|contains: '*'"),
+        test("X", MatchOp::Exists, "", false)
+    );
+    assert_eq!(item("X: '?'"), present("X"));
+}
+
+#[test]
+fn an_empty_string_is_an_exact_empty_value() {
+    assert_eq!(item("X: ''"), test("X", MatchOp::Equals, "", false));
+}
+
+#[test]
+fn a_value_list_is_any_of_its_values() {
+    let p = item("X:\n            - 'a'\n            - 'b'");
+    assert_eq!(
+        p,
+        Predicate::Field(FieldTest {
+            field: "X".into(),
+            op: MatchOp::Equals,
+            values: vec!["a".into(), "b".into()],
+            case_sensitive: false,
+        })
+    );
+}
+
+#[test]
+fn keywords_with_short_inner_pieces_or_non_text_widen() {
+    let keywords = |line: &str| {
+        prefilter(&format!(
+            "    keywords:\n        - {line}\n    condition: keywords\n"
+        ))
+    };
+    assert!(
+        keywords("'a*b'").is_always(),
+        "pieces shorter than three letters"
+    );
+    assert_eq!(
+        keywords("'abc*xy'"),
+        Predicate::Keywords(KeywordTest {
+            values: vec!["abc".into()],
+            case_sensitive: false,
+        })
+    );
+    assert!(keywords("true").is_always());
+    assert_eq!(
+        keywords("4625"),
+        Predicate::Keywords(KeywordTest {
+            values: vec!["4625".into()],
+            case_sensitive: false,
+        })
+    );
+}
+
+#[test]
+fn a_selector_that_matches_nothing_or_an_unknown_identifier_is_unbounded() {
+    // rsigma refuses a selector or identifier with no detection, so these come in through the
+    // AST only: build the condition by hand.
+    let yaml = "title: t\nlogsource:\n    product: x\ndetection:\n    selection:\n        A: '1'\n    condition: selection\n";
+    let mut detections = parse_sigma_yaml(yaml).unwrap().rules[0].detection.clone();
+    detections.conditions = vec![rsigma_parser::ast::ConditionExpr::Identifier(
+        "undefined".into(),
+    )];
+    assert!(rule_prefilter(&detections).is_always());
+    detections.conditions.clear();
+    assert!(
+        rule_prefilter(&detections).is_always(),
+        "no condition at all"
+    );
+}
+
+#[test]
+fn all_of_them_leaves_underscore_selections_out_and_one_of_them_takes_them_in() {
+    let detection = "    selection:\n        A: '1'\n    _helper:\n        B: '2'\n";
+    let all = prefilter(&format!("{detection}    condition: all of them\n"));
+    assert_eq!(all, test("A", MatchOp::Equals, "1", false));
+    let any = prefilter(&format!("{detection}    condition: 1 of them\n"));
+    assert_eq!(
+        any,
+        Predicate::any([
+            test("A", MatchOp::Equals, "1", false),
+            test("B", MatchOp::Equals, "2", false)
+        ])
+    );
+}
+
+#[test]
+fn several_conditions_are_any_of_them() {
+    let yaml = "title: t\nlogsource:\n    product: x\ndetection:\n    a:\n        A: '1'\n    b:\n        B: '2'\n    condition:\n        - a\n        - b\n";
+    let collection = parse_sigma_yaml(yaml).unwrap();
+    assert_eq!(
+        rule_prefilter(&collection.rules[0].detection),
+        Predicate::any([
+            test("A", MatchOp::Equals, "1", false),
+            test("B", MatchOp::Equals, "2", false)
+        ])
+    );
+}
+
+#[test]
+fn glob_patterns_with_several_stars_and_non_ascii_names() {
+    assert!(glob_match("*", "anything"));
+    assert!(glob_match("sel*_*x", "sel_a_b_x"));
+    assert!(!glob_match("sel*_*x", "sel_a_b_y"));
+    assert!(glob_match("sél*", "sélection"));
+    assert!(glob_match("*ç", "façadeç"));
+    assert!(!glob_match("a", "ab"));
+}

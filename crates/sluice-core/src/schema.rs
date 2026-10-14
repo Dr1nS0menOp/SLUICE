@@ -84,6 +84,50 @@ mod tests {
         );
     }
 
+    const ALL: [Schema; 8] = [
+        Schema::Undeclared,
+        Schema::Sigma,
+        Schema::Ecs,
+        Schema::Cim,
+        Schema::Asim,
+        Schema::Ocsf,
+        Schema::Udm,
+        Schema::Sentinel,
+    ];
+
+    #[test]
+    fn can_read_holds_exactly_on_the_declared_diagonal() {
+        for data in ALL {
+            for rule in ALL {
+                assert_eq!(
+                    data.can_read(rule),
+                    data == rule && data != Schema::Undeclared,
+                    "{data} reading {rule}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn only_undeclared_is_undeclared() {
+        for schema in ALL {
+            assert_eq!(schema.is_declared(), schema != Schema::Undeclared);
+        }
+    }
+
+    #[test]
+    fn display_and_serde_use_the_same_name() {
+        for schema in ALL {
+            let json = serde_json::to_string(&schema).unwrap();
+            assert_eq!(json, format!("\"{schema}\""));
+            assert_eq!(serde_json::from_str::<Schema>(&json).unwrap(), schema);
+        }
+        assert!(
+            serde_json::from_str::<Schema>("\"ECS\"").is_err(),
+            "names are lowercase"
+        );
+    }
+
     #[test]
     fn names_round_trip_through_serde() {
         let parsed: Schema = serde_json::from_str("\"ecs\"").expect("a schema name");

@@ -233,3 +233,168 @@ fn prove_reports_volume_per_template() {
     assert_eq!(proof.per_template[&Some("C".into())].summarized, 1);
     assert_eq!(proof.per_template[&Some("D".into())].forwarded, 3);
 }
+
+/// A data plane that fails on one event.
+struct Failing;
+
+impl Reducer for Failing {
+    fn reduce(&self, event: &Event) -> Result<Reduced, ReduceError> {
+        Err(ReduceError(format!("event {}", event.id)))
+    }
+}
+
+/// An engine that raises nothing on its first call and an alert on every later one: no recipe
+/// set can make the forwarded data agree with the full data.
+struct Flaky {
+    calls: std::cell::Cell<u64>,
+}
+
+impl RuleEngine for Flaky {
+    fn alerts_refs(&self, events: &[&Event]) -> Result<BTreeSet<Alert>, EngineError> {
+        let call = self.calls.get();
+        self.calls.set(call + 1);
+        Ok(events
+            .iter()
+            .take(usize::from(call > 0))
+            .map(|e| Alert {
+                rule: "flaky".into(),
+                event: e.id,
+            })
+            .collect())
+    }
+}
+
+#[test]
+fn c5_a_data_plane_failure_is_never_proven() {
+    let result = prove(&sample(), &FakeEngine { fail: false }, &Failing);
+    assert!(matches!(result, Err(ProofError::Reduce(_))));
+}
+
+#[test]
+fn c5_a_data_plane_that_cannot_be_built_is_never_proven() {
+    let result = select_proven(
+        vec![drop("A", &["noise"])],
+        &sample(),
+        &FakeEngine { fail: false },
+        |_| Err::<FakePlane, _>(ProofError::Build("no".into())),
+    );
+    assert!(matches!(result, Err(ProofError::Build(_))));
+}
+
+#[test]
+fn c5_a_non_deterministic_engine_is_reported_not_proven() {
+    let result = select_proven(
+        vec![drop("A", &["noise"])],
+        &sample(),
+        &Flaky {
+            calls: std::cell::Cell::new(0),
+        },
+        |recipes| {
+            Ok(FakePlane {
+                recipes: recipes.to_vec(),
+            })
+        },
+    );
+    assert!(
+        matches!(result, Err(ProofError::Inconsistent)),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn an_empty_sample_holds_trivially_with_no_volume() {
+    let proof = prove(
+        &[],
+        &FakeEngine { fail: false },
+        &FakePlane { recipes: vec![] },
+    )
+    .unwrap();
+    assert!(proof.holds());
+    assert_eq!(proof.full_alerts.len(), 0);
+    assert_eq!(proof.total, Volume::default());
+}
+
+#[test]
+fn pass_through_forwards_every_byte_and_proves() {
+    let proof = prove(
+        &sample(),
+        &FakeEngine { fail: false },
+        &FakePlane { recipes: vec![] },
+    )
+    .unwrap();
+    assert!(proof.holds());
+    assert_eq!(proof.total.bytes_in, proof.total.bytes_out);
+    assert_eq!(proof.total.forwarded, proof.total.events);
+    assert_eq!(proof.full_alerts, proof.forwarded_alerts);
+}
+
+#[test]
+fn volume_counts_events_bytes_and_outcomes() {
+    let mut volume = Volume::default();
+    let body: serde_json::Map<String, Value> = [("a".to_owned(), json!(1))].into_iter().collect();
+    volume.add(100, &Outcome::Forwarded(body));
+    volume.add(50, &Outcome::Summarized);
+    assert_eq!(
+        volume,
+        Volume {
+            events: 2,
+            forwarded: 1,
+            summarized: 1,
+            bytes_in: 150,
+            bytes_out: 7, // {"a":1}
+        }
+    );
+}
+
+#[test]
+fn rolling_back_keeps_the_guardrails_adjustments_and_adds_the_proof() {
+    let mut recipe = drop("A", &["a"]);
+    recipe.adjustments.push(Adjustment {
+        contract: ContractRule::RareNeverCut,
+        level: None,
+        reason: Reason::NoRecipe,
+    });
+    let selection = select(vec![recipe]).unwrap();
+    let adjustments = &selection.recipes[0].adjustments;
+    assert_eq!(adjustments.len(), 2);
+    assert_eq!(adjustments[0].reason, Reason::NoRecipe);
+    assert_eq!(adjustments[1].contract, ContractRule::ProvenBeforeEnforced);
+    assert_eq!(selection.recipes[0].drop_fields.len(), 0);
+}
+
+#[test]
+fn already_passthrough_recipes_are_left_alone() {
+    let selection = select(vec![
+        EffectiveRecipe::passthrough("A".into()),
+        drop("B", &["f"]),
+    ])
+    .unwrap();
+    assert!(
+        selection.recipes[0].adjustments.is_empty(),
+        "nothing to roll back"
+    );
+    assert!(rolled_back(&selection, "B"));
+}
+
+#[test]
+fn missing_and_extra_are_the_two_set_differences() {
+    let plane = FakePlane {
+        recipes: vec![drop("A", &["a"]), drop("B", &["f"])],
+    };
+    let proof = prove(&sample(), &FakeEngine { fail: false }, &plane).unwrap();
+    let rules = |alerts: &BTreeSet<Alert>| -> Vec<String> {
+        alerts.iter().map(|a| a.rule.to_string()).collect()
+    };
+    assert_eq!(rules(&proof.missing), ["has-a"]);
+    assert_eq!(rules(&proof.extra), ["not-f"]);
+    assert!(!proof.holds());
+}
+
+#[test]
+fn c5_the_selection_never_needs_more_rounds_than_recipes_plus_one() {
+    // Three unsafe recipes on three templates of one stateful source: each round rolls back
+    // some, and the bound leaves room for the worst case.
+    let selection = select(vec![drop("A", &["a"]), drop("B", &["f"]), summarize("C")]).unwrap();
+    assert!(selection.proof.holds());
+    assert!(selection.rounds <= 4, "{} rounds", selection.rounds);
+}

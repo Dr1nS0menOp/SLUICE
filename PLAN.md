@@ -271,7 +271,7 @@ log sources (ADR 0009). Real Linux logs of the Wazuh server (177,008 lines): 28.
 
 - MCP server (`rmcp`, the official Rust SDK; stdio and HTTP) with these tools: `status`, `savings`, `sources`,
   `templates`, `explain`, `what_breaks`, `coverage_gaps`, `source_health`, `search_archive`
-  (bounded), and `replay` (gated by `mcp.allow_replay`).
+  (bounded), and `replay` (only to the endpoints given with `--replay-to`).
 - `sluice status`.
 - Community recipes for the top sources, plus a recipe spec and JSON Schema, plus
   `sluice recipes export`.

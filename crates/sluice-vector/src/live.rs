@@ -131,6 +131,8 @@ pub fn live_config(
     loaded: &[&str],
     settings: &LiveSettings<'_>,
 ) -> Result<String, VectorError> {
+    let analysis_sources: Vec<Source> = sources.iter().map(|s| s.source.clone()).collect();
+    crate::config::check_sources(&analysis_sources)?;
     let mut pipeline = Pipeline::default();
     let mut outputs: BTreeMap<&str, Outputs> = BTreeMap::new();
     let mut unreduced = Outputs::default();
@@ -290,7 +292,7 @@ fn add_intake(
     // Everything after the archive reads the shaped events, if the source has a shape.
     let entry = match live.shape {
         Some(program) => {
-            let shape = format!("sluice_{}_shape", c.stem);
+            let shape = c.shape();
             pipeline.transforms.insert(
                 shape.clone(),
                 json!({

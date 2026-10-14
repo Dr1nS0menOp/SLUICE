@@ -331,3 +331,71 @@ fn first_time_seen_without_decoders_fails_closed() {
     let rules = parse(r#"<rule id="5403" level="4"><if_sid>5400</if_sid><if_fts /></rule>"#);
     assert_eq!(only(&rules).fields, RequiredFields::Unknown);
 }
+
+#[test]
+fn c3_a_program_name_that_is_a_regex_does_not_bound_its_rules() {
+    // `program_name` is `osmatch` by default, where `.` is a literal; as `osregex` or `pcre2`
+    // `^ssh.` also takes `sshX`, which a keyword test for `ssh.` would miss.
+    for kind in ["osregex", "pcre2"] {
+        let decoders = format!(
+            r#"<decoder name="d"><program_name type="{kind}">^ssh.</program_name></decoder>"#
+        );
+        let rules = WazuhRules::parse_with_decoders(
+            [r#"<rule id="1" level="3"><decoded_as>d</decoded_as></rule>"#],
+            [decoders.as_str()],
+        )
+        .unwrap();
+        assert_eq!(only(&rules).prefilter, Predicate::Always, "{kind}");
+    }
+    let literal = WazuhRules::parse_with_decoders(
+        [r#"<rule id="1" level="3"><decoded_as>d</decoded_as></rule>"#],
+        [r#"<decoder name="d"><program_name type="osmatch">^sshd</program_name></decoder>"#],
+    )
+    .unwrap();
+    assert!(matches!(only(&literal).prefilter, Predicate::Keywords(_)));
+}
+
+#[test]
+fn c3_a_regex_program_name_still_never_takes_a_json_line() {
+    // Whatever its type, a program name needs a syslog header, which a JSON line lacks.
+    let rules = WazuhRules::parse_with_decoders(
+        [r#"<rule id="1" level="3"><decoded_as>d</decoded_as></rule>"#],
+        [r#"<decoder name="d"><program_name type="pcre2">^ssh.</program_name></decoder>"#],
+    )
+    .unwrap();
+    assert!(only(&rules).text_lines_only);
+}
+
+#[test]
+fn chains_through_a_cycle_or_a_missing_parent_widen_instead_of_failing() {
+    let rules = parse(
+        r#"<rule id="1" level="3"><if_sid>2</if_sid><match>a</match></rule>
+           <rule id="2" level="3"><if_sid>1</if_sid><match>b</match></rule>
+           <rule id="3" level="3"><if_sid>404</if_sid><field name="x">y</field></rule>"#,
+    );
+    assert_eq!(rules.requirements().len(), 3);
+    let orphan = rules
+        .requirements()
+        .iter()
+        .find(|r| r.rule.as_str() == "wazuh:3")
+        .unwrap();
+    // Its own field test still bounds it; the missing parent adds `Always`, nothing narrower.
+    assert!(matches!(orphan.prefilter, Predicate::Field(_)));
+}
+
+#[test]
+fn a_child_reads_what_its_parents_read() {
+    let rules = parse(
+        r#"<rule id="10" level="3"><field name="a">1</field></rule>
+           <rule id="11" level="3"><if_sid>10</if_sid><field name="b">2</field></rule>"#,
+    );
+    let child = rules
+        .requirements()
+        .iter()
+        .find(|r| r.rule.as_str() == "wazuh:11")
+        .unwrap();
+    let RequiredFields::Known(fields) = &child.fields else {
+        panic!("known fields");
+    };
+    assert!(fields.contains("a") && fields.contains("b"));
+}

@@ -22,6 +22,19 @@ pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
         .with_context(|| format!("reading {}", args.config.display()))?;
     let deployed = sluice_vector::deployed(&yaml, &sources, args.profile.as_deref())
         .with_context(|| format!("reading the reductions of {}", args.config.display()))?;
+    let unproven = deployed.unproven();
+    if !unproven.is_empty() && args.profile.is_none() {
+        bail!(
+            "{} runs programs this proof does not cover ({}): name the rule profile with \
+             --profile, or the programs are not Sluice's",
+            args.config.display(),
+            unproven
+                .iter()
+                .map(|p| p.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
     if deployed.unreduced.len() == sources.len() {
         bail!(
             "{} has no Sluice program for any of these sources{}",

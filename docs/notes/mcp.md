@@ -41,6 +41,6 @@ Verified against `rmcp` 3.5.1 (pinned `=3.5.1`) on 2026-10-09, from the crate's 
 
 `sluice mcp` (crate `sluice-mcp`) offers `status`, `templates`, `explain`, `what_breaks`,
 `coverage_gaps`, `source_health`, `search_archive` (with `--archive`, bounded to 100 events) and
-`replay` (only with `--allow-replay`). It reads the control plane's `GET /status` and
+`replay` (only with `--replay-to URL`, and only to the endpoints listed there: log text an assistant reads can carry injected instructions, so the destination is never the assistant's choice). It reads the control plane's `GET /status` and
 `GET /rules` and holds no state. Answers are built by pure functions in `answers.rs`; blocking
 work (ureq, archive scans) runs in `spawn_blocking`.

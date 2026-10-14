@@ -74,4 +74,101 @@ mod tests {
         assert_eq!(regex("a'b").as_deref(), Some(r"r'a\x27b'"));
         assert_eq!(regex(r"a\'b"), None);
     }
+
+    use serde_json::{Map, Value, json};
+
+    use crate::runtime::CompiledProgram;
+
+    /// Text that has broken, or could break, generated code.
+    const HOSTILE: [&str; 16] = [
+        "",
+        "plain",
+        "a\"b",
+        "back\\slash\\",
+        "{{ .secret }}",
+        "}{",
+        "%meta",
+        "$var ${x} #{y}",
+        "new\nline\r\ttab",
+        "\u{0}\u{1}\u{1b}",
+        "ünïcödé",
+        "emoji 🔥",
+        "\u{2028}\u{2029}",
+        "'single'",
+        "r'not a regex'",
+        "a.b",
+    ];
+
+    /// Runs `source` on `event` and returns `.out`.
+    fn run(source: &str, event: Value) -> Value {
+        let program = CompiledProgram::compile("syntax", format!("{source}\n"))
+            .unwrap_or_else(|e| panic!("{source}: {e}"));
+        let Value::Object(fields) = event else {
+            unreachable!()
+        };
+        let (body, _) = program.run(&fields).expect("runs");
+        let Value::Object(out) = serde_json::to_value(&body).expect("json") else {
+            panic!("an object")
+        };
+        out.get("out").cloned().unwrap_or(Value::Null)
+    }
+
+    #[test]
+    fn every_hostile_string_round_trips_through_vrl() {
+        for text in HOSTILE {
+            let long = text.repeat(200);
+            for candidate in [text, long.as_str()] {
+                assert_eq!(
+                    run(&format!(".out = {}", string(candidate)), json!({})),
+                    json!(candidate),
+                    "{candidate:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_hostile_field_name_is_addressed_exactly() {
+        for name in HOSTILE.iter().filter(|n| !n.is_empty() && !n.contains('.')) {
+            let mut event = Map::new();
+            event.insert((*name).to_owned(), json!("value"));
+            event.insert(format!("{name}x"), json!("other"));
+            assert_eq!(
+                run(
+                    &format!(".out = {}", path(&FieldPath::new(*name))),
+                    Value::Object(event)
+                ),
+                json!("value"),
+                "{name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn regex_literals_match_as_the_regex_crate_does() {
+        let patterns = [
+            "^a'b$",
+            "x\\d+",
+            "(?i)ÉCHEC",
+            "a\\.b",
+            "[\"{}]",
+            "\\x27",
+            "a\nb",
+        ];
+        let inputs = ["a'b", "x42", "échec", "a.b", "aXb", "{", "'", "a\nb", ""];
+        for pattern in patterns {
+            let quoted = regex(pattern).expect("quotable");
+            let expected = ::regex::Regex::new(pattern).expect("a valid regex");
+            for input in inputs {
+                assert_eq!(
+                    run(
+                        &format!(".out = match(string!(.x), {quoted})"),
+                        json!({"x": input})
+                    ),
+                    json!(expected.is_match(input)),
+                    "{pattern:?} on {input:?}"
+                );
+            }
+        }
+    }
 }

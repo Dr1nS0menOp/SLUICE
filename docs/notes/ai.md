@@ -30,8 +30,10 @@ bundled `claude-api` skill (cached 2026-10-06).
 
 Log text can be attacker-written. Samples are:
 
-- **redacted** (`redact.rs`): identity fields, IPv4, e-mail and long tokens are replaced with
-  consistent pseudonyms;
+- **redacted** (`redact.rs`): identity fields, IPv4, IPv6 and MAC addresses, e-mail addresses,
+  and long tokens (alphanumeric, base64 with `/+=`, JWTs) are replaced with consistent
+  pseudonyms. User and host names in free text are not (only in fields named for them): run a
+  local model when that matters;
 - **fenced** in `<untrusted_samples>`, with the fence string itself neutralised inside the samples;
 - **declared untrusted** in the system prompt.
 

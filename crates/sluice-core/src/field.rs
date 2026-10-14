@@ -123,8 +123,64 @@ mod tests {
     }
 
     #[test]
+    fn covers_is_case_sensitive() {
+        assert!(!FieldPath::from("Process").covers(&"process.name".into()));
+        assert!(!FieldPath::from("user").covers(&"User".into()));
+    }
+
+    #[test]
+    fn covers_handles_deep_paths_and_dotted_prefixes() {
+        let deep = FieldPath::from("a.b");
+        assert!(deep.covers(&"a.b.c.d".into()));
+        assert!(!deep.covers(&"a.bc".into()));
+        assert!(!deep.covers(&"a".into()));
+    }
+
+    #[test]
+    fn the_empty_path_covers_only_itself() {
+        let empty = FieldPath::from("");
+        assert!(empty.covers(&"".into()));
+        assert!(!empty.covers(&"a".into()));
+        assert!(!FieldPath::from("a").covers(&empty));
+    }
+
+    #[test]
+    fn may_denote_is_symmetric_on_ancestors_and_descendants() {
+        let rule = FieldPath::from("process.parent.name");
+        assert!(
+            rule.may_denote(&"process.parent".into()),
+            "an ancestor holds it"
+        );
+        assert!(rule.may_denote(&"process.parent.name.keyword".into()));
+        assert!(rule.may_denote(&"winlog.process.parent.name".into()));
+        assert!(
+            !rule.may_denote(&"parent.name".into()),
+            "a suffix of the rule is not it"
+        );
+    }
+
+    #[test]
+    fn may_denote_only_strips_whole_leading_segments() {
+        let rule = FieldPath::from("Image");
+        assert!(rule.may_denote(&"a.b.Image".into()));
+        assert!(!rule.may_denote(&"a.bImage".into()));
+        assert!(!rule.may_denote(&"Images".into()));
+    }
+
+    #[test]
+    fn paths_display_serialize_and_borrow_as_their_string() {
+        let path = FieldPath::from("a.b");
+        assert_eq!(path.to_string(), "a.b");
+        assert_eq!(serde_json::to_string(&path).unwrap(), "\"a.b\"");
+        let set: std::collections::BTreeSet<FieldPath> = [path].into();
+        assert!(set.contains("a.b"));
+    }
+
+    #[test]
     fn segments_split_on_dots() {
         let path = FieldPath::from("a.b.c");
         assert_eq!(path.segments().collect::<Vec<_>>(), ["a", "b", "c"]);
+        assert_eq!(FieldPath::from("a..b").segments().count(), 3);
+        assert_eq!(FieldPath::from("").segments().collect::<Vec<_>>(), [""]);
     }
 }

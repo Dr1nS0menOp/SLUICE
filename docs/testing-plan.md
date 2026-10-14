@@ -116,6 +116,40 @@ secrets never in errors or `Debug` output (done for Azure credentials), timeouts
 4. `running.rs` (new) has two integration tests; its edge cases are untested.
 5. No mutation testing and no coverage measurement yet.
 
+## Bugs found
+
+Each was fixed with a regression test named after what it broke.
+
+| # | Where | What was wrong | Effect | Test |
+|---|---|---|---|---|
+| 1 | `sluice-core` `predicate.rs` | Case-insensitive tests compared with ASCII lower-casing, so `ÉCHEC` and `échec` counted as different | A rule an engine fires (Unicode folding) was ruled out for a template, and its fields could be removed: fail-open | `c3_non_ascii_values_are_never_ruled_out_case_insensitively` |
+| 2 | `sluice-core` `logsource.rs` | The same for log source attributes | A rule could be excluded from a source it applies to: fail-open | `c3_non_ascii_attributes_are_never_told_apart_by_case` |
+| 3 | `sluice-core` `predicate.rs` | `any()` did not absorb an `Always` nested in a hand-built `Any` | An unbounded rule was not recognized as one (safe, but not simplified) | `c3_always_nested_in_a_hand_built_disjunction_absorbs_it` |
+| 4 | `sluice-rules` Sentinel extraction | `table("SecurityEvent")`, `union isfuzzy=true *`, `union Security*` and `find` were not read as reading tables | A query read Windows tables Sluice did not see: fail-open | `c3_tables_named_at_run_time_by_wildcard_or_by_find_may_read_every_windows_table` |
+| 5 | `sluice-rules` Wazuh decoders | `program_name` with `type="osregex"` or `pcre2` was read as a literal | `^ssh.` as a regex also takes `sshX`, which the keyword bound missed: fail-open | `c3_a_program_name_that_is_a_regex_does_not_bound_its_rules` |
+
+| 6 | `sluice-vector` `predicate.rs` | A field test compared a float value by its text (`4625.0`), while keyword tests already widened floats | A rule on `EventID: 4625` could miss a record whose value is the float `4625.0`: fail-open | `c3_a_float_value_may_match_any_number_text` |
+| 7 | `sluice-core` `proof.rs` | The roll-back loop of `select_proven` had no bound: mutation testing showed a broken roll-back loops forever | A bug there would hang the control plane instead of failing the cycle | `c5_the_selection_never_needs_more_rounds_than_recipes_plus_one` |
+
+| 8 | `sluice-vector` `predicate.rs` | The VRL compiler used three variables per test; VRL's type checker is quadratic in the number of variables (measured: 100 tests 3.5 s, 800 tests 271 s in a debug build) | Large rule sets made every cycle's compile slow; 3,000 tests did not finish in 20 minutes | `thousands_of_alternatives_compile_without_overflowing_the_stack` (now 3,000 tests, bounded at 30 s; one variable per nesting level, short-circuiting) |
+
+| 9 | `sluice-discover` `shape.rs` | Discovery rendered a `null` discriminator as `null` and a whole float as `4624.0`; VRL's `to_string` gives `""` and `4624` | Events of such templates were never classified in the data plane: always forwarded, no saving (safe, but lost) | `discriminators_render_as_vrl_to_string_does`, `null_and_whole_floats_render_as_discovery_now_renders_them` |
+
+| 10 | `sluice-vector` `deployed.rs` (used by `sluice prove` and the guard of what runs) | Only programs under the names Sluice expects were proven; a program under another name (left from a one-profile layout, or renamed) or an extra `sluice_` remap that changes events passed as "nothing reduced" | A configuration could run reductions no proof covered: fail-open | `c3_a_program_under_another_name_is_reported_unproven`, `c3_an_extra_remap_that_changes_events_is_reported_unproven`, `c3_a_deployed_program_sluice_cannot_place_switches_savings_off` |
+
+| 11 | `sluice-ai` `redact.rs` | Redaction before a sample goes to a model missed IPv6 and MAC addresses, JWTs, and base64 secrets with `/`, `+` or `=` (an AWS secret key split into pieces shorter than 20) | Those values reached a cloud model unchanged: a privacy leak | `ipv6_addresses_are_replaced`, `mac_addresses_are_replaced`, `jwts_and_base64_secrets_are_replaced` |
+
+| 12 | `sluice-mcp` `replay` | With `--allow-replay` the assistant chose the destination URL; log text it reads through `search_archive` can carry injected instructions | An attacker who can write a log line could have archived events sent to their own server: exfiltration | `replay_refuses_any_destination_it_was_not_started_with` (now `--replay-to URL`, an allowlist) |
+
+| 13 | `sluice-vector` `config.rs`, `live.rs` | Source ids that differ only in case, `-` or `_` (`windows-security`, `windows_security`) became the same Vector component names, and the second overwrote the first; ids with `/` or `..` name archive and sample paths | One source's events went nowhere (a detection gap), or paths left their directory | `sources_whose_component_names_would_collide_are_refused` |
+
+Mutation testing (`cargo-mutants` 27.1.0, MIT) on `sluice-core`, 2026-10-14: 241 mutants, 217
+caught, 0 missed, 18 unviable, 6 timeouts (all in the roll-back loop, which bug 7 bounds).
+
+Known limits found, not fixed: a workspace function whose name is all lower case looks like a
+KQL built-in to the Sentinel extractor, so a rule calling it is not widened unless the function
+was fetched with `sluice rules fetch sentinel` (which resolves it).
+
 ## Done when
 
 Every crate meets its target, every public function has at least one test that fails when it

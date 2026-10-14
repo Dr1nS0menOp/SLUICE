@@ -147,7 +147,7 @@ pub(crate) fn mcp(args: McpArgs) -> Result<()> {
         control_plane: args.listen,
         control_token: control_token(),
         archive: args.archive,
-        allow_replay: args.allow_replay,
+        replay_to: args.replay_to,
         allow_actions: args.allow_actions,
     };
     let runtime = tokio::runtime::Runtime::new().context("starting the async runtime")?;

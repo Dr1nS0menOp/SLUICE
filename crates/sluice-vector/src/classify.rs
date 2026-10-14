@@ -201,6 +201,189 @@ mod tests {
         assert!(!matches(LineHeader::None, &tokens, "10.0.0.1 - \"POST /x"));
     }
 
+    use std::collections::BTreeSet;
+
+    use serde_json::{Value, json};
+    use sluice_core::field::FieldPath;
+
+    /// Whether the classifier of `shape` accepts `event`, run in VRL.
+    fn accepts(shape: &TemplateShape, event: Value) -> bool {
+        let condition = match classifier(shape).expect("a classifier") {
+            Classifier::Keyset(expression) => expression,
+            Classifier::Text { field, regex } => {
+                format!("match(string({}) ?? \"\", {regex})", syntax::path(&field))
+            }
+        };
+        let source =
+            format!("{KEYS} = join(keys(flatten(.)), \"\\n\")\n.sluice_out = {condition}\n");
+        let program = crate::runtime::CompiledProgram::compile("classify", source)
+            .unwrap_or_else(|e| panic!("{e}"));
+        let Value::Object(fields) = event else {
+            unreachable!()
+        };
+        let (body, _) = program.run(&fields).expect("runs");
+        serde_json::to_value(&body).expect("json")["sluice_out"] == json!(true)
+    }
+
+    fn keyset(discriminators: &[(&str, &str)], variants: &[&[&str]]) -> TemplateShape {
+        let variants: Vec<BTreeSet<FieldPath>> = variants
+            .iter()
+            .map(|v| v.iter().map(|p| FieldPath::from(*p)).collect())
+            .collect();
+        TemplateShape::Keyset {
+            discriminators: discriminators
+                .iter()
+                .map(|(f, v)| (FieldPath::from(*f), (*v).to_owned()))
+                .collect(),
+            paths: variants.iter().flatten().cloned().collect(),
+            variants,
+        }
+    }
+
+    #[test]
+    fn a_key_set_template_takes_exactly_its_variants() {
+        let shape = keyset(
+            &[("EventID", "4624")],
+            &[&["EventID", "User"], &["EventID", "Ip", "User"]],
+        );
+        assert!(accepts(&shape, json!({"EventID": 4624, "User": "a"})));
+        assert!(accepts(
+            &shape,
+            json!({"EventID": "4624", "User": "a", "Ip": "1"})
+        ));
+        assert!(
+            !accepts(&shape, json!({"EventID": 4624, "User": "a", "New": 1})),
+            "drift"
+        );
+        assert!(!accepts(&shape, json!({"EventID": 4624})), "a missing key");
+        assert!(
+            !accepts(&shape, json!({"EventID": 4625, "User": "a"})),
+            "another event id"
+        );
+        assert!(!accepts(&shape, json!({"EventID": null, "User": "a"})));
+    }
+
+    #[test]
+    fn nested_keys_are_compared_as_flattened_paths() {
+        let shape = keyset(&[], &[&["event.code", "process.name"]]);
+        assert!(accepts(
+            &shape,
+            json!({"event": {"code": "1"}, "process": {"name": "x"}})
+        ));
+        assert!(!accepts(
+            &shape,
+            json!({"event": {"code": "1"}, "process": {"name": "x", "pid": 1}})
+        ));
+    }
+
+    #[test]
+    fn empty_objects_and_arrays_flatten_as_discovery_assumes() {
+        // Discovery: arrays are leaves, empty objects contribute no path.
+        let shape = keyset(&[], &[&["a", "list"]]);
+        assert!(accepts(&shape, json!({"a": 1, "list": [1, {"x": 2}]})));
+        assert!(
+            accepts(&shape, json!({"a": 1, "list": [], "empty": {}})),
+            "an empty object adds no key"
+        );
+    }
+
+    #[test]
+    fn discriminators_render_as_discovery_renders_them() {
+        // Discovery renders with serde_json: strings as they are, other scalars as JSON text.
+        for (value, rendered) in [
+            (json!(4624), "4624"),
+            (json!(-1), "-1"),
+            (json!(true), "true"),
+            (json!(4624.5), "4624.5"),
+            (json!("4624"), "4624"),
+        ] {
+            let shape = keyset(&[("EventID", rendered)], &[&["EventID"]]);
+            assert!(
+                accepts(&shape, json!({ "EventID": value })),
+                "{value} as {rendered}"
+            );
+        }
+    }
+
+    #[test]
+    fn null_and_whole_floats_render_as_discovery_now_renders_them() {
+        // Discovery used to render these as `null` and `4624.0`: their events never classified.
+        for (value, rendered) in [(json!(null), ""), (json!(4624.0), "4624")] {
+            let shape = keyset(&[("EventID", rendered)], &[&["EventID"]]);
+            assert!(accepts(&shape, json!({ "EventID": value })), "{value}");
+        }
+    }
+
+    #[test]
+    fn a_template_without_variants_has_no_classifier() {
+        let shape = TemplateShape::Keyset {
+            discriminators: Vec::new(),
+            paths: BTreeSet::new(),
+            variants: Vec::new(),
+        };
+        assert_eq!(classifier(&shape), None);
+    }
+
+    #[test]
+    fn hostile_discriminator_values_compare_literally() {
+        for value in ["{{ .x }}", "a\"b", "back\\slash", "new\nline"] {
+            let shape = keyset(&[("Action", value)], &[&["Action"]]);
+            assert!(accepts(&shape, json!({"Action": value})), "{value:?}");
+            assert!(
+                !accepts(&shape, json!({"Action": format!("{value}x")})),
+                "{value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_text_template_takes_lines_with_its_tokens_only() {
+        let shape = TemplateShape::Text {
+            field: "message".into(),
+            header: LineHeader::Syslog,
+            tokens: vec![
+                "sshd".into(),
+                "Accepted".into(),
+                "password".into(),
+                "for".into(),
+                "<*>".into(),
+            ],
+        };
+        assert!(accepts(
+            &shape,
+            json!({"message": "Oct  9 08:00:01 h sshd[1]: Accepted password for alice"})
+        ));
+        assert!(!accepts(
+            &shape,
+            json!({"message": "Oct  9 08:00:01 h sshd[1]: Accepted password for alice now"})
+        ));
+        assert!(!accepts(&shape, json!({"message": 42})), "a non-text value");
+        assert!(!accepts(&shape, json!({})), "no line at all");
+    }
+
+    #[test]
+    fn a_wildcard_program_name_takes_any_program_but_needs_a_tag() {
+        assert!(matches(
+            LineHeader::Syslog,
+            &["<*>", "started"],
+            "Oct 10 08:00:02 h cron[1]: started"
+        ));
+        assert!(!matches(
+            LineHeader::Syslog,
+            &["<*>", "started"],
+            "Oct 10 08:00:02 h started"
+        ));
+    }
+
+    #[test]
+    fn hex_and_number_placeholders_take_only_their_characters() {
+        assert!(matches(LineHeader::None, &["id=<HEX>"], "id=0x1F"));
+        assert!(matches(LineHeader::None, &["id=<HEX>"], "id=deadbeef01"));
+        assert!(!matches(LineHeader::None, &["id=<HEX>"], "id=xyz"));
+        assert!(matches(LineHeader::None, &["port=<NUM>"], "port=443"));
+        assert!(!matches(LineHeader::None, &["port=<NUM>"], "port=https"));
+    }
+
     #[test]
     fn mixed_headers_have_no_classifier() {
         let shape = TemplateShape::Text {

@@ -119,7 +119,7 @@ mod tests {
             control_plane: "127.0.0.1:9".into(),
             control_token: None,
             archive: None,
-            allow_replay: false,
+            replay_to: Vec::new(),
             allow_actions: false,
         };
         let options = HttpOptions {
@@ -184,7 +184,7 @@ mod tests {
             control_plane: String::new(),
             control_token: None,
             archive: None,
-            allow_replay: false,
+            replay_to: Vec::new(),
             allow_actions: false,
         };
         assert!(matches!(router(config, &options), Err(McpError::Token(_))));

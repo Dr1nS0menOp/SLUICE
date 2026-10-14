@@ -33,7 +33,9 @@ impl LogSource {
     ///
     /// When the data side of an attribute is unknown, the rule *may* apply, and the guardrails
     /// must assume it does (fail closed). Values compare ASCII case-insensitively, as Sigma
-    /// log sources are conventionally lowercase but not consistently so.
+    /// log sources are conventionally lowercase but not consistently so. Values with other
+    /// letters are never told apart this way (engines may fold them by Unicode rules), so they
+    /// may always apply.
     #[must_use]
     pub fn may_apply_to(&self, data: &LogSource) -> bool {
         let complete = data.complete;
@@ -45,7 +47,9 @@ impl LogSource {
 
 fn attribute_may_match(rule: Option<&str>, data: Option<&str>, complete: bool) -> bool {
     match (rule, data) {
-        (Some(rule), Some(data)) => rule.eq_ignore_ascii_case(data),
+        (Some(rule), Some(data)) => {
+            rule.eq_ignore_ascii_case(data) || !rule.is_ascii() || !data.is_ascii()
+        }
         (Some(_), None) => !complete,
         (None, _) => true,
     }
@@ -98,5 +102,56 @@ mod tests {
     #[test]
     fn rule_without_scope_applies_everywhere() {
         assert!(LogSource::default().may_apply_to(&source(Some("linux"), None, None)));
+    }
+
+    #[test]
+    fn every_attribute_must_agree() {
+        let data = source(Some("windows"), Some("security"), Some("authentication"));
+        assert!(!source(Some("linux"), None, None).may_apply_to(&data));
+        assert!(!source(None, Some("system"), None).may_apply_to(&data));
+        assert!(!source(None, None, Some("process_creation")).may_apply_to(&data));
+        assert!(source(None, None, Some("AUTHENTICATION")).may_apply_to(&data));
+    }
+
+    #[test]
+    fn a_complete_descriptor_still_applies_rules_for_attributes_it_has() {
+        let mut data = source(Some("windows"), Some("security"), None);
+        data.complete = true;
+        assert!(source(Some("windows"), Some("security"), None).may_apply_to(&data));
+        assert!(LogSource::default().may_apply_to(&data));
+        assert!(!source(Some("windows"), Some("security"), Some("x")).may_apply_to(&data));
+    }
+
+    #[test]
+    fn complete_on_the_rule_side_is_ignored() {
+        let mut rule = source(Some("windows"), None, Some("process_creation"));
+        rule.complete = true;
+        assert!(rule.may_apply_to(&source(Some("windows"), None, None)));
+    }
+
+    #[test]
+    fn c3_non_ascii_attributes_are_never_told_apart_by_case() {
+        // `Ä` and `ä` are one letter to a Unicode-folding engine: excluding the rule here would
+        // leave its fields unprotected.
+        let rule = source(Some("äpp"), None, None);
+        assert!(rule.may_apply_to(&source(Some("ÄPP"), None, None)));
+        assert!(rule.may_apply_to(&source(Some("äpp"), None, None)));
+        assert!(!source(Some("app"), None, None).may_apply_to(&source(Some("web"), None, None)));
+    }
+
+    #[test]
+    fn empty_attributes_are_values_not_absences() {
+        // `product: ""` is a declared, empty product: it matches only itself.
+        assert!(!source(Some(""), None, None).may_apply_to(&source(Some("windows"), None, None)));
+        assert!(source(Some(""), None, None).may_apply_to(&source(Some(""), None, None)));
+    }
+
+    #[test]
+    fn complete_is_not_serialized_when_false() {
+        let json = serde_json::to_string(&source(Some("windows"), None, None)).unwrap();
+        assert_eq!(json, r#"{"product":"windows"}"#);
+        let parsed: LogSource =
+            serde_json::from_str(r#"{"product":"windows","complete":true}"#).unwrap();
+        assert!(parsed.complete);
     }
 }

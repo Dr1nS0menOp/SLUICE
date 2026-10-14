@@ -1,12 +1,16 @@
 //! Superset pre-filters as VRL.
 //!
-//! A [`Predicate`] compiles to VRL statements that each compute one field test into a variable,
-//! plus a boolean expression over those variables. Tests become separate statements rather than
-//! nested blocks, because a `{ … }` inside an expression can parse as an object literal.
+//! A [`Predicate`] compiles to VRL statements that leave its truth in one variable. A connective
+//! keeps one variable per nesting level and tests its parts in turn, each inside an `if` that
+//! skips it once the answer is known (`Any` stops at the first true part, `All` at the first
+//! false one). One variable per test made VRL's type checker, which copies its state of every
+//! variable at each step, quadratic in the number of tests: 400 tests took seconds to compile,
+//! where now they take milliseconds.
 //!
 //! Every place where VRL cannot express a test exactly *widens* it to `true`:
 //!
 //! - an array or object value (a Sigma engine may match its members);
+//! - a float value (its decimal text differs between engines: `4625.0` may equal `4625`);
 //! - a regex that VRL's engine (Rust `regex`) cannot compile, or cannot quote.
 //!
 //! Missing and null fields make a test false, as they do in Sigma.
@@ -27,111 +31,129 @@ pub(crate) struct CompiledPredicate {
 /// Compiles a predicate. Variables are prefixed with `prefix`, so several predicates can share
 /// one program.
 pub(crate) fn compile(predicate: &Predicate, prefix: &str) -> CompiledPredicate {
-    let mut compiler = Compiler {
-        prefix,
-        statements: Vec::new(),
-        next: 0,
-    };
-    let expression = compiler.expression(predicate);
+    let compiler = Compiler { prefix };
     CompiledPredicate {
-        statements: compiler.statements,
-        expression,
+        statements: compiler.emit(predicate, 0),
+        expression: compiler.result(0),
     }
 }
 
 struct Compiler<'a> {
     prefix: &'a str,
-    statements: Vec<String>,
-    next: usize,
 }
 
 impl Compiler<'_> {
-    fn expression(&mut self, predicate: &Predicate) -> String {
+    /// The variable holding the truth of a predicate nested `depth` connectives deep.
+    fn result(&self, depth: usize) -> String {
+        format!("{}{depth}", self.prefix)
+    }
+
+    /// A scratch variable, shared by every test: tests run one after another.
+    fn scratch(&self, name: &str) -> String {
+        format!("{}_{name}", self.prefix)
+    }
+
+    /// Statements that leave the truth of `predicate` in [`Self::result`] for `depth`.
+    fn emit(&self, predicate: &Predicate, depth: usize) -> Vec<String> {
+        let target = self.result(depth);
         match predicate {
-            Predicate::Always => "true".to_owned(),
-            Predicate::Any(parts) if parts.is_empty() => "false".to_owned(),
-            Predicate::All(parts) if parts.is_empty() => "true".to_owned(),
-            Predicate::Any(parts) => self.join(parts, " || "),
-            Predicate::All(parts) => self.join(parts, " && "),
-            Predicate::Field(test) => self.test(test),
-            Predicate::Keywords(test) => self.keywords(test),
+            Predicate::Always => vec![format!("{target} = true")],
+            Predicate::Any(parts) => self.connective(parts, depth, false),
+            Predicate::All(parts) => self.connective(parts, depth, true),
+            Predicate::Field(test) => self.test(test, &target),
+            Predicate::Keywords(test) => self.keywords(test, &target),
         }
     }
 
-    /// Emits a scan over every leaf value of the event for any of the keywords.
+    /// `All` (`all`) or `Any` of `parts`: start from the neutral value and evaluate each part
+    /// only while it can still change the answer.
+    fn connective(&self, parts: &[Predicate], depth: usize, all: bool) -> Vec<String> {
+        let target = self.result(depth);
+        let mut statements = vec![format!("{target} = {all}")];
+        let undecided = if all {
+            target.clone()
+        } else {
+            format!("!{target}")
+        };
+        for part in parts {
+            let body = if matches!(part, Predicate::Any(_) | Predicate::All(_)) {
+                let mut nested = self.emit(part, depth + 1);
+                nested.push(format!("{target} = {}", self.result(depth + 1)));
+                nested
+            } else {
+                self.emit(part, depth)
+            };
+            statements.push(format!("if {undecided} {{\n{}\n}}", indent(&body)));
+        }
+        statements
+    }
+
+    /// A scan over every leaf value of the event for any of the keywords.
     ///
     /// `flatten` makes nested objects leaves; an array leaf may hold a matching member, and a
     /// float's decimal text may differ between engines, so both widen to true. Integers are
     /// compared as their decimal text and strings directly, as Sigma engines do. Booleans and
     /// nulls never match.
-    fn keywords(&mut self, test: &KeywordTest) -> String {
-        let var = format!("{}{}", self.prefix, self.next);
-        self.next += 1;
+    fn keywords(&self, test: &KeywordTest, target: &str) -> Vec<String> {
         if test.values.is_empty() {
-            self.statements.push(format!("{var} = false"));
-            return var;
+            return vec![format!("{target} = false")];
         }
-        let value = format!("{var}_v");
-        let rendered = format!("{var}_s");
+        let value = self.scratch("kv");
+        let rendered = self.scratch("ks");
         let checks = keyword_checks(&rendered, test);
-        self.statements.push(format!("{var} = false"));
-        self.statements.push(format!(
-            "for_each(values(flatten(.))) -> |_index, {value}| {{\n  \
-               if is_array({value}) || is_float({value}) {{ {var} = true }} \
-               else if is_string({value}) || is_integer({value}) {{\n    \
-                 {rendered} = to_string!({value})\n    \
-                 if {checks} {{ {var} = true }}\n  \
-               }}\n}}"
-        ));
-        var
+        vec![
+            format!("{target} = false"),
+            format!(
+                "for_each(values(flatten(.))) -> |_index, {value}| {{\n  \
+                   if is_array({value}) || is_float({value}) {{ {target} = true }} \
+                   else if is_string({value}) || is_integer({value}) {{\n    \
+                     {rendered} = to_string!({value})\n    \
+                     if {checks} {{ {target} = true }}\n  \
+                   }}\n}}"
+            ),
+        ]
     }
 
-    fn join(&mut self, parts: &[Predicate], operator: &str) -> String {
-        let parts: Vec<String> = parts.iter().map(|p| self.expression(p)).collect();
-        balanced(&parts, operator)
-    }
-
-    /// Emits the statements for one field test and returns the variable holding its result.
-    fn test(&mut self, test: &FieldTest) -> String {
-        let var = format!("{}{}", self.prefix, self.next);
-        self.next += 1;
+    /// The statements of one field test, leaving its result in `target`.
+    fn test(&self, test: &FieldTest, target: &str) -> Vec<String> {
         let path = syntax::path(&test.field);
-
         if test.op == MatchOp::Exists {
-            self.statements.push(format!("{var} = exists({path})"));
-            return var;
+            return vec![format!("{target} = exists({path})")];
         }
-        let value = format!("{var}_v");
-        let rendered = format!("{var}_s");
-        if let Some(alternation) = literal_alternation(&rendered, test) {
-            self.statements.push(format!("{var} = false"));
-            self.statements.push(format!("{value} = {path}"));
-            self.statements.push(format!(
-                "if is_array({value}) || is_object({value}) {{ {var} = true }} \
-                 else if !is_null({value}) {{ {rendered} = to_string!({value}); {var} = {alternation} }}"
-            ));
-            return var;
-        }
-        let comparisons: Option<Vec<String>> = test
-            .values
-            .iter()
-            .map(|v| comparison(&rendered, test.op, v, test.case_sensitive))
-            .collect();
-        let Some(comparisons) = comparisons.filter(|c| !c.is_empty()) else {
-            self.statements.push(format!("{var} = true"));
-            return var;
+        let value = self.scratch("v");
+        let rendered = self.scratch("s");
+        let matches = if let Some(alternation) = literal_alternation(&rendered, test) {
+            alternation
+        } else {
+            let comparisons: Option<Vec<String>> = test
+                .values
+                .iter()
+                .map(|v| comparison(&rendered, test.op, v, test.case_sensitive))
+                .collect();
+            match comparisons.filter(|c| !c.is_empty()) {
+                Some(comparisons) => balanced(&comparisons, " || "),
+                None => return vec![format!("{target} = true")],
+            }
         };
-        let matches = balanced(&comparisons, " || ");
-        self.statements.push(format!("{var} = false"));
-        self.statements.push(format!("{value} = {path}"));
-        self.statements.push(format!(
-            "if is_array({value}) || is_object({value}) {{ {var} = true }} \
-             else if !is_null({value}) {{ {rendered} = to_string!({value}); {var} = {matches} }}"
-        ));
-        var
+        vec![
+            format!("{target} = false"),
+            format!("{value} = {path}"),
+            format!(
+                "if is_array({value}) || is_object({value}) || is_float({value}) {{ {target} = true }} \
+                 else if !is_null({value}) {{ {rendered} = to_string!({value}); {target} = {matches} }}"
+            ),
+        ]
     }
 }
 
+fn indent(statements: &[String]) -> String {
+    statements
+        .iter()
+        .flat_map(|s| s.lines())
+        .map(|line| format!("  {line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 /// A field test with many literal values as one anchored alternation over the value, lowercased
 /// once for case-insensitive tests (what `downcase(…) ==` and `contains(…, case_sensitive:
 /// false)` do per value); `None` for few values, regexes, or a pattern VRL cannot take.

@@ -70,3 +70,37 @@ impl fmt::Display for EventId {
         write!(f, "#{}", self.0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::*;
+
+    #[test]
+    fn ids_display_and_serialize_as_their_string() {
+        let rule = RuleId::new("wazuh:5710");
+        assert_eq!(rule.to_string(), "wazuh:5710");
+        assert_eq!(rule.as_str(), "wazuh:5710");
+        assert_eq!(serde_json::to_string(&rule).unwrap(), "\"wazuh:5710\"");
+        assert_eq!(
+            serde_json::from_str::<RuleId>("\"wazuh:5710\"").unwrap(),
+            rule
+        );
+        assert_eq!(TemplateId::from("t"), TemplateId::new(String::from("t")));
+    }
+
+    #[test]
+    fn ids_order_by_their_string_for_deterministic_output() {
+        let ids: BTreeSet<SourceId> = ["b", "a", "c"].into_iter().map(SourceId::from).collect();
+        let ordered: Vec<&str> = ids.iter().map(SourceId::as_str).collect();
+        assert_eq!(ordered, ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn event_ids_display_with_a_hash_and_serialize_as_a_number() {
+        assert_eq!(EventId(7).to_string(), "#7");
+        assert_eq!(serde_json::to_string(&EventId(7)).unwrap(), "7");
+        assert!(EventId(2) < EventId(10), "numeric, not textual, order");
+    }
+}

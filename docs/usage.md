@@ -254,7 +254,7 @@ the live status, and look up original events in the archive:
 claude mcp add sluice -- sluice mcp --archive /var/lib/sluice/archive
 ```
 
-Replay is only offered with `--allow-replay`, and the operator actions (hold, approve, keep a
+Replay is only offered with `--replay-to URL` (repeatable), and sends only to those endpoints: an instruction hidden in a log line the assistant reads cannot send your archive elsewhere. The operator actions (hold, approve, keep a
 field, acknowledge a rollback) only with `--allow-actions`; the control plane audits them like
 actions from the console. For a remote assistant, `sluice mcp --http 127.0.0.1:8687` serves MCP
 over HTTP with a bearer token (`SLUICE_MCP_TOKEN`).

@@ -38,3 +38,28 @@ pub fn encoded_size(fields: &Map<String, Value>) -> usize {
     // Serializing a `Map<String, Value>` cannot fail: keys are strings and values are valid JSON.
     serde_json::to_vec(fields).map_or(0, |bytes| bytes.len())
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn encoded_size_is_the_compact_json_length() {
+        let Value::Object(fields) = json!({"a": 1, "b": "x"}) else {
+            unreachable!()
+        };
+        assert_eq!(encoded_size(&fields), r#"{"a":1,"b":"x"}"#.len());
+        assert_eq!(encoded_size(&Map::new()), 2);
+    }
+
+    #[test]
+    fn encoded_size_counts_escapes_and_utf8_bytes() {
+        let Value::Object(fields) = json!({"q": "\"é\n"}) else {
+            unreachable!()
+        };
+        // {"q":"\"é\n"}: the quote and newline escape to two bytes, é is two bytes in UTF-8.
+        assert_eq!(encoded_size(&fields), 14);
+    }
+}

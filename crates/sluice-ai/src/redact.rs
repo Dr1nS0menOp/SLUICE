@@ -6,14 +6,17 @@
 //!
 //! - fields whose name says they identify a person or machine (`user`, `account`, `host`,
 //!   `computer`, `workstation`, `sid`, `domain`, `email`, `name`) → `<user-1>`, `<host-2>`, …
-//! - IPv4 addresses anywhere in strings → `192.0.2.N` (documentation range);
+//! - IPv4 addresses anywhere in strings → `192.0.2.N`, IPv6 → `2001:db8::N` (documentation
+//!   ranges), MAC addresses → `02:00:00:00:00:NN`;
 //! - e-mail addresses → `user-N@example.invalid`;
-//! - long opaque tokens (20+ alphanumerics, such as keys and hashes) → `<token-N>`.
+//! - long opaque tokens (20+ alphanumerics, or 24+ characters of base64 or JWT text with letters
+//!   and digits, such as keys, hashes and bearer tokens) → `<token-N>`.
 //!
 //! This is defense in depth, not anonymisation: run a local model when samples must not leave
 //! the network at all.
 
 use std::collections::BTreeMap;
+use std::net::Ipv6Addr;
 
 use serde_json::{Map, Value};
 
@@ -77,8 +80,45 @@ impl Redactor {
         self.scan(text)
     }
 
-    /// Redacts IPv4 addresses, e-mail addresses and long tokens inside free text.
+    /// Redacts addresses, e-mail addresses and long tokens inside free text: network addresses
+    /// first (their `:` would split them into words), then base64 and JWT runs (their `/`, `=`
+    /// and `.`), then word by word.
     fn scan(&mut self, text: &str) -> String {
+        let text = replace_runs(text, is_address_char, |run| self.address(run));
+        let text = replace_runs(&text, is_token_char, |run| {
+            // `key=value`: keep the key readable, judge the value. Padding `=` stays with it.
+            let (key, value) = match run.find('=') {
+                Some(at) if !run[at + 1..].trim_end_matches('=').is_empty() => run.split_at(at + 1),
+                _ => ("", run),
+            };
+            is_secret_like(value).then(|| {
+                format!(
+                    "{key}{}",
+                    self.pseudonym("token", value, |n| format!("<token-{n}>"))
+                )
+            })
+        });
+        self.words(&text)
+    }
+
+    /// An IPv6 or MAC address's pseudonym, if `run` is one.
+    fn address(&mut self, run: &str) -> Option<String> {
+        let core = run.trim_end_matches(['.', ':', '-']);
+        let rest = &run[core.len()..];
+        let has_hex = core.bytes().any(|b| b.is_ascii_hexdigit());
+        let pseudonym =
+            if has_hex && core.matches(':').count() >= 2 && core.parse::<Ipv6Addr>().is_ok() {
+                self.pseudonym("ip6", core, |n| format!("2001:db8::{n:x}"))
+            } else if is_mac(core) {
+                self.pseudonym("mac", core, |n| format!("02:00:00:00:00:{:02x}", n % 256))
+            } else {
+                return None;
+            };
+        Some(pseudonym + rest)
+    }
+
+    /// Redacts IPv4 addresses, e-mail addresses and long alphanumeric tokens word by word.
+    fn words(&mut self, text: &str) -> String {
         let mut out = String::with_capacity(text.len());
         for (is_word, piece) in split_words(text) {
             if !is_word {
@@ -110,6 +150,67 @@ impl Redactor {
             .or_insert_with(|| render(next))
             .clone()
     }
+}
+
+/// `text` with every maximal run of `in_run` characters that `replace` maps replaced.
+fn replace_runs(
+    text: &str,
+    in_run: impl Fn(char) -> bool,
+    mut replace: impl FnMut(&str) -> Option<String>,
+) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut start: Option<usize> = None;
+    let mut flush = |out: &mut String, run: &str| match replace(run) {
+        Some(replacement) => out.push_str(&replacement),
+        None => out.push_str(run),
+    };
+    for (i, c) in text.char_indices() {
+        match (in_run(c), start) {
+            (true, None) => start = Some(i),
+            (false, Some(s)) => {
+                flush(&mut out, &text[s..i]);
+                start = None;
+                out.push(c);
+            }
+            (false, None) => out.push(c),
+            (true, Some(_)) => {}
+        }
+    }
+    if let Some(s) = start {
+        flush(&mut out, &text[s..]);
+    }
+    out
+}
+
+fn is_address_char(c: char) -> bool {
+    c.is_ascii_hexdigit() || matches!(c, ':' | '.' | '-')
+}
+
+fn is_token_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '_' | '-' | '.')
+}
+
+/// Six groups of two hex digits, all separated by `:` or all by `-`.
+fn is_mac(text: &str) -> bool {
+    [':', '-'].iter().any(|&separator| {
+        let groups: Vec<&str> = text.split(separator).collect();
+        groups.len() == 6
+            && groups
+                .iter()
+                .all(|g| g.len() == 2 && g.bytes().all(|b| b.is_ascii_hexdigit()))
+    })
+}
+
+/// A run that looks like a key, hash or bearer token: 24+ characters with letters and at least
+/// two digits or base64 symbols (`/`, `+`, `=`), not an IPv4 address. A long plain name such as
+/// `process_creation_win_susp` has neither, and stays.
+fn is_secret_like(run: &str) -> bool {
+    let letters = run.bytes().filter(u8::is_ascii_alphabetic).count();
+    let marks = run
+        .bytes()
+        .filter(|b| b.is_ascii_digit() || matches!(b, b'/' | b'+' | b'='))
+        .count();
+    run.len() >= 24 && letters >= 2 && marks >= 2 && !is_ipv4(run)
 }
 
 /// Splits text into maximal runs of word characters (alphanumerics plus `.@_-+`) and the rest.
@@ -185,6 +286,83 @@ mod tests {
             out["message"],
             "Failed password for x from 192.0.2.1 port 22, mail user-1@example.invalid key <token-1>"
         );
+    }
+
+    fn text(message: &str) -> String {
+        redact(json!({ "message": message }))["message"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    }
+
+    #[test]
+    fn ipv6_addresses_are_replaced() {
+        for address in [
+            "2001:db8:85a3::8a2e:370:7334",
+            "fe80::1",
+            "::ffff:198.51.100.7",
+            "2a01:4f8:c0c:1234:0:0:0:1",
+        ] {
+            let out = text(&format!("from {address} port 22"));
+            assert!(!out.contains(address), "{address} leaked: {out}");
+            assert!(
+                out.starts_with("from ") && out.ends_with(" port 22"),
+                "{out}"
+            );
+        }
+    }
+
+    #[test]
+    fn mac_addresses_are_replaced() {
+        for mac in ["00:1A:2B:3C:4D:5E", "00-1a-2b-3c-4d-5e"] {
+            let out = text(&format!("client {mac} joined"));
+            assert!(!out.contains(mac), "{mac} leaked: {out}");
+        }
+    }
+
+    #[test]
+    fn jwts_and_base64_secrets_are_replaced() {
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
+        let aws = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+        let padded = "QWxhZGRpbjpvcGVuIHNlc2FtZQ==";
+        for secret in [jwt, aws, padded] {
+            let out = text(&format!("token={secret} end"));
+            assert!(!out.contains(secret), "{secret} leaked: {out}");
+            assert!(out.ends_with(" end"), "{out}");
+        }
+    }
+
+    #[test]
+    fn times_ports_and_short_words_stay_readable() {
+        for kept in [
+            "08:00:02",
+            "2026-10-14T08:00:02Z",
+            "port 22",
+            "cmd.exe",
+            "a :: b",
+            "EventID 4624",
+            "process_creation_win_susp_whoami",
+        ] {
+            assert_eq!(text(kept), kept);
+        }
+    }
+
+    #[test]
+    fn the_key_of_a_key_value_secret_stays_readable() {
+        assert_eq!(
+            text("token=QWxhZGRpbjpvcGVuIHNlc2FtZQ== end"),
+            "token=<token-1> end"
+        );
+    }
+
+    #[test]
+    fn pseudonyms_stay_consistent_across_fields_and_kinds() {
+        let out = redact(json!({
+            "a": "from fe80::1 and 10.0.0.1",
+            "b": "again fe80::1 and 10.0.0.1",
+        }));
+        let (a, b) = (out["a"].as_str().unwrap(), out["b"].as_str().unwrap());
+        assert_eq!(a.replace("from", "again"), b);
     }
 
     #[test]
