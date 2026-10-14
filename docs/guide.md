@@ -119,6 +119,7 @@ line`); a keyword rule is matched against the line as it is.
 | `sluice demo` | Generates an hour of synthetic traffic with planted attacks and runs the whole autopilot on it. |
 | `sluice analyze --input DIR --sources FILE --rules DIR` | Runs the autopilot on your sample (`DIR/<source>.ndjson`), writes `report.html` and `vector.yaml` (with Vector unit tests). `--wazuh-rules` (with `--wazuh-decoders` to bound them), `--wazuh-api` (logtest spot check), `--sentinel-rules` with `--kusto` and `--sentinel-table` (proof in the Kusto emulator), `--sigma-pipeline`, `--recipes`, `--llm` are optional. Summaries need a complete rule set: fetched, or `--rules-complete`. |
 | `sluice up --config FILE --rules DIR` | Runs the control plane and Vector live: tap, shadow, promote, verify, roll back. `--check` validates the configuration and prints the Vector configuration instead of starting. `--wazuh-rules`, `--sentinel-rules DIR` and `--kusto URL` add the SIEMs' own rules; `--rules-complete` says they are all of them. |
+| `sluice prove --config FILE --input DIR --sources FILE --rules DIR` | Proves a generated Vector configuration as it is, on a sample: exit 1 when the rules' alerts on what it forwards differ from those on the full sample. `--json` for CI; `--sentinel-rules`, `--kusto`, `--profile` as for `analyze` and `up` (ADR 0022). |
 | `sluice status` | The live control plane's status: savings, proof, stage per template, recent transitions. |
 | `sluice search --archive DIR [--source S] [--from T] [--to T] [--where C]…` | Prints archived events (full fidelity) as NDJSON; `--count`, `--limit`. |
 | `sluice replay … --url URL` | Sends archived events to an HTTP endpoint as NDJSON. |
@@ -138,6 +139,7 @@ Conditions for `search` and `replay` are `field=value`, `field!=value` and `fiel
 listen: 127.0.0.1:8686          # control plane API (default)
 vector_binary: vector           # default: found on PATH
 vector_config: /var/lib/sluice/vector.yaml
+# proposals_dir: /srv/git/pipeline/sluice   # optional: propose proven configurations for review instead of applying them (ADR 0022)
 archive_dir: /var/lib/sluice/archive
 data_dir: /var/lib/sluice/vector-data
 tap_rate: 10                    # keep 1 in 10 events for analysis (default)

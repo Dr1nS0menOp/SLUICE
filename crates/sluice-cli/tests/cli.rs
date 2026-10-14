@@ -84,6 +84,65 @@ fn c3_analyze_without_a_complete_inventory_summarizes_nothing() {
 }
 
 #[test]
+fn c5_prove_passes_the_generated_config_and_fails_one_that_loses_alerts() {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli-prove");
+    let _ = std::fs::remove_dir_all(&root);
+    let demo = root.join("demo");
+    sluice(&["demo", "--out", demo.to_str().unwrap(), "--scale", "5"]);
+    let rules = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/rules/sigma");
+    let prove = |config: &Path| {
+        Command::new(env!("CARGO_BIN_EXE_sluice"))
+            .args([
+                "prove",
+                "--config",
+                config.to_str().unwrap(),
+                "--input",
+                demo.join("samples").to_str().unwrap(),
+                "--sources",
+                demo.join("sluice.yaml").to_str().unwrap(),
+                "--rules",
+                rules.to_str().unwrap(),
+                "--json",
+            ])
+            .output()
+            .expect("sluice runs")
+    };
+
+    let passed = prove(&demo.join("vector.yaml"));
+    let stdout = String::from_utf8_lossy(&passed.stdout);
+    assert!(
+        passed.status.success(),
+        "{stdout}{}",
+        String::from_utf8_lossy(&passed.stderr)
+    );
+    let summary: serde_json::Value = serde_json::from_str(&stdout).expect("JSON");
+    assert_eq!(summary["holds"], true);
+    assert!(
+        summary["alerts_full"].as_u64().unwrap() > 0,
+        "the demo plants attacks"
+    );
+    assert!(summary["bytes_out"].as_u64() < summary["bytes_in"].as_u64());
+
+    // The same configuration, with one program edited to summarize every event.
+    let mut config: serde_json::Value =
+        serde_yaml_ng::from_str(&read(&demo.join("vector.yaml"))).unwrap();
+    let program = &mut config["transforms"]["sluice_windows_security"]["source"];
+    *program = format!(
+        "{}\n%sluice.route = \"summarize\"\n",
+        program.as_str().unwrap()
+    )
+    .into();
+    let broken = root.join("broken.yaml");
+    std::fs::write(&broken, serde_yaml_ng::to_string(&config).unwrap()).unwrap();
+    let failed = prove(&broken);
+    assert_eq!(failed.status.code(), Some(1));
+    let summary: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&failed.stdout)).expect("JSON");
+    assert_eq!(summary["holds"], false);
+    assert_ne!(summary["missing"], serde_json::json!([]));
+}
+
+#[test]
 fn rules_requirements_include_filter_fields_and_correlations() {
     let rules = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/rules/sigma");
     let out = sluice(&["rules", "requirements", "--rules", rules.to_str().unwrap()]);

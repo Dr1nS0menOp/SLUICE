@@ -1,0 +1,118 @@
+name: Sluice prove
+description: >-
+  Proves a Sluice-generated Vector configuration on a sample: fails when the rules' alerts on
+  what it forwards differ from their alerts on the full sample, and reports the savings.
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  config:
+    description: The Vector configuration to prove (a vector.yaml from `sluice analyze` or a `sluice up` proposal).
+    required: true
+  input:
+    description: Directory with one <source-id>.ndjson sample file per source.
+    required: true
+  sources:
+    description: The sources file (YAML).
+    required: true
+  rules:
+    description: Directory of Sigma rules.
+    required: false
+    default: ""
+  sigma-pipeline:
+    description: Optional SCHEMA=PIPELINE mapping of the Sigma rules, such as ecs=ecs_windows.
+    required: false
+    default: ""
+  profile:
+    description: The rule profile to prove, for a configuration of several.
+    required: false
+    default: ""
+  version:
+    description: >-
+      The Sluice release to use, such as 0.1.0. Defaults to the version of the action's tag
+      (uses: owner/sluice@v0.1.0).
+    required: false
+    default: ""
+
+outputs:
+  saved-percent:
+    description: Share of the sample's bytes the configuration does not forward.
+    value: ${{ steps.prove.outputs.saved-percent }}
+  alerts:
+    description: Alerts on the full sample (equal on the forwarded data when the proof holds).
+    value: ${{ steps.prove.outputs.alerts }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Sluice
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPOSITORY: ${{ github.action_repository }}
+        REF: ${{ github.action_ref }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        version="${VERSION:-${REF#v}}"
+        case "$(uname -m)" in
+          x86_64) arch=x86_64 ;;
+          aarch64) arch=aarch64 ;;
+          *) echo "unsupported architecture $(uname -m)" >&2; exit 1 ;;
+        esac
+        asset="sluice-${version}-${arch}-unknown-linux-musl"
+        dir="${RUNNER_TEMP}/sluice"
+        mkdir -p "$dir"
+        gh release download "v${version}" --repo "$REPOSITORY" --dir "$dir" \
+          --pattern "$asset" --pattern "$asset.sha256"
+        (cd "$dir" && sha256sum --check "$asset.sha256")
+        install -m 0755 "$dir/$asset" "$dir/sluice"
+        echo "$dir" >> "$GITHUB_PATH"
+
+    - name: Prove
+      id: prove
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+        INPUT: ${{ inputs.input }}
+        SOURCES: ${{ inputs.sources }}
+        RULES: ${{ inputs.rules }}
+        PIPELINE: ${{ inputs.sigma-pipeline }}
+        PROFILE: ${{ inputs.profile }}
+      run: |
+        set -uo pipefail
+        args=(prove --config "$CONFIG" --input "$INPUT" --sources "$SOURCES" --json)
+        [ -n "$RULES" ] && args+=(--rules "$RULES")
+        [ -n "$PIPELINE" ] && args+=(--sigma-pipeline "$PIPELINE")
+        [ -n "$PROFILE" ] && args+=(--profile "$PROFILE")
+        sluice "${args[@]}" > "${RUNNER_TEMP}/sluice-proof.json"
+        status=$?
+        cat "${RUNNER_TEMP}/sluice-proof.json"
+        python3 - "${RUNNER_TEMP}/sluice-proof.json" <<'EOF' >> "$GITHUB_OUTPUT"
+        import json, sys
+        try:
+            proof = json.load(open(sys.argv[1]))
+        except ValueError:
+            sys.exit(0)
+        print(f"saved-percent={proof['saved_percent']}")
+        print(f"alerts={proof['alerts_full']}")
+        EOF
+        python3 - "${RUNNER_TEMP}/sluice-proof.json" <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+        import json, sys
+        try:
+            p = json.load(open(sys.argv[1]))
+        except ValueError:
+            print("### Sluice proof\n\nThe configuration could not be proven; see the log.")
+            sys.exit(0)
+        verdict = "no detection changed" if p["holds"] else "**detections changed**"
+        print("### Sluice proof\n")
+        print(f"| | |\n|---|---|\n| Configuration | `{p['config']}` |")
+        print(f"| Alerts | {p['alerts_full']} on full data, {p['alerts_forwarded']} forwarded: {verdict} |")
+        print(f"| Saved | {p['saved_percent']} % ({p['summarized']} of {p['events']} events summarized) |")
+        for alert in p["missing"]:
+            print(f"| Missing | {alert} |")
+        for alert in p["extra"]:
+            print(f"| Extra | {alert} |")
+        EOF
+        exit $status

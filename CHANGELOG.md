@@ -60,6 +60,12 @@ explains the terms.
   (`not summarized: the rules are not known to be complete`). `sluice analyze` takes
   `--sentinel-rules`, `--kusto` and `--sentinel-table` to prove against Sentinel rules and
   queries in the Kusto emulator, as `sluice up` does.
+- Configurations as the product (ADR 0022). `sluice prove` proves a generated Vector
+  configuration as it is, reading its programs back from the file, and exits 1 when it would
+  change a detection; it refuses wiring Sluice did not generate. A GitHub Action
+  (`action.yml`) runs it in CI. `proposals_dir` makes `sluice up` write proven configurations
+  for review (`vector.yaml` and `proposal.json`) instead of applying them.
+  `scripts/load-test.sh` measures a configuration on a stock Vector next to its savings.
 
 ### Live operation
 

@@ -22,6 +22,9 @@ pub(crate) enum Command {
     Recipes(RecipesArgs),
     /// Inspect detection rules as Sluice understands them.
     Rules(RulesArgs),
+    /// Prove a generated Vector configuration on a sample, as it is: fails (exit 1) when the
+    /// rules' alerts on what it forwards differ from their alerts on the full sample. For CI.
+    Prove(ProveArgs),
     /// Run the control plane and Vector live: shadow, promote, verify, roll back.
     Up(UpArgs),
     /// Show the live control plane's status.
@@ -428,6 +431,42 @@ pub(crate) struct AnalyzeArgs {
     pub(crate) out: PathBuf,
     #[command(flatten)]
     pub(crate) ai: AiArgs,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct ProveArgs {
+    /// The Vector configuration to prove: a `vector.yaml` from `sluice analyze`, or a proposal
+    /// or live configuration from `sluice up`.
+    #[arg(long)]
+    pub(crate) config: PathBuf,
+    /// Directory with one `<source-id>.ndjson` file per source, as the configuration's
+    /// programs see them (for `sluice up`: as tapped, after shaping).
+    #[arg(long)]
+    pub(crate) input: PathBuf,
+    /// Sources file (YAML), as for `sluice analyze`.
+    #[arg(long)]
+    pub(crate) sources: PathBuf,
+    /// Directory of Sigma rules (`*.yml`, `*.yaml`), searched recursively.
+    #[arg(long)]
+    pub(crate) rules: Option<PathBuf>,
+    /// Map the Sigma rules onto another field naming convention (`SCHEMA=PIPELINE`).
+    #[arg(long, value_name = "SCHEMA=PIPELINE")]
+    pub(crate) sigma_pipeline: Vec<String>,
+    /// Directory of Sentinel rules and queries, run in the Kusto emulator (`--kusto`).
+    #[arg(long)]
+    pub(crate) sentinel_rules: Option<PathBuf>,
+    /// URL of a Kusto emulator.
+    #[arg(long, requires_all = ["sentinel_rules", "sentinel_table"])]
+    pub(crate) kusto: Option<String>,
+    /// The Sentinel table of a source's records, as `SOURCE=TABLE`. Repeatable.
+    #[arg(long, value_name = "SOURCE=TABLE", requires = "kusto")]
+    pub(crate) sentinel_table: Vec<String>,
+    /// The rule profile to prove, for a configuration of several (such as `sentinel+sigma`).
+    #[arg(long)]
+    pub(crate) profile: Option<String>,
+    /// Print the result as JSON (for CI).
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Args)]

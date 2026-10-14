@@ -307,7 +307,16 @@ impl Shared {
             })
             .collect();
         let yaml = self.render(&live)?;
-        let config_changed = self.write_if_changed(&yaml)?;
+        let config_changed = match &self.config.proposals_dir {
+            // GitOps: the proposal is reviewed and deployed by the operator; the running Vector
+            // keeps its configuration, so there is nothing to reload.
+            Some(dir) => {
+                let proposal = proposal(now, &live, &results);
+                self.write_proposal(dir, &yaml, &proposal)?;
+                false
+            }
+            None => self.write_if_changed(&yaml)?,
+        };
 
         // The window this cycle analyzed, per source.
         let mut window: BTreeMap<String, usize> = BTreeMap::new();
@@ -405,6 +414,23 @@ impl Shared {
             .map_err(|e| ServerError::Config(e.to_string()))
     }
 
+    /// Writes a proposal (`vector.yaml` and `proposal.json`) into `dir` if the configuration
+    /// changed. Each file is replaced atomically, the configuration last, so a reader that sees
+    /// a new `vector.yaml` also sees its proof.
+    fn write_proposal(&self, dir: &Path, yaml: &str, proposal: &Value) -> Result<(), ServerError> {
+        let mut last = lock(&self.last_config);
+        if *last == yaml {
+            return Ok(());
+        }
+        let json = serde_json::to_string_pretty(proposal)
+            .map_err(|e| ServerError::Io(format!("serializing the proposal: {e}")))?;
+        write_atomic(&dir.join("proposal.json"), &(json + "\n"))?;
+        write_atomic(&dir.join("vector.yaml"), yaml)?;
+        yaml.clone_into(&mut last);
+        tracing::info!(dir = %dir.display(), "wrote a proposed Vector configuration");
+        Ok(())
+    }
+
     /// Writes the Vector configuration atomically (temp file, then rename) if it changed, so
     /// Vector never reads a half-written file. Returns whether it changed.
     fn write_if_changed(&self, yaml: &str) -> Result<bool, ServerError> {
@@ -417,6 +443,37 @@ impl Shared {
         tracing::info!(path = %self.config.vector_config.display(), "wrote Vector configuration");
         Ok(true)
     }
+}
+
+/// What a proposal enforces and what its proof showed, per rule profile: the evidence a
+/// reviewer reads next to the diff of `vector.yaml`.
+fn proposal(now: i64, live: &[LiveProfile<'_>], results: &[sluice_autopilot::Cycle]) -> Value {
+    let profiles: Vec<Value> = live
+        .iter()
+        .zip(results)
+        .map(|(profile, result)| {
+            // The proof of exactly what the proposed configuration enforces.
+            let proof = &result.deployed.proof;
+            let enforced: Vec<&str> = profile
+                .plans
+                .iter()
+                .filter(|plan| !plan.recipe.is_passthrough())
+                .map(|plan| plan.template.id.as_str())
+                .collect();
+            json!({
+                "profile": profile.name,
+                "proof": {
+                    "holds": proof.holds(),
+                    "alerts_full": proof.full_alerts.len(),
+                    "alerts_forwarded": proof.forwarded_alerts.len(),
+                },
+                "bytes_in": proof.total.bytes_in,
+                "bytes_out": proof.total.bytes_out,
+                "enforced_templates": enforced,
+            })
+        })
+        .collect();
+    json!({ "generated_at": now, "profiles": profiles })
 }
 
 /// The rule sets a destination can name: Sigma always (it may be empty), Wazuh and Sentinel

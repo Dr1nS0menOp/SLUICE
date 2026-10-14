@@ -15,4 +15,8 @@ pub enum VectorError {
     /// The Vector configuration could not be rendered.
     #[error("cannot render the Vector configuration: {0}")]
     Config(String),
+    /// A configuration read back for `sluice prove` is not one Sluice generated, so what it does
+    /// cannot be proven.
+    #[error("cannot prove this configuration: {0}")]
+    NotProvable(String),
 }

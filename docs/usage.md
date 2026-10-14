@@ -288,6 +288,47 @@ Before it handles real data:
 - Size the archive: it holds everything, gzip-compressed, per source and hour.
 - Leave the promotion defaults (24 hours of shadow, 3 proofs) unless you are testing.
 
+## 10. Review every change in Git
+
+Sluice's product is a configuration and its proof ([ADR 0022](adr/0022-configs-as-the-product.md)).
+To merge changes through review instead of having `sluice up` apply them, set a proposals
+directory in its configuration:
+
+```yaml
+proposals_dir: /srv/git/siem-pipeline/sluice   # a checkout your tooling commits from
+```
+
+Each newly proven configuration lands there as `vector.yaml` with `proposal.json` (the proof of
+exactly what it enforces, bytes in and out, the enforced templates). The running Vector keeps
+cutting nothing until you deploy a proposal.
+
+In CI, `sluice prove` checks the file in the pull request, whoever edited it, and fails when
+it would change a detection:
+
+```sh
+sluice prove --config sluice/vector.yaml --input samples/ --sources sources.yaml \
+  --rules sigma/rules        # add --sentinel-rules DIR --kusto URL --sentinel-table S=T for KQL
+```
+
+On GitHub:
+
+```yaml
+- uses: <owner>/sluice@v0.1.0
+  with:
+    config: sluice/vector.yaml
+    input: samples
+    sources: sources.yaml
+    rules: sigma/rules
+```
+
+The action installs the matching release binary (SHA-256 checked), writes the proof and the
+savings to the job summary, and fails the job when the proof fails. `sluice prove` refuses a
+configuration whose wiring around Sluice's programs was changed (a filter in front of them, a
+route that forwards less, an output that goes nowhere): it can only vouch for what it models.
+
+`scripts/load-test.sh CONFIG SAMPLES SOURCES [RULES]` measures the same configuration on a
+stock Vector: events per second per source, next to the savings and the proof.
+
 ## When nothing is cut
 
 That is Sluice being careful, and the report says why for each template. The usual reasons are a

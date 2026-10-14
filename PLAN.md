@@ -575,6 +575,14 @@ detection:
 - Status 2026-10-11: a first draft, remote nodes pulling their configuration from the control
   plane, worked end to end but was rejected and removed (ADR 0017): it would have made Sluice
   the kind of platform it means to make unnecessary.
+- Status 2026-10-14 (ADR 0022): `proposals_dir` makes `sluice up` write each proven
+  configuration with `proposal.json` for review instead of applying it (the DCRs and agent
+  configurations already go to a directory with `--out`/`--dcr`); `sluice prove` proves a
+  configuration as it is, reading its programs back from the file and refusing wiring Sluice
+  did not generate; `action.yml` runs it on GitHub (its prove step run locally; the install
+  step needs a first release); `scripts/load-test.sh` measured the demo configuration at
+  46,000 to 93,000 events/s per source next to 73.8 % saved, 43 = 43 alerts
+  (docs/notes/benchmarks.md). M11 is done; the hard cutoff below starts now.
 
 **Hard cutoff after M11: test everything built so far (decided 2026-10-13).** No new features
 between M11 and M12. In order:
