@@ -73,6 +73,10 @@ pub(crate) fn adjustment(adjustment: &Adjustment) -> String {
                  line they could see is forwarded whole"
             )
         }
+        Reason::RulesNotComplete => "not summarized: the rules are not known to be complete \
+                                     (fetch them with `sluice rules fetch`, or pass \
+                                     --rules-complete)"
+            .to_owned(),
         Reason::UnboundedRule { rule } => {
             format!("{rule} could match any event, so every event is forwarded")
         }

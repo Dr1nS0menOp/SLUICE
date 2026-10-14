@@ -89,11 +89,11 @@ pub fn guard(
         .filter(|rule| !renamed(rule, template) && applies(rule, template))
         .chain(&widened)
         .collect();
-    let (mut shaped, conditions) = shape(template, recipe, &applicable, true);
+    let (mut shaped, conditions) = shape(template, recipe, &applicable, true, ctx.rules_complete);
     let keep = Predicate::any(conditions);
     if keep.tests() > MAX_DATA_PLANE_TESTS {
         // Too many rules could read the fields to test them per event: keep them everywhere.
-        (shaped, _) = shape(template, recipe, &applicable, false);
+        (shaped, _) = shape(template, recipe, &applicable, false, ctx.rules_complete);
         shaped.adjustments.push(Adjustment {
             contract: ContractRule::RuleMatchesForwarded,
             level: Some(Level::Lossless),
@@ -145,18 +145,29 @@ const MAX_DATA_PLANE_TESTS: usize = 256;
 
 /// Applies `recipe`'s reductions within what `applicable` rules allow. With `conditional`,
 /// fields claimed by selective rules are dropped outside those rules' pre-filters, which are
-/// returned; without, every claim holds on every event.
+/// returned; without, every claim holds on every event. Without `rules_complete`, reductions
+/// that decide which events are forwarded are refused (ADR 0021).
 fn shape(
     template: &Template,
     recipe: &Recipe,
     applicable: &[&RuleRequirements],
     conditional: bool,
+    rules_complete: bool,
 ) -> (EffectiveRecipe, Vec<Predicate>) {
     let mut effective = EffectiveRecipe::passthrough(template.id.clone());
     let protection = Protection::of(template, applicable, conditional);
     let mut conditions: Vec<Predicate> = Vec::new();
 
     for reduction in recipe.reductions() {
+        if reduction.is_routing() && !rules_complete {
+            // A rule Sluice was not given could match any event it would not forward.
+            effective.adjustments.push(Adjustment {
+                contract: ContractRule::RuleMatchesForwarded,
+                level: Some(reduction.level()),
+                reason: Reason::RulesNotComplete,
+            });
+            continue;
+        }
         match reduction {
             Reduction::DropFields { fields } => {
                 effective.drop_fields.extend(protection.allowed_drops(

@@ -25,7 +25,7 @@ events breaks when events become summaries, even though no alert changes.
    - `sentinel --workspace RESOURCE_ID`: enabled `Scheduled` and `NRT` analytics rules
      (`Microsoft.SecurityInsights/alertRules`), hunting queries and workspace functions
      (`savedSearches`; a function is written as `FunctionName`/`FunctionQuery`, so rules that
-     call it read what it reads), and with `--queries-days N` the distinct queries people ran
+     call it read what it reads; other saved searches with `--all-saved-searches`), and with `--query-log-days N` the distinct queries people ran
      (`LAQueryLogs`), each as a rule whose result must not change. Credentials come from the
      environment (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`), never from flags.
    - `wazuh --api URL --user USER`: the enabled rule and decoder files (`/rules/files`,
@@ -35,17 +35,22 @@ events breaks when events become summaries, even though no alert changes.
      manifest as such. `MLBehaviorAnalytics` and `ThreatIntelligence` read records in ways that
      are not published; each becomes a rule that may read anything (fail closed).
 2. **A destination's rules are complete only when said so.** A rule set is complete when its
-   directory holds an `inventory.json` from `sluice rules fetch` or when the operator claims it:
-   `--rules-complete` for `sluice analyze`, `rules_complete: true` on a destination of
-   `sluice up`. Sigma rules have no SIEM API of their own, so for them it is always a claim.
+   directory (or its parent) holds a complete `inventory.json` from `sluice rules fetch`, or
+   when the operator claims it with `--rules-complete` (`sluice analyze`, `sluice up`). Sigma
+   rules have no SIEM API of their own, so for them it is always a claim; without `--rules`,
+   the empty Sigma set counts as complete only next to a fetched set. In `sluice up` a rule
+   profile summarizes only when every set it names is complete.
 3. **Without a complete inventory, no L2 or L3.** The guardrails refuse rule-guided forwarding
-   and summaries with `Reason::RulesNotComplete` (contract rule 3) and keep L1. The report shows
-   how many bytes each held-back template has, so the saving a complete inventory would unlock
-   is visible.
-4. **Queries are rules.** Hunting queries, workspace queries from the query log and workbook
-   queries go through the same KQL extractor and the same emulator proof as analytics rules:
-   "same alerts" becomes "same rows". A query that counts events keeps them forwarded, because
-   its pre-filter covers them; a query Sluice cannot bound blocks cuts in its scope.
+   and summaries with `Reason::RulesNotComplete` (contract rule 3) and keep L1. The report
+   names the reason on each held-back template, next to its bytes, and `sluice analyze` prints
+   a hint saying how to make the rules complete.
+4. **Queries are rules.** Hunting queries and the queries people ran (the query log) go through
+   the same KQL extractor and the same emulator proof as analytics rules: "same alerts" becomes
+   "same rows". A query that counts events keeps them forwarded, because its pre-filter covers
+   them; a query Sluice cannot bound blocks cuts in its scope.
+5. **`sluice analyze` proves against them offline.** `--sentinel-rules DIR --kusto URL
+   --sentinel-table SOURCE=TABLE` runs the fetched rules and queries in the Kusto emulator on
+   the sample, as `sluice up` does.
 
 ## Consequences
 
@@ -57,6 +62,16 @@ events breaks when events become summaries, even though no alert changes.
 - Fetching is read-only: the service principal needs Microsoft Sentinel Reader (or Reader) on
   the workspace and, for the query log, Log Analytics Reader with `LAQueryLogs` enabled.
 - Splunk, Elastic, Chronicle and QRadar inventories follow with their query languages (M12);
-  until then their destinations need the operator's claim for L2 and L3.
+  until then their destinations need the operator's claim for L2 and L3. So do workbook
+  queries (they live in the workbooks' serialized JSON) and polling the inventory from
+  `sluice up`: for now, fetch again and restart.
+- Verified 2026-10-14 against a real Wazuh 4.x manager (168 rule and 121 decoder files) and the
+  Sentinel test workspace (a scheduled rule, a hunting query, a function and Fusion): the
+  fetched Sentinel inventory, proven in the emulator on synthetic `SecurityEvent` records, kept
+  the 4625 and 4624 events its rule and hunting query read and summarized the 5156 bulk
+  (92.6 % saved, 16 = 16 result rows); adding a dashboard query that counts 5156 per hour kept
+  every 5156 event (0 % saved, 17 = 17). `docs/notes/rule-inventory.md` has the API details.
 - Tests named after contract rule 3 cover the gate (`sluice-core` guard tests), the manifests
-  and the fetchers against recorded API responses (`sluice-cli`, `sluice-wazuh`).
+  the fetchers against fakes answering in the documented API shapes (`sluice-wazuh`,
+  `sluice-sentinel`), writing an inventory (`sluice-cli`), and `sluice analyze` without a
+  complete inventory (`crates/sluice-cli/tests/cli.rs`).

@@ -545,6 +545,19 @@ Done when: a Sentinel workspace's enabled rules and hunting queries are read ove
 proven in the emulator, a Splunk or Elastic destination without an inventory gets no L2/L3, and
 a dashboard that counts events either passes the proof or keeps its data.
 
+- Status 2026-10-14 (ADR 0021): steps 1, 3, 4 and 5 for Sentinel and Wazuh. `sluice rules
+  fetch sentinel|wazuh` writes the inventory (rules, hunting queries, functions, and the query
+  log on request) with an `inventory.json`; the guardrails refuse L2 and L3 unless every rule
+  set is fetched or claimed complete (`--rules-complete`, `Reason::RulesNotComplete`), so a
+  Splunk or Elastic destination, whose rules can only be claimed, gets no L2/L3 without the
+  claim; `sluice analyze --sentinel-rules --kusto` runs them in the emulator. Verified on the
+  test workspace and the homelab Wazuh (docs/notes/rule-inventory.md): the fetched rules kept
+  their events and the 5156 bulk was summarized (16 = 16 rows); a counting dashboard query
+  kept every 5156 event. M10 is done for what can be verified here. Moved to M12, with the
+  other SIEMs: Splunk, Elastic, Chronicle and QRadar inventories and their query-language
+  extractors (step 2), workbook queries, polling the inventory from `sluice up`, summaries as
+  a table of their own with counting helpers, and "fields nobody queries" as cut proposals.
+
 **M11 — Configs as the product.** Sluice's output scales; Sluice itself does not run a fleet
 (ADR 0017). Vector already runs pipelines at scale, so Sluice does not reinvent that. What
 Sluice delivers is the configuration and the proof that it saves data without changing a
@@ -585,6 +598,11 @@ planned when it starts; it includes at least:
 - Requirements extractors and, where an engine can run offline, proofs for each SIEM's own rule
   language: Splunk SPL (correlation searches), Elastic (KQL, EQL, ES|QL, detection rules),
   Google SecOps YARA-L, QRadar AQL, LogScale, Datadog, OpenSearch, Graylog, Wazuh beyond rules.
+- The rest of M10 for every SIEM: inventories over Splunk (`saved/searches`, macros,
+  extractions), Elastic (detection rules, ingest pipelines), Chronicle and QRadar; workbook and
+  dashboard queries; `sluice up` polling the inventory; summaries as a table of their own with
+  counting helpers (a KQL function, a Splunk macro); fields nobody queries (query logs) as the
+  safest cut proposals.
 - Destinations, table shapes and schema mappings (CIM, ECS, UDM, OCSF, ASIM, LEEF/CEF) for each,
   with native ingest-time transformations where the platform has them (Elastic ingest
   pipelines, Splunk ingest actions, SecOps parser extensions), proven like VRL (M5).
@@ -631,7 +649,8 @@ sluice/
     sluice-vector/      # reductions → VRL, VRL execution (vrl crate), vector.yaml + vector tests
     sluice-autopilot/   # analysis pipeline, recipe book, lifecycle, live cycle, report
     sluice-ai/          # L3 advisor: redaction, prompt, Anthropic and OpenAI-compatible models
-    sluice-wazuh/       # Wazuh logtest client (spot check)
+    sluice-wazuh/       # Wazuh logtest client (spot check) and rule inventory
+    sluice-sentinel/    # Sentinel rule inventory over Azure APIs (read-only)
     sluice-server/      # control plane for `sluice up` (axum): tap, status, Vector supervision
     sluice-cli/         # `sluice` binary: demo, analyze, recipes, up, status
     sluice-archive/     # streaming search over the gzip NDJSON archive (search, replay)
@@ -693,8 +712,9 @@ sluice/
   sides raise no alert).
 - Text sources keep every line a Sigma field rule could see, until Sluice knows the SIEM's
   parser (ADR 0020; parser packs in M12).
-- Until M10, a rule Sluice was not given does not exist for it. Load every rule the SIEM runs,
-  for each destination.
+- A rule Sluice was not given does not exist for it. Since ADR 0021 that costs savings, not
+  detections: without a fetched inventory or `--rules-complete`, nothing is summarized. The
+  claim is the operator's, and the proof cannot check it.
 - Detections aren't the only consumers of data; dashboards, hunts and compliance also use it.
   Archive, replay, summaries, the keep-list and a per-destination "no reduction" switch mitigate
   this until M10 brings them into the proof.

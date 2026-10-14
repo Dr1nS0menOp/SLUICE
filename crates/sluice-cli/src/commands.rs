@@ -4,13 +4,11 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use sluice_autopilot::{
-    Helpers, Input, RecipeBook, Report, Settings, analyze as run_autopilot, render_html,
+    Helpers, Input, RecipeBook, Report, Sentinel, Settings, analyze as run_autopilot, render_html,
 };
 use sluice_core::advice::Advisor;
-use sluice_core::alert::EventRules;
-use sluice_core::event::Event;
-use sluice_core::source::Source;
-use sluice_rules::{SigmaRules, WazuhRules};
+use sluice_core::alert::{EventRules, RuleEngine};
+use sluice_rules::SigmaRules;
 use sluice_synth::{SynthConfig, generate};
 use sluice_vector::{Paths, vector_config};
 use sluice_wazuh::{Http as WazuhHttp, Logtest, LogtestConfig};
@@ -41,16 +39,21 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
     );
     let advisor = ai::advisor(&args.ai)?;
     run(
-        &sample.sources,
-        &sample.events,
-        &sigma,
-        None,
+        Input {
+            sources: &sample.sources,
+            events: &sample.events,
+            sigma: &sigma,
+            wazuh: None,
+            sentinel: None,
+        },
         &RecipeBook::embedded()?,
         Helpers {
             advisor: advisor.as_ref().map(|a| a as &dyn Advisor),
             event_rules: None,
         },
         &args.out,
+        // The demo's rules are its own: complete by construction.
+        true,
     )?;
     println!(
         "Re-run on the same data: sluice analyze --input {} --sources {} --rules <dir>",
@@ -76,18 +79,50 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
     let book = recipe_book(args.recipes.as_deref())?;
     let advisor = ai::advisor(&args.ai)?;
     let logtest = logtest(args)?;
+    let sentinel_rules = input::sentinel(args.sentinel_rules.as_deref())?;
+    let kusto = match (&sentinel_rules, &args.kusto) {
+        (Some(rules), Some(url)) => Some(input::kusto(url, rules, &args.sentinel_table)?),
+        _ => None,
+    };
+    let rules_complete = args.rules_complete || fetched_only(args);
+    if !rules_complete {
+        eprintln!(
+            "hint: the rules are not known to be every rule the SIEM runs, so nothing is \
+             summarized (lossless cuts only). Fetch them with `sluice rules fetch`, or pass \
+             --rules-complete if they are (docs/adr/0021-rule-inventory.md)."
+        );
+    }
     run(
-        &sources,
-        &events,
-        &sigma,
-        wazuh.as_ref(),
+        Input {
+            sources: &sources,
+            events: &events,
+            sigma: &sigma,
+            wazuh: wazuh.as_ref(),
+            sentinel: sentinel_rules.as_ref().map(|rules| Sentinel {
+                rules,
+                engine: kusto.as_ref().map(|k| k as &dyn RuleEngine),
+            }),
+        },
         &book,
         Helpers {
             advisor: advisor.as_ref().map(|a| a as &dyn Advisor),
             event_rules: logtest.as_ref().map(|l| l as &dyn EventRules),
         },
         &args.out,
+        rules_complete,
     )
+}
+
+/// Whether rules were given and every set came from a complete `sluice rules fetch`. Sigma has
+/// no SIEM API, so Sigma rules always need `--rules-complete`.
+fn fetched_only(args: &AnalyzeArgs) -> bool {
+    let given = [args.wazuh_rules.as_deref(), args.sentinel_rules.as_deref()];
+    args.rules.is_none()
+        && given.iter().any(Option::is_some)
+        && given
+            .iter()
+            .flatten()
+            .all(|dir| crate::inventory::is_complete(dir))
 }
 
 /// The Wazuh `logtest` client `--wazuh-api` asks for.
@@ -140,12 +175,15 @@ pub(crate) fn recipes(args: &RecipesArgs) -> Result<()> {
 }
 
 pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
-    let RulesCommand::Requirements {
-        rules,
-        wazuh_rules,
-        wazuh_decoders,
-        sentinel_rules,
-    } = &args.command;
+    let (rules, wazuh_rules, wazuh_decoders, sentinel_rules) = match &args.command {
+        RulesCommand::Fetch(fetch) => return crate::inventory::fetch(fetch),
+        RulesCommand::Requirements {
+            rules,
+            wazuh_rules,
+            wazuh_decoders,
+            sentinel_rules,
+        } => (rules, wazuh_rules, wazuh_decoders, sentinel_rules),
+    };
     let mut requirements = Vec::new();
     let mut problems = Vec::new();
     if let Some(dir) = rules {
@@ -158,15 +196,8 @@ pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
         requirements.extend(wazuh.requirements().iter().cloned());
         problems.extend(wazuh.problems().iter().cloned());
     }
-    if let Some(dir) = sentinel_rules {
-        let files = input::files(dir, &["yaml", "yml"])?;
-        let sentinel = sluice_rules::SentinelRules::parse(
-            files
-                .iter()
-                .map(|(path, text)| (path.as_str(), text.as_str())),
-        );
+    if let Some(sentinel) = input::sentinel(sentinel_rules.as_deref())? {
         requirements.extend(sentinel.requirements().iter().cloned());
-        problems.extend(sentinel.problems().iter().cloned());
     }
     for problem in &problems {
         eprintln!("warning: {problem}");
@@ -191,24 +222,22 @@ fn recipe_book(extra: Option<&Path>) -> Result<RecipeBook> {
 }
 
 fn run(
-    sources: &[Source],
-    events: &[Event],
-    sigma: &SigmaRules,
-    wazuh: Option<&WazuhRules>,
+    input: Input<'_>,
     book: &RecipeBook,
     helpers: Helpers<'_>,
     out: &Path,
+    rules_complete: bool,
 ) -> Result<()> {
-    let input = Input {
-        sources,
-        events,
-        sigma,
-        wazuh,
-        sentinel: None,
+    let Input {
+        sources, events, ..
+    } = input;
+    let settings = Settings {
+        rules_complete,
+        ..Settings::default()
     };
-    let analysis = run_autopilot(input, book, &Settings::default(), helpers)
-        .context("running the autopilot")?;
-    let report = Report::new(&analysis, sigma, wazuh);
+    let analysis =
+        run_autopilot(input, book, &settings, helpers).context("running the autopilot")?;
+    let report = Report::new(&analysis, input);
 
     let paths = Paths {
         input_dir: out.join("samples").display().to_string(),

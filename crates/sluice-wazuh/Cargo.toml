@@ -1,6 +1,6 @@
 [package]
 name = "sluice-wazuh"
-description = "Wazuh integration for Sluice: exact rule checks through the manager's logtest API"
+description = "Wazuh integration for Sluice: exact rule checks through the manager's logtest API, and its rule inventory"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

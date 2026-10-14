@@ -10,6 +10,7 @@ mod cli;
 mod commands;
 mod connect;
 mod input;
+mod inventory;
 mod live;
 mod output;
 

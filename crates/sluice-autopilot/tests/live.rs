@@ -65,7 +65,7 @@ fn recipes_are_shadowed_then_enforced_and_keep_holding() {
         let result = cycle(
             input,
             &book,
-            &Settings::default(),
+            &Settings::with_complete_rules(),
             Helpers::default(),
             &mut lifecycle,
             now,
@@ -120,7 +120,7 @@ fn recipes_are_shadowed_then_enforced_and_keep_holding() {
     let result = cycle(
         input,
         &book,
-        &Settings::default(),
+        &Settings::with_complete_rules(),
         Helpers::default(),
         &mut lifecycle,
         Timestamp(1_791_619_200 + 3 * 3_600),

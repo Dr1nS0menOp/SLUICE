@@ -46,6 +46,8 @@ fn demo_then_analyze_agree() {
         rules.to_str().unwrap(),
         "--out",
         again.to_str().unwrap(),
+        // The demo's own rules: complete, as the demo takes them to be.
+        "--rules-complete",
     ]);
     // Same events, rules and recipes: the same VRL. (Paths in the config differ by `--out`.)
     let programs = |dir: &Path| {
@@ -56,6 +58,29 @@ fn demo_then_analyze_agree() {
             .join("\n")
     };
     assert_eq!(programs(&demo), programs(&again));
+}
+
+#[test]
+fn c3_analyze_without_a_complete_inventory_summarizes_nothing() {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli-partial");
+    let _ = std::fs::remove_dir_all(&root);
+    let demo = root.join("demo");
+    sluice(&["demo", "--out", demo.to_str().unwrap(), "--scale", "5"]);
+    let rules = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/rules/sigma");
+    let partial = root.join("partial");
+    let summary = sluice(&[
+        "analyze",
+        "--input",
+        demo.join("samples").to_str().unwrap(),
+        "--sources",
+        demo.join("sluice.yaml").to_str().unwrap(),
+        "--rules",
+        rules.to_str().unwrap(),
+        "--out",
+        partial.to_str().unwrap(),
+    ]);
+    assert!(summary.contains("0 events summarized"), "{summary}");
+    assert!(read(&partial.join("report.html")).contains("the rules are not known to be complete"));
 }
 
 #[test]

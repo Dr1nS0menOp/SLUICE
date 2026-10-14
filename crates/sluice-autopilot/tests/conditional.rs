@@ -212,6 +212,7 @@ fn the_guardrails_alone_preserve_every_alert() {
                     rarity_min_share_ppm: 0,
                 },
                 archive_enabled: true,
+                rules_complete: true,
             };
             let recipes: Vec<_> = discovery
                 .templates

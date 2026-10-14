@@ -122,6 +122,10 @@ pub enum Reason {
         /// How many applicable rules are read this way.
         rules: usize,
     },
+    /// The rules are not known to be every rule the destination runs (no inventory from the
+    /// SIEM, no claim by the operator), so nothing is summarized: a rule Sluice was not given
+    /// could match what would not be forwarded (ADR 0021). Lossless cuts still apply.
+    RulesNotComplete,
     /// A rule's pre-filter cannot be bounded, so every event could match.
     UnboundedRule {
         /// The rule.
@@ -271,4 +275,7 @@ pub struct GuardContext<'a> {
     pub config: GuardrailConfig,
     /// Whether full-fidelity archiving runs before reductions.
     pub archive_enabled: bool,
+    /// Whether `rules` are every rule and query the destination runs: fetched from the SIEM or
+    /// claimed by the operator (ADR 0021). Without it, only lossless cuts are allowed.
+    pub rules_complete: bool,
 }

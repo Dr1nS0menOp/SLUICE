@@ -35,6 +35,10 @@ pub struct Rules {
     pub wazuh: Option<WazuhRules>,
     /// Microsoft Sentinel analytics rules, for destinations that name `sentinel`.
     pub sentinel: Option<SentinelRuleSet>,
+    /// The rule sets (`sigma`, `wazuh`, `sentinel`) known to be every rule their SIEM runs:
+    /// fetched from it, or claimed by the operator (ADR 0021). A profile summarizes only when
+    /// all of its sets are listed; otherwise it makes lossless cuts only.
+    pub complete: std::collections::BTreeSet<String>,
 }
 
 /// Sentinel analytics rules and, if available, the engine that runs them for the proof
@@ -272,6 +276,10 @@ impl Shared {
                     .get(&profile.name)
                     .map(|d| d.rules(&self.sources))
                     .unwrap_or_default(),
+                rules_complete: profile
+                    .name
+                    .split('+')
+                    .all(|r| self.rules.complete.contains(r)),
                 ..Settings::default()
             };
             let result = cycle(
@@ -309,7 +317,7 @@ impl Shared {
         let mut transitions = Vec::new();
         for ((profile, lifecycle), result) in self.profiles.iter().zip(&lifecycles).zip(&results) {
             let input = self.input(profile, events);
-            let report = Report::new(&result.analysis, input.sigma, input.wazuh);
+            let report = Report::new(&result.analysis, input);
             let mut status = profile
                 .status
                 .write()

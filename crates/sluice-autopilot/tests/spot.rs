@@ -73,7 +73,7 @@ fn analyze_with(rules: &dyn EventRules) -> sluice_autopilot::Analysis {
     analyze(
         input,
         &RecipeBook::embedded().expect("recipes"),
-        &Settings::default(),
+        &Settings::with_complete_rules(),
         helpers,
     )
     .expect("analysis")
@@ -117,7 +117,7 @@ fn a_recipe_the_siem_disagrees_with_is_rolled_back() {
     let analysis = analyze(
         input,
         &RecipeBook::embedded().expect("recipes"),
-        &Settings::default(),
+        &Settings::with_complete_rules(),
         helpers,
     )
     .expect("analysis");

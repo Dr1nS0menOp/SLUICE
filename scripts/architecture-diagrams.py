@@ -170,9 +170,9 @@ def decision_path():
     s.card(24, 500, 270, 96, "LIMIT · D · M12", ["Text lines are not parsed:",
                                                   "Sigma field rules keep text",
                                                   "sources whole."], [], RED, limit=True)
-    s.card(312, 500, 270, 96, "LIMIT · D · M10", ["Rules come from directories;",
-                                                  "hunts, dashboards and other",
-                                                  "SIEM languages are not read."], [], RED,
+    s.card(312, 500, 270, 96, "LIMIT · D · M12", ["Only Sentinel and Wazuh rules",
+                                                  "are fetched; SPL, EQL, YARA-L",
+                                                  "rules are not read yet."], [], RED,
            limit=True)
     s.card(600, 500, 240, 96, "Operators", ["console, sluice status, MCP:", "watch, explain, intervene"],
            ["web console · rmcp"], INK)

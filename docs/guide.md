@@ -117,8 +117,8 @@ line`); a keyword rule is matched against the line as it is.
 | Command | What it does |
 |---------|--------------|
 | `sluice demo` | Generates an hour of synthetic traffic with planted attacks and runs the whole autopilot on it. |
-| `sluice analyze --input DIR --sources FILE --rules DIR` | Runs the autopilot on your sample (`DIR/<source>.ndjson`), writes `report.html` and `vector.yaml` (with Vector unit tests). `--wazuh-rules` (with `--wazuh-decoders` to bound them), `--wazuh-api` (logtest spot check), `--recipes`, `--llm` are optional. |
-| `sluice up --config FILE --rules DIR` | Runs the control plane and Vector live: tap, shadow, promote, verify, roll back. `--check` validates the configuration and prints the Vector configuration instead of starting. `--wazuh-rules`, `--sentinel-rules DIR` and `--kusto URL` add the SIEMs' own rules. |
+| `sluice analyze --input DIR --sources FILE --rules DIR` | Runs the autopilot on your sample (`DIR/<source>.ndjson`), writes `report.html` and `vector.yaml` (with Vector unit tests). `--wazuh-rules` (with `--wazuh-decoders` to bound them), `--wazuh-api` (logtest spot check), `--sentinel-rules` with `--kusto` and `--sentinel-table` (proof in the Kusto emulator), `--sigma-pipeline`, `--recipes`, `--llm` are optional. Summaries need a complete rule set: fetched, or `--rules-complete`. |
+| `sluice up --config FILE --rules DIR` | Runs the control plane and Vector live: tap, shadow, promote, verify, roll back. `--check` validates the configuration and prints the Vector configuration instead of starting. `--wazuh-rules`, `--sentinel-rules DIR` and `--kusto URL` add the SIEMs' own rules; `--rules-complete` says they are all of them. |
 | `sluice status` | The live control plane's status: savings, proof, stage per template, recent transitions. |
 | `sluice search --archive DIR [--source S] [--from T] [--to T] [--where C]…` | Prints archived events (full fidelity) as NDJSON; `--count`, `--limit`. |
 | `sluice replay … --url URL` | Sends archived events to an HTTP endpoint as NDJSON. |
@@ -126,6 +126,7 @@ line`); a keyword rule is matched against the line as it is.
 | `sluice agent windows --to URL [--events-to URL] [--channel C]...` | Prints the Vector configuration for a Windows host that sends its event logs to `sluice up`; `--dcr FILE --workspace ID` also writes the Sentinel data collection rule for them. |
 | `sluice mcp [--archive DIR] [--allow-replay] [--allow-actions] [--http ADDR]` | An MCP server for AI assistants, over stdio or bearer-token HTTP. `--allow-actions` offers the operator actions (ADR 0016). |
 | `sluice recipes [schema \| export --out DIR]` | Lists the built-in recipes, prints their JSON Schema, or exports them to edit. |
+| `sluice rules fetch --out DIR sentinel\|wazuh …` | Reads the rules a SIEM runs from its API, read-only, into `DIR` with an `inventory.json` that marks them complete (ADR 0021). |
 | `sluice rules requirements --rules DIR` | Prints, as JSON, what each rule needs: log source, fields, raw text, state. Also for Wazuh (`--wazuh-rules`) and Sentinel (`--sentinel-rules`) rules. |
 
 Conditions for `search` and `replay` are `field=value`, `field!=value` and `field~text`
@@ -266,3 +267,8 @@ common reasons:
   incomplete.
 - **"kept: … rule tests could apply"**: so many rules apply that testing them per event would
   cost more than it saves. Describing the source more precisely reduces the number.
+- **"not summarized: the rules are not known to be complete"**: Sluice was not told that its
+  rules are every rule and query the SIEM runs, so it only makes lossless cuts. Fetch them
+  with `sluice rules fetch`, or pass `--rules-complete` (ADR 0021).
+- **"fields the SIEM parses out of the line"**: a Sigma rule tests named fields on a text
+  source; Sluice cannot see how the SIEM parses the line, so the lines stay whole (ADR 0020).

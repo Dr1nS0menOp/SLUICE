@@ -128,7 +128,7 @@ fn analyze_with(
         },
         discovery,
         proposals,
-        &Settings::default(),
+        &Settings::with_complete_rules(),
         Helpers::default(),
         Vec::new(),
     )

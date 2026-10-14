@@ -170,7 +170,7 @@ that configuration with your own tooling. `sluice demo` does the same on synthet
 ## Where the model is weak today
 
 A review on 2026-10-11 (PLAN.md, "Review 2026-10-11"; synthetic `sluice analyze` runs) found gaps
-that M9 and M10 address:
+that M9 and M10 addressed. What remains:
 
 - **Field names are mapped only by the pipeline you give.** A Sigma rule names `Image`; Elastic
   stores `process.executable` (ECS). Found on 2026-10-11, such a rule looked as if it read nothing
@@ -188,9 +188,11 @@ that M9 and M10 address:
   sources name their event-type fields and share a template per kind of event across their
   frequent shapes. A rare text line that differs only at a parameter position still shares its
   template.
-- **Rules come from directories only.** A rule Sluice was not given does not exist for it. Rules a
-  SIEM runs in SPL, EQL, ES|QL or YARA-L are not read, and neither are hunting queries,
-  dashboards or saved searches. Give Sluice every rule each destination runs.
+- **Only Sentinel and Wazuh inventories are read.** `sluice rules fetch` reads what a Sentinel
+  workspace (rules, hunting queries, functions, the query log) or a Wazuh manager runs
+  (ADR 0021); without such an inventory, or the operator's `--rules-complete`, Sluice makes
+  lossless cuts only. Rules in SPL, EQL, ES|QL or YARA-L, and workbook queries, are not read
+  yet (M12): for those SIEMs the completeness of the rules is the operator's claim.
 
 ## The parts
 
@@ -209,7 +211,8 @@ Sluice is a Rust workspace with one crate per responsibility. Dependencies point
 | `sluice-archive` | Search and replay over the archive. |
 | `sluice-mcp` | An MCP server, so AI assistants can ask what was cut and why. |
 | `sluice-ai` | The optional AI advisor for recipes. |
-| `sluice-wazuh` | Spot checks through a Wazuh manager's `logtest` API. |
+| `sluice-wazuh` | Spot checks through a Wazuh manager's `logtest` API, and its rule and decoder files (`sluice rules fetch wazuh`). |
+| `sluice-sentinel` | A Sentinel workspace's analytics rules, hunting queries, functions and query log, read-only (`sluice rules fetch sentinel`). |
 | `sluice-synth` | Deterministic synthetic security logs for the demo and the tests. |
 | `sluice-cli` | The `sluice` command: arguments, files, exit codes, logging. |
 
