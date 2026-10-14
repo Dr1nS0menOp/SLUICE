@@ -35,6 +35,10 @@ const MAX_PENDING: usize = 1_000;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OidcConfig {
+    /// Whether single sign-on is on (default). `false` switches it off and keeps the settings:
+    /// the console then takes the control token, or is local only without one.
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
     /// The provider's issuer URL, as its discovery document states it.
     pub issuer: String,
     /// Sluice's client id at the provider.
@@ -53,6 +57,10 @@ pub struct OidcConfig {
     /// How long a session lasts, in seconds (default 8 hours).
     #[serde(default = "default_session_secs")]
     pub session_secs: i64,
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 fn default_name_claim() -> String {
@@ -218,6 +226,11 @@ impl Oidc {
             .get(&self.config.name_claim)
             .and_then(Value::as_str)
             .ok_or_else(|| format!("the ID token has no `{}` claim", self.config.name_claim))?;
+        if self.config.name_claim == "email" && unverified(claims.get("email_verified")) {
+            return Err(format!(
+                "the provider has not verified {name}; an unverified address names nobody"
+            ));
+        }
         let operator = self
             .config
             .operators
@@ -296,6 +309,16 @@ impl Oidc {
         *cached = Some(provider.clone());
         Ok(provider)
     }
+}
+
+/// Whether `email_verified` says the address is not verified. Where users choose their own
+/// address (self-registration, social login), it could be an operator's. Providers that leave the
+/// claim out (Entra ID) verify addresses themselves; some send it as a string (Cognito).
+fn unverified(claim: Option<&Value>) -> bool {
+    matches!(claim, Some(Value::Bool(false)))
+        || claim
+            .and_then(Value::as_str)
+            .is_some_and(|s| s.eq_ignore_ascii_case("false"))
 }
 
 /// 32 random bytes, base64url.

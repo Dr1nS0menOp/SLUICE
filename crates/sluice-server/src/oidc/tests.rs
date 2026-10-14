@@ -16,6 +16,8 @@ struct Idp {
     issuer: String,
     nonce: Mutex<String>,
     email: Mutex<String>,
+    /// The `email_verified` claim, when the provider sends it.
+    email_verified: Mutex<Option<Value>>,
     signer: Mutex<Arc<TestKey>>,
     published: Mutex<Value>,
 }
@@ -39,10 +41,13 @@ async fn token(
 ) -> Json<Value> {
     assert_eq!(form["grant_type"], "authorization_code");
     assert!(form["code_verifier"].len() >= 43, "PKCE verifier sent");
-    let claims = json!({
+    let mut claims = json!({
         "iss": idp.issuer, "aud": "sluice", "exp": 4_000_000_000_i64,
         "nonce": *idp.nonce.lock().unwrap(), "email": *idp.email.lock().unwrap(),
     });
+    if let Some(verified) = idp.email_verified.lock().unwrap().clone() {
+        claims["email_verified"] = verified;
+    }
     let signer = Arc::clone(&idp.signer.lock().unwrap());
     let kid = signer.jwks["keys"][0]["kid"].as_str().unwrap().to_owned();
     Json(json!({ "id_token": signer.sign(&json!({ "alg": "ES256", "kid": kid }), &claims) }))
@@ -56,6 +61,7 @@ async fn start() -> Arc<Idp> {
         issuer,
         nonce: Mutex::new(String::new()),
         email: Mutex::new("Alice@Example.org".to_owned()),
+        email_verified: Mutex::new(None),
         published: Mutex::new(key.jwks.clone()),
         signer: Mutex::new(key),
     });
@@ -70,6 +76,7 @@ async fn start() -> Arc<Idp> {
 
 fn oidc(idp: &Idp) -> Oidc {
     Oidc::new(OidcConfig {
+        enabled: true,
         issuer: idp.issuer.clone(),
         client_id: "sluice".into(),
         client_secret_file: None,
@@ -151,4 +158,99 @@ async fn rotated_keys_are_fetched_again() {
     })
     .await;
     result.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn c1_an_address_the_provider_has_not_verified_names_nobody() {
+    let idp = start().await;
+    let result = tokio::task::spawn_blocking(move || {
+        let oidc = oidc(&idp);
+        for refused in [json!(false), json!("false")] {
+            *idp.email_verified.lock().unwrap() = Some(refused.clone());
+            let state = begin(&oidc, &idp);
+            let error = oidc.callback("code-1", &state, 1_010).unwrap_err();
+            assert!(error.contains("not verified"), "{refused}: {error}");
+        }
+        *idp.email_verified.lock().unwrap() = Some(json!(true));
+        let state = begin(&oidc, &idp);
+        assert!(oidc.callback("code-1", &state, 1_010).is_ok());
+    })
+    .await;
+    result.unwrap();
+}
+
+fn settings(enabled: bool) -> OidcConfig {
+    serde_json::from_value(json!({
+        "enabled": enabled,
+        "issuer": "https://idp.example",
+        "client_id": "sluice",
+        "redirect_url": "https://sluice.example/auth/callback",
+        "operators": [],
+    }))
+    .unwrap()
+}
+
+fn shared_with_oidc(
+    name: &str,
+    oidc: OidcConfig,
+) -> Result<crate::control::Shared, crate::ServerError> {
+    let rules = crate::control::Rules {
+        sigma: sluice_rules::SigmaRules::parse(std::iter::empty::<&str>()).unwrap(),
+        wazuh: None,
+        sentinel: None,
+        bases: std::collections::BTreeMap::new(),
+    };
+    let mut destinations = serde_json::Map::new();
+    destinations.insert("siem".into(), json!({"type": "blackhole"}));
+    crate::tests::build_tuned(
+        &crate::tests::scratch(name),
+        Some(&"t".repeat(32)),
+        destinations,
+        rules,
+        |config| config.oidc = Some(oidc),
+    )
+}
+
+#[test]
+fn single_sign_on_is_on_unless_switched_off() {
+    let yaml: OidcConfig = serde_json::from_value(json!({
+        "issuer": "https://idp.example", "client_id": "sluice",
+        "redirect_url": "https://sluice.example/auth/callback", "operators": ["a"],
+    }))
+    .unwrap();
+    assert!(yaml.enabled, "on by default");
+
+    // Switched on, an empty operator list is refused: nobody could sign in.
+    assert!(shared_with_oidc("oidc-on", settings(true)).is_err());
+    // Switched off, the settings are kept but not used.
+    let off = shared_with_oidc("oidc-off", settings(false)).expect("starts");
+    assert!(off.oidc.is_none());
+}
+
+#[tokio::test]
+async fn switched_off_the_sign_in_routes_say_so() {
+    use tower::ServiceExt;
+    let shared = Arc::new(shared_with_oidc("oidc-routes", settings(false)).expect("starts"));
+    let get = |uri: &'static str| {
+        let app = crate::routes::router(Arc::clone(&shared));
+        async move {
+            app.oneshot(
+                axum::http::Request::get(uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+        }
+    };
+    let info = get("/auth/info").await;
+    let body = axum::body::to_bytes(info.into_body(), 1024).await.unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&body).unwrap(),
+        json!({"oidc": false})
+    );
+    assert_eq!(
+        get("/auth/login").await.status(),
+        axum::http::StatusCode::NOT_FOUND
+    );
 }

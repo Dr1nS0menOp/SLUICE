@@ -426,3 +426,27 @@ fn a_trailing_slash_on_the_workspace_id_is_accepted() {
             .all(|(url, _)| !url.contains("ws//"))
     );
 }
+
+#[test]
+fn query_ids_are_fnv_1a_64() {
+    // The published FNV-1a test vectors.
+    assert_eq!(fnv1a("a"), 0xaf63_dc4c_8601_ec8c);
+    assert_eq!(fnv1a("foobar"), 0x8594_4171_f739_67e8);
+}
+
+#[test]
+fn many_colliding_names_each_get_their_own_file() {
+    let mut azure = Azure::new();
+    azure.rules = (0..2_000)
+        .map(|_| rule("same", "Scheduled", true, Some("Syslog")))
+        .collect();
+    let inventory = fetch(&azure, &credentials(), &options()).unwrap();
+    let paths: std::collections::BTreeSet<&str> = inventory
+        .files
+        .iter()
+        .map(|(p, _)| p.as_str())
+        .filter(|p| p.starts_with("rules/"))
+        .collect();
+    assert_eq!(paths.len(), 2_000);
+    assert!(paths.contains("rules/same-2000.yaml"));
+}

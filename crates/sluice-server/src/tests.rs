@@ -63,6 +63,17 @@ fn build_with(
     destinations: Map<String, Value>,
     rules: Rules,
 ) -> Result<Shared, crate::ServerError> {
+    build_tuned(dir, token, destinations, rules, |_| {})
+}
+
+/// As [`build_with`], with `tune` changing the configuration first.
+pub(crate) fn build_tuned(
+    dir: &std::path::Path,
+    token: Option<&str>,
+    destinations: Map<String, Value>,
+    rules: Rules,
+    tune: impl FnOnce(&mut ServerConfig),
+) -> Result<Shared, crate::ServerError> {
     let sample = generate(&SynthConfig {
         scale_percent: 1,
         ..SynthConfig::default()
@@ -76,7 +87,7 @@ fn build_with(
             shape: None,
         })
         .collect();
-    let config = ServerConfig {
+    let mut config = ServerConfig {
         listen: "127.0.0.1:8686".into(),
         sources,
         destinations,
@@ -99,6 +110,7 @@ fn build_with(
             approval: false,
         },
     };
+    tune(&mut config);
     Shared::new(
         config,
         rules,

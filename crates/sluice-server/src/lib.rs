@@ -130,7 +130,7 @@ fn check_config(config: &ServerConfig, control_token: Option<&str>) -> Result<()
                 .to_owned(),
         ));
     }
-    if config.oidc.is_some() && control_token.is_none() {
+    if config.oidc.as_ref().is_some_and(|oidc| oidc.enabled) && control_token.is_none() {
         return Err(ServerError::Refused(format!(
             "oidc needs {CONTROL_TOKEN_ENV} as well: Vector authenticates its tap with it"
         )));

@@ -278,3 +278,20 @@ fn the_tenant_is_encoded_into_the_token_url() {
         "https://login.microsoftonline.com/..%2Fevil%3Fx/oauth2/v2.0/token"
     );
 }
+
+#[test]
+fn credentials_debug_shows_who_but_not_the_secret() {
+    let shown = format!("{:?}", credentials());
+    assert!(
+        shown.contains("tenant") && shown.contains("client"),
+        "{shown}"
+    );
+    assert!(shown.contains("<redacted>"), "{shown}");
+    assert!(!shown.contains("s3cr"), "{shown}");
+}
+
+#[test]
+fn errors_name_the_path_without_the_query_string() {
+    assert_eq!(short("https://h/a/b?api-version=1&x=2"), "https://h/a/b");
+    assert_eq!(short("https://h/a"), "https://h/a");
+}

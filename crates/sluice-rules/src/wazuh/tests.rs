@@ -399,3 +399,103 @@ fn a_child_reads_what_its_parents_read() {
     };
     assert!(fields.contains("a") && fields.contains("b"));
 }
+
+fn rule_of<'a>(rules: &'a WazuhRules, id: &str) -> &'a RuleRequirements {
+    rules
+        .requirements()
+        .iter()
+        .find(|r| r.rule.as_str() == format!("wazuh:{id}"))
+        .unwrap()
+}
+
+#[test]
+fn frequency_or_timeframe_alone_makes_a_rule_stateful() {
+    for attributes in [r#"frequency="5""#, r#"timeframe="60""#] {
+        let rules = parse(&format!(
+            r#"<rule id="1" level="3" {attributes}><field name="x">y</field></rule>"#
+        ));
+        assert!(only(&rules).stateful, "{attributes}");
+    }
+    let plain = parse(r#"<rule id="1" level="3"><field name="x">y</field></rule>"#);
+    assert!(!only(&plain).stateful);
+}
+
+#[test]
+fn c3_cross_event_options_read_the_field_they_compare() {
+    for (option, field) in [
+        ("<same_src_port />", "srcport"),
+        ("<different_dst_port />", "dstport"),
+        ("<not_same_srcuser />", "srcuser"),
+        ("<same_dstip />", "dstip"),
+        ("<same_source_ip />", "srcip"),
+        (
+            "<same_field>win.eventdata.user</same_field>",
+            "win.eventdata.user",
+        ),
+    ] {
+        let rules = parse(&format!(
+            r#"<rule id="1" level="3" frequency="2" timeframe="60">{option}</rule>"#
+        ));
+        let rule = only(&rules);
+        assert!(rule.stateful, "{option}");
+        assert_eq!(
+            rule.fields,
+            RequiredFields::known([field.into()]),
+            "{option}"
+        );
+    }
+}
+
+#[test]
+fn a_cross_event_option_on_metadata_is_stateful_without_a_field() {
+    let rules = parse(r#"<rule id="1" level="3"><same_location /></rule>"#);
+    let rule = only(&rules);
+    assert!(rule.stateful);
+    assert_eq!(rule.fields, RequiredFields::known([]));
+    assert!(rules.problems().is_empty(), "{:?}", rules.problems());
+}
+
+#[test]
+fn c3_a_child_of_several_parents_reads_what_each_parent_reads() {
+    for list in ["1,2", "1, 2", "1 2", " 1,\n2 "] {
+        let rules = parse(&format!(
+            r#"<rule id="1" level="3"><field name="a">x</field></rule>
+               <rule id="2" level="3"><field name="b">y</field></rule>
+               <rule id="3" level="5"><if_sid>{list}</if_sid><field name="c">z</field></rule>"#
+        ));
+        assert_eq!(
+            rule_of(&rules, "3").fields,
+            RequiredFields::known(["a".into(), "b".into(), "c".into()]),
+            "{list:?}"
+        );
+    }
+}
+
+#[test]
+fn rule_names_are_their_descriptions() {
+    let rules = parse(
+        r#"<rule id="7" level="3"><description>  Logon failure </description></rule>
+           <rule id="8" level="3"><field name="x">y</field></rule>"#,
+    );
+    assert_eq!(rules.names().len(), 1);
+    assert_eq!(rules.names()[&"wazuh:7".into()], "Logon failure");
+}
+
+#[test]
+fn c3_an_unreadable_rule_file_blocks_every_saving_and_names_its_position() {
+    let rules = WazuhRules::parse([
+        r#"<group name="ok,"><rule id="1" level="3"><field name="x">y</field></rule></group>"#,
+        "<group><rule id=",
+    ])
+    .unwrap();
+    assert_eq!(rules.problems().len(), 1);
+    assert!(
+        rules.problems()[0].contains("file 1"),
+        "{:?}",
+        rules.problems()
+    );
+    assert_eq!(
+        rule_of(&rules, "unreadable:1"),
+        &RuleRequirements::opaque("wazuh:unreadable:1".into())
+    );
+}
