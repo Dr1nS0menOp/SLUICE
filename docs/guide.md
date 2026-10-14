@@ -78,8 +78,8 @@ outcome keeps a template of its own (ADR 0019).
 
 A rule names the fields it reads in one convention, and a SIEM stores them in another. Sigma says
 `Image`; Elastic's ECS says `process.executable`. A SIEM converts a Sigma rule with a mapping
-(pySigma's processing pipelines); Sluice has none yet. So each JSON source says which names its
-records follow, with `schema`:
+(pySigma's processing pipelines), and Sluice can apply the same one. So each JSON source says
+which names its records follow, with `schema`:
 
 | `schema` | The records use |
 |---|---|
@@ -88,16 +88,29 @@ records follow, with `schema`:
 | `sentinel` | The columns of a Sentinel table that is not ASIM (`Syslog`, `CommonSecurityLog`). |
 | (left out) | Not declared. |
 
-Only `schema: sigma` lets Sluice compare a Sigma rule with a source. For any other value, or none,
-a Sigma rule that applies to the source (by its log source) is read as reading every field of
-every event, so no field it could read is cut from that source: the report says `names its fields
-as sigma does, the records use ecs`. This is the safe direction. Declaring `sigma` for records that
-use other names is not: a rule would then look as if it read nothing, and Sluice would cut what it
-reads. A source with a `shape` (Sentinel tables) follows its shape's names unless you set
-`schema`. Text sources are not compared by field names; their lines are matched as text. Wazuh,
+A Sigma rule is compared with a source whose `schema` is `sigma`, or one for which you load a
+processing pipeline (ADR 0020):
+
+```sh
+sluice analyze ... --sigma-pipeline ecs=ecs_windows            # built into rsigma
+sluice analyze ... --sigma-pipeline cim=./splunk-windows.yml   # a pySigma pipeline file
+```
+
+Use the pipeline your SIEM converts Sigma rules with: Sluice then proves the rule the SIEM runs.
+The built-in names are `ecs_windows`, `sysmon` and `fibratus_windows`; at most one pipeline per
+`schema`, and pipelines that depend on the source (`${source.*}`) are refused.
+
+For any other source, a Sigma rule that applies to it (by its log source) is read as reading
+every field of every event, so no field it could read is cut from that source: the report says
+`names its fields as sigma does, the records use ecs`. This is the safe direction. Declaring
+`sigma` for records that use other names is not: a rule would then look as if it read nothing,
+and Sluice would cut what it reads. The same holds for a pipeline other than the SIEM's. A source
+with a `shape` (Sentinel tables) follows its shape's names unless you set `schema`. Wazuh,
 Sentinel and operator rules relate their own field names to the data and are not affected.
-Mapping Sigma onto ECS, CIM and the others, so that these sources can be cut too, is planned
-(PLAN.md, M9).
+
+Text sources have no field names until the SIEM parses the line. A Sigma rule that tests a named
+field therefore keeps every line of its log source whole (`fields the SIEM parses out of the
+line`); a keyword rule is matched against the line as it is.
 
 ## Commands
 

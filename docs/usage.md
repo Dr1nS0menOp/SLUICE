@@ -52,7 +52,9 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
    `schema` says which field names the records use. Say `sigma` when they carry the names your
    Sigma rules use, as Windows event logs do. Without it Sluice cuts nothing a Sigma rule could
    read from that source, because it cannot tell whether the rule's `Image` is the record's
-   `process.executable` ([guide](guide.md#field-names)).
+   `process.executable` ([guide](guide.md#field-names)). For records in another convention, such
+   as ECS, declare it (`schema: ecs`) and give the pySigma pipeline your SIEM converts Sigma
+   with: `--sigma-pipeline ecs=ecs_windows`.
 
 3. **Point Sluice at your rules.** Sigma rules (for example a clone of SigmaHQ), and if you use
    them, your Wazuh rules and decoders:

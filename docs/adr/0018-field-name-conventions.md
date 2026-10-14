@@ -41,8 +41,9 @@ fields are absent" as "this rule reads nothing here".
    declared convention equal to the rule's counts as a match (`Schema::can_read`). Widened rules
    protect identically, so one stands for all, and the template gets a single
    `Reason::FieldNamesDiffer` (contract rule 3) naming the first rule and how many there are:
-   with all of SigmaHQ, hundreds of rules can apply to one template. Text templates are exempt: they have no named fields to compare, and how a
-   SIEM parses their lines is the schema layer's question (PLAN.md, M9 step 3).
+   with all of SigmaHQ, hundreds of rules can apply to one template. Text templates were exempt
+   here; ADR 0020 closes that gap, since a SIEM parses fields out of the line that a rule then
+   tests.
 5. **Operators are told.** `sluice analyze` and `sluice up` print a hint for every JSON source that
    has not declared a convention while Sigma rules are loaded.
 

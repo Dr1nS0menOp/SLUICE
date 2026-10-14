@@ -157,8 +157,8 @@ Sent to Microsoft Sentinel's `SecurityEvent` table instead (`shape: sentinel_sec
 three things differ. `Application`, `DestAddress`, `DestPort` and `Protocol` have no column
 there and live only in the `EventData` XML. Sentinel's KQL analytics rules are read and run in
 the Kusto emulator; Sluice bounds a KQL rule by `EventID` and a few fixed columns only, so if one
-reads 5156, every 5156 event is forwarded. And if none does, the summary keys above are empty in
-the shaped record, so the summary becomes one count per minute: a known limit (see below).
+reads 5156, every 5156 event is forwarded. And if none does, the summary keys above are read
+from the `EventData` XML (ADR 0020), so the summary records keep their keys.
 
 ## Offline: `sluice analyze`
 
@@ -172,24 +172,22 @@ that configuration with your own tooling. `sluice demo` does the same on synthet
 A review on 2026-10-11 (PLAN.md, "Review 2026-10-11"; synthetic `sluice analyze` runs) found gaps
 that M9 and M10 address:
 
-- **Field names are not mapped.** A Sigma rule names `Image`; Elastic stores
-  `process.executable` (ECS). Sluice applies no pySigma processing pipelines. Found on
-  2026-10-11, such a rule looked as if it read nothing of ECS records, and its matches were
-  summarized while the proof passed on two empty alert sets. Since ADR 0018 a source declares its
-  convention (`schema`), and a rule is compared with a JSON source only when both are `sigma`;
-  otherwise the rule is read as reading everything, which keeps the data and costs the savings
-  (the report says `names its fields as sigma does, the records use ecs`). The pipelines that
-  let ECS, CIM and ASIM sources be cut are still to come (M9). Declaring `sigma` for records
-  that use other names is unsafe, and the proof cannot notice.
+- **Field names are mapped only by the pipeline you give.** A Sigma rule names `Image`; Elastic
+  stores `process.executable` (ECS). Found on 2026-10-11, such a rule looked as if it read nothing
+  of ECS records, and its matches were summarized while the proof passed on two empty alert
+  sets. Since ADR 0018 a source declares its convention (`schema`), and since ADR 0020 a pySigma
+  processing pipeline maps the rules onto it (`--sigma-pipeline ecs=ecs_windows`). Without one,
+  the rule is read as reading everything, which keeps the data and costs the savings. A wrong
+  `schema` or a pipeline other than the SIEM's is unsafe, and the proof cannot notice.
+- **Text lines are not parsed.** A SIEM parses fields out of a text line before its rules run;
+  Sluice does not know that parser. A Sigma rule that tests named fields therefore keeps every
+  line of its log source whole (ADR 0020). Parser packs and checked AI-proposed parsers would
+  let such sources be cut (M9 step 3).
 - **Templates still follow shapes in part.** Since ADR 0019, Drain clusters split where a few
   words alternate (sshd's "Accepted" and "Failed"), message ids keep their digits, and JSON
   sources name their event-type fields and share a template per kind of event across their
   frequent shapes. A rare text line that differs only at a parameter position still shares its
   template.
-- **Summary keys use the source's field names.** In a Sentinel shape, a recipe's summary keys may
-  not exist: `SecurityEvent` keeps most event data only in its `EventData` XML. A 5156 recipe on
-  such records summarized 600 events from two applications and two ports into one count with
-  empty keys (checked with Vector 0.59).
 - **Rules come from directories only.** A rule Sluice was not given does not exist for it. Rules a
   SIEM runs in SPL, EQL, ES|QL or YARA-L are not read, and neither are hunting queries,
   dashboards or saved searches. Give Sluice every rule each destination runs.

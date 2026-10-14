@@ -15,7 +15,6 @@
 <polyline points="944,250 962,250" fill="none" stroke="#1D6E8A" stroke-width="2" stroke-linejoin="round" marker-end="url(#h1D6E8A)"/>
 <polyline points="469,450 469,530" fill="none" stroke="#1D6E8A" stroke-width="2" stroke-linejoin="round" marker-end="url(#h1D6E8A)"/>
 <polyline points="659,560 659,300" fill="none" stroke="#9A5B16" stroke-width="2" stroke-linejoin="round" marker-end="url(#h9A5B16)"/>
-<polyline points="849,350 849,368" fill="none" stroke="#B3261E" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 5"/>
 <rect x="24" y="202" width="140" height="96" rx="6" fill="#FFFFFF" stroke="#15232D" stroke-width="1.5"/>
 <text x="36" y="226" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#15232D">Source</text>
 <text x="36" y="246" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">e.g. a Windows</text>
@@ -67,11 +66,6 @@
 <text x="1002" y="101" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#33434B" text-anchor="start">the archive</text>
 <text x="1002" y="121" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#4B5A62" text-anchor="start">sluice search</text>
 <text x="1002" y="136" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#4B5A62" text-anchor="start">sluice replay</text>
-<rect x="756" y="370" width="184" height="92" rx="6" fill="#FBEAE6" stroke="#B3261E" stroke-width="2" stroke-dasharray="6 4"/>
-<text x="768" y="390" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#B3261E" text-anchor="start" letter-spacing="0.6">LIMIT · M9</text>
-<text x="768" y="408" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">Sentinel&#x27;s SecurityEvent</text>
-<text x="768" y="425" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">keeps summary keys</text>
-<text x="768" y="442" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#15232D" text-anchor="start">in EventData</text>
 <text x="183" y="240" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4B5A62" text-anchor="middle">HTTP</text>
 <text x="1080" y="162" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#4B5A62" text-anchor="start">replay</text>
 <text x="481" y="515" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#1D6E8A" text-anchor="start">copy to Sluice, step A</text>

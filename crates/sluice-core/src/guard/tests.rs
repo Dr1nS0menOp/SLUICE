@@ -439,6 +439,34 @@ fn c3_a_rule_in_another_naming_convention_keeps_everything_it_could_read() {
 }
 
 #[test]
+fn c3_a_rule_mapped_onto_the_records_convention_is_used_instead_of_widened() {
+    // The same rule mapped through an ECS pipeline (ADR 0020): it reads `process.executable`.
+    let mut mapped = rule("image", &["process.name"], eq("process.name", "x"));
+    mapped.field_names = Some(Schema::Ecs);
+    let rules = [image_rule(), mapped];
+    let proposal = recipe(vec![drop(&["Message", "Keywords"])]);
+    let effective = guard(&ecs_template(), Some(&proposal), ctx(&rules));
+    assert_eq!(
+        effective.drop_fields,
+        BTreeSet::from(["Keywords".into(), "Message".into()]),
+        "the mapped copy reads neither field: {:?}",
+        effective.adjustments
+    );
+    assert!(
+        !effective
+            .adjustments
+            .iter()
+            .any(|a| matches!(a.reason, Reason::FieldNamesDiffer { .. }))
+    );
+    // On records in Sigma's names, the original applies and the mapped copy stays out.
+    let effective = guard(&template(), Some(&proposal), ctx(&rules));
+    assert_eq!(
+        effective.drop_fields,
+        BTreeSet::from(["Keywords".into(), "Message".into()])
+    );
+}
+
+#[test]
 fn c3_many_rules_in_another_convention_give_one_reason() {
     let rules: Vec<RuleRequirements> = (0..500)
         .map(|n| rule(&format!("r{n}"), &["Image"], eq("Image", "x")))
@@ -518,23 +546,102 @@ fn c3_a_rule_in_another_convention_does_not_widen_what_its_log_source_excludes()
     assert_eq!(effective.drop_fields, BTreeSet::from(["Message".into()]));
 }
 
-#[test]
-fn c3_text_templates_have_no_field_names_to_compare() {
+// ---------- rule 3, fields parsed out of text lines (ADR 0020) ----------
+
+/// A raw text line, in the given convention: its fields exist only once the SIEM parses it.
+fn text_template(schema: Schema) -> Template {
     let mut text = template();
-    text.schema = Schema::Undeclared;
+    text.schema = schema;
     text.shape = TemplateShape::Text {
         field: "Message".into(),
         header: crate::template::LineHeader::None,
         tokens: vec!["x".into()],
     };
-    let proposal = recipe(vec![drop(&["Keywords"])]);
-    let effective = guard(&text, Some(&proposal), ctx(&[image_rule()]));
+    text
+}
+
+fn keywords(value: &str) -> Predicate {
+    Predicate::Keywords(KeywordTest {
+        values: vec![value.into()],
+        case_sensitive: false,
+    })
+}
+
+fn parsed_from_text(effective: &EffectiveRecipe) -> Vec<usize> {
+    effective
+        .adjustments
+        .iter()
+        .filter_map(|a| match a.reason {
+            Reason::FieldsParsedFromText { rules, .. } => Some(rules),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn c3_a_rule_testing_fields_keeps_every_text_line_it_could_see() {
+    // A webserver rule on `cs-uri-query` over raw access log lines: the pre-filter can never
+    // match the line, yet the SIEM's parser gives the rule its field.
+    let proposal = recipe(vec![drop(&["Keywords"]), forward_matching()]);
+    let effective = guard(
+        &text_template(Schema::Undeclared),
+        Some(&proposal),
+        ctx(&[image_rule()]),
+    );
+    assert!(effective.is_passthrough(), "{effective:?}");
+    assert_eq!(parsed_from_text(&effective), [1]);
     assert!(
         !effective
             .adjustments
             .iter()
             .any(|a| matches!(a.reason, Reason::FieldNamesDiffer { .. }))
     );
+}
+
+#[test]
+fn c3_a_rule_testing_fields_keeps_text_lines_whatever_their_convention() {
+    // Even a mapped copy in the line's own convention reads parsed fields: one rule, kept.
+    let mut mapped = rule("image", &["process.name"], eq("process.name", "x"));
+    mapped.field_names = Some(Schema::Ecs);
+    let proposal = recipe(vec![forward_matching()]);
+    let effective = guard(
+        &text_template(Schema::Ecs),
+        Some(&proposal),
+        ctx(&[image_rule(), mapped]),
+    );
+    assert!(effective.is_passthrough(), "{effective:?}");
+    assert_eq!(parsed_from_text(&effective), [1]);
+}
+
+#[test]
+fn c3_a_keyword_rule_on_text_lines_is_compared_as_it_is() {
+    let failed = rule("failed", &[], keywords("Failed password"));
+    let proposal = recipe(vec![forward_matching()]);
+    let effective = guard(
+        &text_template(Schema::Undeclared),
+        Some(&proposal),
+        ctx(&[failed]),
+    );
+    assert_eq!(parsed_from_text(&effective), [0; 0]);
+    assert!(
+        matches!(&effective.route, Route::ForwardMatching { prefilter, .. }
+            if *prefilter == Predicate::any([keywords("Failed password")])),
+        "{effective:?}"
+    );
+}
+
+#[test]
+fn c3_rules_without_a_convention_test_text_lines_as_they_are() {
+    // Wazuh decodes the line itself, and its rule requirements say what the decoder reads.
+    let mut wazuh = image_rule();
+    wazuh.field_names = None;
+    let proposal = recipe(vec![forward_matching()]);
+    let effective = guard(
+        &text_template(Schema::Undeclared),
+        Some(&proposal),
+        ctx(&[wazuh]),
+    );
+    assert_eq!(parsed_from_text(&effective), [0; 0]);
 }
 
 // ---------- rule 4: rare is never cut ----------

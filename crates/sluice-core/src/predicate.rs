@@ -148,6 +148,16 @@ impl Predicate {
         })
     }
 
+    /// Whether any test names a field (as opposed to keywords, which search every value).
+    #[must_use]
+    pub fn names_fields(&self) -> bool {
+        match self {
+            Self::Always | Self::Keywords(_) => false,
+            Self::Any(parts) | Self::All(parts) => parts.iter().any(Self::names_fields),
+            Self::Field(_) => true,
+        }
+    }
+
     /// Returns true if this predicate trivially matches every event.
     #[must_use]
     pub fn is_always(&self) -> bool {

@@ -63,6 +63,16 @@ pub(crate) fn adjustment(adjustment: &Adjustment) -> String {
                  any field, so nothing they could read is cut"
             )
         }
+        Reason::FieldsParsedFromText { rule, rules } => {
+            let who = match rules {
+                1 => format!("{rule} tests"),
+                n => format!("{n} rules such as {rule} test"),
+            };
+            format!(
+                "{who} fields the SIEM parses out of the line, which Sluice cannot see: every \
+                 line they could see is forwarded whole"
+            )
+        }
         Reason::UnboundedRule { rule } => {
             format!("{rule} could match any event, so every event is forwarded")
         }

@@ -11,6 +11,7 @@ use sluice_core::alert::{Alert, EngineError, RuleEngine};
 use sluice_core::event::Event;
 use sluice_core::ids::SourceId;
 use sluice_core::logsource::LogSource;
+use sluice_core::schema::Schema;
 use sluice_core::source::Source;
 
 use crate::error::RulesError;
@@ -29,22 +30,33 @@ const ABSENT: &str = "__sluice.absent";
 ///
 /// Rules are scoped by the log source of each event's [`Source`], with the same conflict-based
 /// semantics as [`LogSource::may_apply_to`]: a rule only skips an event whose source provably
-/// is something else.
+/// is something else. An event of a source whose field naming convention a pipeline maps onto
+/// is evaluated by the mapped rules instead (ADR 0020); correlations therefore only count events
+/// within one convention.
 #[derive(Debug)]
 pub struct SigmaEngine {
     collection: SigmaCollection,
-    logsources: BTreeMap<SourceId, LogSource>,
+    mapped: Vec<(Schema, SigmaCollection)>,
+    sources: BTreeMap<SourceId, (LogSource, Schema)>,
 }
 
 impl SigmaEngine {
-    pub(crate) fn new(collection: SigmaCollection, sources: &[Source]) -> Result<Self, RulesError> {
+    pub(crate) fn new(
+        collection: SigmaCollection,
+        mapped: Vec<(Schema, SigmaCollection)>,
+        sources: &[Source],
+    ) -> Result<Self, RulesError> {
         // Fail early on rules rsigma cannot compile, rather than on first evaluation.
         fresh_engine(&collection)?;
+        for (_, rules) in &mapped {
+            fresh_engine(rules)?;
+        }
         Ok(Self {
             collection,
-            logsources: sources
+            mapped,
+            sources: sources
                 .iter()
-                .map(|s| (s.id.clone(), s.logsource.clone()))
+                .map(|s| (s.id.clone(), (s.logsource.clone(), s.schema)))
                 .collect(),
         })
     }
@@ -63,13 +75,24 @@ fn fresh_engine(collection: &SigmaCollection) -> Result<CorrelationEngine, Rules
 
 impl RuleEngine for SigmaEngine {
     fn alerts_refs(&self, events: &[&Event]) -> Result<BTreeSet<Alert>, EngineError> {
-        let mut engine = fresh_engine(&self.collection).map_err(|e| EngineError(e.to_string()))?;
-        let unknown = LogSource::default();
+        let compile = |c: &SigmaCollection| fresh_engine(c).map_err(|e| EngineError(e.to_string()));
+        let mut base = compile(&self.collection)?;
+        let mut mapped: Vec<(Schema, CorrelationEngine)> = self
+            .mapped
+            .iter()
+            .map(|(schema, rules)| compile(rules).map(|engine| (*schema, engine)))
+            .collect::<Result<_, _>>()?;
+        let unknown = (LogSource::default(), Schema::Undeclared);
         let mut alerts = BTreeSet::new();
         for event in events {
+            let (logsource, schema) = self.sources.get(&event.source).unwrap_or(&unknown);
+            let engine = match mapped.iter_mut().find(|(s, _)| s == schema) {
+                Some((_, engine)) => engine,
+                None => &mut base,
+            };
             let scoped = Scoped {
                 inner: JsonEvent::owned(Value::Object(event.fields.clone())),
-                logsource: self.logsources.get(&event.source).unwrap_or(&unknown),
+                logsource,
             };
             for result in engine.process_event_at(&scoped, event.timestamp.0) {
                 let id = rule_id(result.header.rule_id.as_deref(), &result.header.rule_title);

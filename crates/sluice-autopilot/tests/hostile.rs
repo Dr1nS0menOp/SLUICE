@@ -73,6 +73,17 @@ detection:
     condition: keywords
 "#;
 
+/// The keyword rule alone: a rule on named fields keeps every text line whole (ADR 0020), so
+/// odd lines reach generated code only under keyword rules.
+const KEYWORD_RULE: &str = r"
+title: Odd keywords
+id: 00000000-0000-4000-8000-000000000202
+logsource: { product: odd }
+detection:
+    keywords: ['sekurlsa::', '{{ template }}']
+    condition: keywords
+";
+
 fn source() -> Source {
     Source {
         id: "odd".into(),
@@ -227,7 +238,7 @@ fn odd_text_lines_compile_and_keep_every_alert() {
         schema: Schema::Sigma,
         event_type: Vec::new(),
     };
-    let rules = SigmaRules::parse([RULES]).expect("rules parse");
+    let rules = SigmaRules::parse([KEYWORD_RULE]).expect("rules parse");
     let sources = [text_source];
     let engine = rules.engine(&sources).expect("rules compile");
     let settings = Settings {

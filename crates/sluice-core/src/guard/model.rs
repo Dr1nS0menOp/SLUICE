@@ -114,6 +114,14 @@ pub enum Reason {
         /// The convention the records follow (`undeclared` when the source does not say).
         data_names: Schema,
     },
+    /// A rule tests fields that a text line only has once the SIEM has parsed it, so the rule
+    /// may match any line of its log source, and the line is kept whole on every event.
+    FieldsParsedFromText {
+        /// The first such rule.
+        rule: RuleId,
+        /// How many applicable rules are read this way.
+        rules: usize,
+    },
     /// A rule's pre-filter cannot be bounded, so every event could match.
     UnboundedRule {
         /// The rule.

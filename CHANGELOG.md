@@ -44,6 +44,13 @@ explains the terms.
   Azure, Google Cloud and Kubernetes. One kind of JSON event shares a template across its
   frequent key sets (with and without an optional field), while a rare key set keeps its own;
   an agent update that adds a field no longer sends every recipe of its source back to shadow.
+- Sigma processing pipelines (ADR 0020): `--sigma-pipeline ecs=ecs_windows` (a pySigma pipeline
+  file, or one built into rsigma) maps every Sigma rule onto a convention, so an ECS source is
+  cut where no mapped rule can match, and the proof runs the mapped rule. A Sigma rule that tests
+  named fields keeps a text source's lines whole, since the SIEM parses those fields out of the
+  line (`fields the SIEM parses out of the line`); keyword rules are compared as before.
+  Summary keys are read where a shaped record keeps them, `EventData` object or XML included, so
+  `SecurityEvent` summaries no longer lose their keys.
 
 ### Live operation
 

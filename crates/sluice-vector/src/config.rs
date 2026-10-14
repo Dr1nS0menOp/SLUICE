@@ -20,7 +20,6 @@ use std::collections::BTreeSet;
 
 use serde_json::{Map, Value, json};
 use sluice_core::event::Event;
-use sluice_core::guard::Route;
 use sluice_core::ids::{SourceId, TemplateId};
 use sluice_core::reduce::{Outcome, Reducer};
 use sluice_core::source::Source;
@@ -159,7 +158,7 @@ impl Pipeline {
                 json!({
                     "type": "remap",
                     "inputs": [format!("{}.{SUMMARIZE}", c.split)],
-                    "source": summary_program(source, plans),
+                    "source": crate::summary::summary_program(source, plans),
                 }),
             ),
             (
@@ -264,35 +263,6 @@ fn file_sink(inputs: &[String], path: &str) -> Value {
         "path": path,
         "encoding": { "codec": "json" },
     })
-}
-
-/// Rewrites a summarized event into a summary record keyed by its template's summary keys.
-fn summary_program(source: &SourceId, plans: &[Plan<'_>]) -> String {
-    let mut lines = vec!["_sluice_keys = {}".to_owned()];
-    for plan in plans.iter().filter(|p| &p.template.source == source) {
-        let Route::ForwardMatching { summary_keys, .. } = &plan.recipe.route else {
-            continue;
-        };
-        let keys: Vec<String> = summary_keys
-            .iter()
-            .map(|k| format!("{}: {}", syntax::string(k.as_str()), syntax::path(k)))
-            .collect();
-        lines.push(format!(
-            "if %sluice.{TEMPLATE_METADATA} == {} {{ _sluice_keys = {{ {} }} }}",
-            syntax::string(plan.template.id.as_str()),
-            keys.join(", ")
-        ));
-    }
-    lines.push(format!(
-        "_sluice_template = string(%sluice.{TEMPLATE_METADATA}) ?? \"\"\n\
-         . = {{ \"sluice_summary\": true, \"sluice_source\": {}, \"sluice_template\": _sluice_template, \
-         \"sluice_keys\": _sluice_keys, \"sluice_count\": 1 }}\n\
-         .sluice_group = _sluice_template + \"|\" + encode_json(_sluice_keys)",
-        syntax::string(source.as_str())
-    ));
-    let mut program = lines.join("\n");
-    program.push('\n');
-    program
 }
 
 /// One test per reducing template and outcome (summarized, forwarded reduced, forwarded whole:
