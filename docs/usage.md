@@ -118,8 +118,11 @@ manager's own `logtest`, the exact engine your detections run on.
 
 From then on, Vector archives every event and sends everything to your SIEM unchanged. Sluice
 analyzes a sample every cycle. A recipe that proves safe goes into **shadow** (24 hours and
-3 proofs by default), then is **enforced**: Sluice rewrites the pipeline and reloads Vector.
-Every cycle proves the whole set again, and a recipe that fails is **rolled back** at once.
+3 proofs by default), then into the **proposal** in `<data_dir>/proposals`: a `vector.yaml`
+and its proof. Nothing changes until you deploy it by writing it over `vector_config` (section
+10). From then on every cycle proves what runs, and if a proof ever fails Sluice switches Vector
+back to the safe configuration at once, which sends everything unchanged. With `auto_apply:
+true` (demos and labs) Sluice applies its proposals itself and rolls back a failing recipe.
 
 Follow it with `sluice status`, or open `http://127.0.0.1:8686/` for the web console: the proof,
 the saving per source and template, why each field was kept, each recipe's history, and a search
@@ -291,16 +294,18 @@ Before it handles real data:
 ## 10. Review every change in Git
 
 Sluice's product is a configuration and its proof ([ADR 0022](adr/0022-configs-as-the-product.md)).
-To merge changes through review instead of having `sluice up` apply them, set a proposals
-directory in its configuration:
+`sluice up` proposes; it does not apply. Each newly proven configuration lands in
+`<data_dir>/proposals` (or `proposals_dir`, such as a checkout your tooling commits from) as
+`vector.yaml` with `proposal.json`: the proof of exactly what it saves, whether that proof is
+empty, what the rules' completeness rests on, bytes in and out. Vector keeps running the safe
+configuration, which sends everything unchanged, until you deploy a proposal by writing its
+`vector.yaml` over `vector_config`. On the next cycle Sluice proves what you deployed, loads it
+into Vector, and keeps proving it every cycle; the moment a proof fails, it switches Vector back
+to the safe configuration and `sluice status` and the console say why.
 
 ```yaml
-proposals_dir: /srv/git/siem-pipeline/sluice   # a checkout your tooling commits from
+proposals_dir: /srv/git/siem-pipeline/sluice   # optional
 ```
-
-Each newly proven configuration lands there as `vector.yaml` with `proposal.json` (the proof of
-exactly what it enforces, bytes in and out, the enforced templates). The running Vector keeps
-cutting nothing until you deploy a proposal.
 
 In CI, `sluice prove` checks the file in the pull request, whoever edited it, and fails when
 it would change a detection:

@@ -1,6 +1,7 @@
 //! What the autopilot did and why, as data (for tools) and as a self-contained HTML page.
 
 mod html;
+mod rules;
 mod text;
 
 use std::collections::BTreeMap;
@@ -12,7 +13,9 @@ use sluice_core::rules::RuleRequirements;
 use sluice_core::template::Template;
 
 pub use self::html::render_html;
+pub use self::rules::{RuleRow, RuleStatus};
 use crate::analyze::{Analysis, Input};
+use crate::basis::RulesBasis;
 use crate::spot::SpotCheck;
 
 /// The report of one analysis.
@@ -39,7 +42,18 @@ pub struct Report {
     pub scope_hints: Vec<String>,
     /// The spot check with the SIEM's own rules, if one ran.
     pub spot_check: Option<SpotCheck>,
+    /// On what grounds the rules counted as complete.
+    pub rules_basis: RulesBasis,
+    /// Every rule and query, next to what Sluice made of it.
+    pub rule_rows: Vec<RuleRow>,
+    /// What the fetched inventory says about rules that run but have no query to read (such
+    /// as Fusion); filled in by whoever read the inventory.
+    pub inventory_notes: Vec<String>,
 }
+
+/// Said when the full sample raises no alert: the proof then shows nothing about detections.
+pub const EMPTY_PROOF: &str =
+    "The sample raised no alerts, so this proof could not show that your detections still work.";
 
 /// What happens to one template.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,7 +114,22 @@ impl Report {
             scope_hints: scope_hints(&requirements, &analysis.discovery.templates),
             problems: analysis.problems.clone(),
             spot_check: analysis.spot_check.clone(),
+            rules_basis: analysis.rules,
+            rule_rows: rules::rows(input),
+            inventory_notes: Vec::new(),
         }
+    }
+
+    /// [`EMPTY_PROOF`] when the full sample raised no alert.
+    #[must_use]
+    pub fn proof_note(&self) -> Option<&'static str> {
+        (self.alerts_full == 0).then_some(EMPTY_PROOF)
+    }
+
+    /// The closing sentence of the rules table.
+    #[must_use]
+    pub fn rules_verdict(&self) -> String {
+        rules::verdict(&self.rule_rows)
     }
 
     /// Share of input bytes not sent to the SIEM, in percent (0–100).

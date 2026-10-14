@@ -14,6 +14,9 @@
 #   --sentinel-rules <clone of Azure/Azure-Sentinel> --kusto http://127.0.0.1:8090
 # (scripts/kql-check.sh starts the Kusto emulator; ADR 0015).
 #
+# Sluice proposes proven configurations under data_dir/proposals; review one and copy its
+# vector.yaml over vector_config to deploy it. Sluice proves it every cycle and switches to the
+# safe configuration (nothing saved) if it ever fails (ADR 0022).
 # The promotion settings are for trying it out; production defaults are 24 hours and 3 proofs.
 
 listen: 127.0.0.1:8686

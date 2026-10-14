@@ -12,7 +12,7 @@ mod chains;
 mod decoders;
 mod xml;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sluice_core::field::FieldPath;
 use sluice_core::ids::RuleId;
@@ -70,6 +70,7 @@ const NEUTRAL_TAGS: [&str; 15] = [
 #[derive(Debug, Clone)]
 pub struct WazuhRules {
     requirements: Vec<RuleRequirements>,
+    names: BTreeMap<RuleId, String>,
     problems: Vec<String>,
 }
 
@@ -98,12 +99,22 @@ impl WazuhRules {
         decoder_files: impl IntoIterator<Item = &'a str>,
     ) -> Result<Self, RulesError> {
         let mut parsed = Vec::new();
+        let mut names = BTreeMap::new();
         let mut problems = Vec::new();
         let decoders = Decoders::parse(decoder_files, &mut problems);
         for (index, file) in files.into_iter().enumerate() {
             match xml::rules(file) {
                 Ok(raws) => {
                     for (n, raw) in raws.into_iter().enumerate() {
+                        if let (Some(id), Some(description)) = (
+                            raw.attributes.get("id"),
+                            raw.children.iter().find(|c| c.tag == "description"),
+                        ) {
+                            names.insert(
+                                RuleId::new(format!("wazuh:{id}")),
+                                description.text.trim().to_owned(),
+                            );
+                        }
                         parsed.push(requirement(&raw, n, &decoders, &mut problems));
                     }
                 }
@@ -127,8 +138,15 @@ impl WazuhRules {
         }
         Ok(Self {
             requirements,
+            names,
             problems,
         })
+    }
+
+    /// Each rule's description, as the manager shows it.
+    #[must_use]
+    pub fn names(&self) -> &BTreeMap<RuleId, String> {
+        &self.names
     }
 
     /// What each rule needs from the data.

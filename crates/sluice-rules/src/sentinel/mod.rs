@@ -15,6 +15,8 @@ mod lexer;
 #[cfg(test)]
 mod tests;
 
+use std::collections::BTreeMap;
+
 use serde::Deserialize;
 
 use self::functions::Functions;
@@ -29,6 +31,7 @@ use sluice_core::rules::{RequiredFields, RuleRequirements};
 pub struct SentinelRules {
     requirements: Vec<RuleRequirements>,
     queries: Vec<(RuleId, String)>,
+    names: BTreeMap<RuleId, String>,
     problems: Vec<String>,
 }
 
@@ -93,6 +96,12 @@ impl SentinelRules {
         let reads = functions.reads(query);
         let modeled = !reads.tables.is_empty() || reads.any_table;
         let requirement = requirement(&id, reads, &mut self.problems);
+        if let Some(name) = ["name", "displayName"]
+            .iter()
+            .find_map(|key| doc.get(*key).and_then(Value::as_str))
+        {
+            self.names.insert(requirement.rule.clone(), name.to_owned());
+        }
         if modeled {
             self.queries
                 .push((requirement.rule.clone(), query.to_owned()));
@@ -119,6 +128,12 @@ impl SentinelRules {
     #[must_use]
     pub fn problems(&self) -> &[String] {
         &self.problems
+    }
+
+    /// Each rule's name as the SIEM shows it, where the rule file gives one.
+    #[must_use]
+    pub fn names(&self) -> &BTreeMap<RuleId, String> {
+        &self.names
     }
 }
 

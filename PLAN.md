@@ -584,17 +584,36 @@ detection:
   46,000 to 93,000 events/s per source next to 73.8 % saved, 43 = 43 alerts
   (docs/notes/benchmarks.md). M11 is done; the hard cutoff below starts now.
 
+**Grilling session 2026-10-14 (maintainer and assistant).** Decisions, built before the cutoff:
+
+- Sluice writes configurations and recommendations; people decide what runs. `sluice up`
+  proposes by default; the only change it makes without review is switching savings off when
+  what runs fails its proof (ADR 0022). `auto_apply` is for demos and labs.
+- An empty proof is said in one plain sentence everywhere, and fails `sluice prove` unless
+  `--allow-no-alerts`.
+- Completeness is checkable, not only claimed: every report lists every rule and query next to
+  what Sluice made of it, and says what the completeness rests on (ADR 0021).
+- The README says what the program does, including that the stock Wazuh ruleset blocks savings
+  on data Wazuh itself receives. Sigma is a stand-in for SIEMs whose rule language Sluice
+  cannot read yet.
+- Audience: Microsoft Sentinel customers first, then Wazuh, then the rest. M12 order of SIEMs:
+  Elastic (many SIEMs build on it), then Splunk; QRadar is left out for now.
+- The first public release (v0.1.0) comes after the test phase.
+
 **Hard cutoff after M11: test everything built so far (decided 2026-10-13).** No new features
 between M11 and M12. In order:
 
 1. **Code review by the maintainer** of the whole workspace, for bugs, before the test phase
-   starts.
+   starts: `sluice-core` first (guard, proof, predicate), then outward through rules, vector,
+   autopilot, server and cli.
 2. **Bug hunt in very small tests.** Every public function, and every non-trivial private one,
    gets its own small tests aimed at breaking it: edge values, empty and huge input, hostile
    strings, every branch, every error path. One focused test module per function where it
    helps. Unit tests next to the code; cross-crate behaviour in `tests/`; a property test
    wherever a claim holds "for all inputs". Every bug found gets a regression test named after
-   what it broke, and the fix.
+   what it broke, and the fix. Mutation testing (`cargo-mutants`, after checking its license
+   and maintenance) on `sluice-core` measures whether the tests catch real changes; surviving
+   mutants become tests.
 3. **Done when** every crate's functions are covered this way, every found bug is fixed with a
    test, the gates are green, and the real-data runs (Windows, Linux, Sentinel) reproduce their
    numbers.
@@ -604,10 +623,12 @@ goal is to make Sluice work with as many SIEMs as possible, natively and proven.
 planned when it starts; it includes at least:
 
 - Requirements extractors and, where an engine can run offline, proofs for each SIEM's own rule
-  language: Splunk SPL (correlation searches), Elastic (KQL, EQL, ES|QL, detection rules),
-  Google SecOps YARA-L, QRadar AQL, LogScale, Datadog, OpenSearch, Graylog, Wazuh beyond rules.
+  language, in this order (decided 2026-10-14): Elastic first (KQL, EQL, ES|QL, detection
+  rules; OpenSearch and the SIEMs built on it follow), then Splunk SPL (correlation searches),
+  then Google SecOps YARA-L, LogScale, Datadog, Graylog and Wazuh beyond rules. QRadar is left
+  out for now.
 - The rest of M10 for every SIEM: inventories over Splunk (`saved/searches`, macros,
-  extractions), Elastic (detection rules, ingest pipelines), Chronicle and QRadar; workbook and
+  extractions), Elastic (detection rules, ingest pipelines) and Chronicle; workbook and
   dashboard queries; `sluice up` polling the inventory; summaries as a table of their own with
   counting helpers (a KQL function, a Splunk macro); fields nobody queries (query logs) as the
   safest cut proposals.

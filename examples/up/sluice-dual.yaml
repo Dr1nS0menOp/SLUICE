@@ -10,6 +10,8 @@
 
 listen: 127.0.0.1:8686
 vector_config: out/dual/vector.yaml
+auto_apply: true       # demo: Sluice applies its own proven configurations. Without it (the
+                       # default) it only proposes them, under data_dir/proposals, for review.
 archive_dir: out/dual/archive
 data_dir: out/dual/vector-data
 tap_rate: 1

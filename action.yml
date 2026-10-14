@@ -28,6 +28,12 @@ inputs:
     description: The rule profile to prove, for a configuration of several.
     required: false
     default: ""
+  allow-no-alerts:
+    description: >-
+      Pass even when the sample raises no alert. Such a proof shows nothing about detections,
+      so by default it fails.
+    required: false
+    default: "false"
   version:
     description: >-
       The Sluice release to use, such as 0.1.0. Defaults to the version of the action's tag
@@ -80,12 +86,14 @@ runs:
         RULES: ${{ inputs.rules }}
         PIPELINE: ${{ inputs.sigma-pipeline }}
         PROFILE: ${{ inputs.profile }}
+        ALLOW_NO_ALERTS: ${{ inputs.allow-no-alerts }}
       run: |
         set -uo pipefail
         args=(prove --config "$CONFIG" --input "$INPUT" --sources "$SOURCES" --json)
         [ -n "$RULES" ] && args+=(--rules "$RULES")
         [ -n "$PIPELINE" ] && args+=(--sigma-pipeline "$PIPELINE")
         [ -n "$PROFILE" ] && args+=(--profile "$PROFILE")
+        [ "$ALLOW_NO_ALERTS" = "true" ] && args+=(--allow-no-alerts)
         sluice "${args[@]}" > "${RUNNER_TEMP}/sluice-proof.json"
         status=$?
         cat "${RUNNER_TEMP}/sluice-proof.json"
@@ -114,5 +122,7 @@ runs:
             print(f"| Missing | {alert} |")
         for alert in p["extra"]:
             print(f"| Extra | {alert} |")
+        if p.get("note"):
+            print(f"\n> {p['note']}")
         EOF
         exit $status

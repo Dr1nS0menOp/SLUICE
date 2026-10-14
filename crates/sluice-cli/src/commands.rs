@@ -4,7 +4,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use sluice_autopilot::{
-    Helpers, Input, RecipeBook, Report, Sentinel, Settings, analyze as run_autopilot, render_html,
+    Helpers, Input, RecipeBook, Report, RulesBasis, Sentinel, Settings, analyze as run_autopilot,
+    render_html,
 };
 use sluice_core::advice::Advisor;
 use sluice_core::alert::{EventRules, RuleEngine};
@@ -53,7 +54,8 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
         },
         &args.out,
         // The demo's rules are its own: complete by construction.
-        true,
+        RulesBasis::SelfContained,
+        Vec::new(),
     )?;
     println!(
         "Re-run on the same data: sluice analyze --input {} --sources {} --rules <dir>",
@@ -84,14 +86,20 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
         (Some(rules), Some(url)) => Some(input::kusto(url, rules, &args.sentinel_table)?),
         _ => None,
     };
-    let rules_complete = args.rules_complete || fetched_only(args);
-    if !rules_complete {
-        eprintln!(
-            "hint: the rules are not known to be every rule the SIEM runs, so nothing is \
-             summarized (lossless cuts only). Fetch them with `sluice rules fetch`, or pass \
-             --rules-complete if they are (docs/adr/0021-rule-inventory.md)."
-        );
-    }
+    let basis = if args.rules_complete {
+        RulesBasis::Claimed
+    } else if fetched_only(args) {
+        RulesBasis::Fetched
+    } else {
+        RulesBasis::NotKnown
+    };
+    let inventory_notes: Vec<String> =
+        [args.wazuh_rules.as_deref(), args.sentinel_rules.as_deref()]
+            .into_iter()
+            .flatten()
+            .filter_map(crate::inventory::find_manifest)
+            .flat_map(|m| m.not_modeled)
+            .collect();
     run(
         Input {
             sources: &sources,
@@ -109,7 +117,8 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
             event_rules: logtest.as_ref().map(|l| l as &dyn EventRules),
         },
         &args.out,
-        rules_complete,
+        basis,
+        inventory_notes,
     )
 }
 
@@ -226,18 +235,20 @@ fn run(
     book: &RecipeBook,
     helpers: Helpers<'_>,
     out: &Path,
-    rules_complete: bool,
+    rules: RulesBasis,
+    inventory_notes: Vec<String>,
 ) -> Result<()> {
     let Input {
         sources, events, ..
     } = input;
     let settings = Settings {
-        rules_complete,
+        rules,
         ..Settings::default()
     };
     let analysis =
         run_autopilot(input, book, &settings, helpers).context("running the autopilot")?;
-    let report = Report::new(&analysis, input);
+    let mut report = Report::new(&analysis, input);
+    report.inventory_notes = inventory_notes;
 
     let paths = Paths {
         input_dir: out.join("samples").display().to_string(),
@@ -252,6 +263,10 @@ fn run(
     )?;
     output::write(&out.join("vector.yaml"), &config)?;
     output::write(&out.join("report.html"), &render_html(&report))?;
+    output::write(
+        &out.join("rules.json"),
+        &(serde_json::to_string_pretty(&report.rule_rows)? + "\n"),
+    )?;
 
     output::summary(&report, analysis.discovery.templates.len(), sources.len());
     println!(

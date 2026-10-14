@@ -16,6 +16,7 @@ use sluice_discover::{DiscoverConfig, Discovery, discover};
 use sluice_rules::{SentinelRules, SigmaRules, WazuhRules};
 use sluice_vector::{Plan, VrlReducer, compile_reducer};
 
+use crate::basis::RulesBasis;
 use crate::error::AutopilotError;
 use crate::recipes::RecipeBook;
 use crate::spot::{self, SpotCheck};
@@ -32,10 +33,10 @@ pub struct Settings {
     /// Requirements operators added (ADR 0016), such as fields to keep. They constrain the
     /// guardrails like any rule, but are not evaluated in the proof.
     pub operator_rules: Vec<RuleRequirements>,
-    /// Whether the rules are every rule and query the SIEM runs (ADR 0021). Off by default:
-    /// then only lossless cuts are made, since a rule Sluice was not given could match any
-    /// event that would be summarized.
-    pub rules_complete: bool,
+    /// Whether, and on what grounds, the rules are every rule and query the SIEM runs
+    /// (ADR 0021). Not known by default: then only lossless savings are made, since a rule
+    /// Sluice was not given could match any event that would be summarized.
+    pub rules: RulesBasis,
 }
 
 impl Default for Settings {
@@ -45,18 +46,17 @@ impl Default for Settings {
             guardrails: GuardrailConfig::default(),
             archive_enabled: true,
             operator_rules: Vec::new(),
-            rules_complete: false,
+            rules: RulesBasis::NotKnown,
         }
     }
 }
 
 impl Settings {
-    /// The default settings for rules known to be complete, such as a fetched inventory or a
-    /// self-contained demo.
+    /// The default settings for the rules of a self-contained sample, such as the demo's.
     #[must_use]
     pub fn with_complete_rules() -> Self {
         Self {
-            rules_complete: true,
+            rules: RulesBasis::SelfContained,
             ..Self::default()
         }
     }
@@ -121,6 +121,8 @@ pub struct Analysis {
     pub problems: Vec<String>,
     /// The spot check with the SIEM's own rules, if one ran.
     pub spot_check: Option<SpotCheck>,
+    /// On what grounds the rules counted as complete.
+    pub rules: RulesBasis,
 }
 
 impl Analysis {
@@ -268,7 +270,7 @@ pub fn analyze_proposals(
         rules: &requirements,
         config: settings.guardrails,
         archive_enabled: settings.archive_enabled,
-        rules_complete: settings.rules_complete,
+        rules_complete: settings.rules.is_complete(),
     };
     let candidates: Vec<EffectiveRecipe> = discovery
         .templates
@@ -301,6 +303,7 @@ pub fn analyze_proposals(
         data_plane,
         problems,
         spot_check,
+        rules: settings.rules,
     })
 }
 

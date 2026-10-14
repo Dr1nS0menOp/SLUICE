@@ -53,6 +53,18 @@ pub struct Status {
     /// What operators decided for this profile (ADR 0016).
     #[serde(default)]
     pub operator: OperatorStatus,
+    /// `proposing` (Sluice proposes, the operator deploys; the default) or `applying`
+    /// (`auto_apply`: Sluice applies its own configurations).
+    #[serde(default)]
+    pub mode: String,
+    /// What Vector runs, in proposal mode: the deployed configuration, proven, or the safe
+    /// configuration and why.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub running: Option<String>,
+    /// Sentences a reader must not miss: an empty proof, and what the rules' completeness rests
+    /// on.
+    #[serde(default)]
+    pub notes: Vec<String>,
 }
 
 /// Operator decisions in force for a profile.
@@ -268,14 +280,32 @@ impl Status {
                 acknowledged: false,
             }
         }));
-        let excess = self.history.len().saturating_sub(HISTORY);
-        self.history.drain(..excess);
+        self.trim_history();
         self.last_error = None;
+        self.notes = report
+            .proof_note()
+            .into_iter()
+            .chain([report.rules_basis.describe()])
+            .map(str::to_owned)
+            .collect();
         self.details = details(report, lifecycle, &examples(cycle, events));
         self.sources = health(cycle, sources);
         self.coverage_gaps.clone_from(&report.coverage_gaps);
         self.problems.clone_from(&report.problems);
         self.scope_hints.clone_from(&report.scope_hints);
+    }
+}
+
+impl Status {
+    /// Adds a record to the history, keeping it bounded.
+    pub(crate) fn push_history(&mut self, record: TransitionRecord) {
+        self.history.push(record);
+        self.trim_history();
+    }
+
+    fn trim_history(&mut self) {
+        let excess = self.history.len().saturating_sub(HISTORY);
+        self.history.drain(..excess);
     }
 }
 

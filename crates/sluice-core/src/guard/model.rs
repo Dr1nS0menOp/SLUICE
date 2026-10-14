@@ -20,13 +20,13 @@ use crate::template::Template;
 pub enum ContractRule {
     /// 1. Unknown data passes through untouched.
     UnknownPassesThrough,
-    /// 2. Everything is archived at full fidelity before any cut.
+    /// 2. Everything is archived at full fidelity before any saving.
     ArchiveFirst,
     /// 3. Anything a rule could match is forwarded in full.
     RuleMatchesForwarded,
     /// 4. Rare is never cut.
     RareNeverCut,
-    /// 5. Every cut is proven before it is enforced.
+    /// 5. Every saving is proven before it is proposed, and what runs is re-checked.
     ProvenBeforeEnforced,
     /// 6. AI proposes; guardrails decide.
     AiProposesGuardrailsDecide,
@@ -51,10 +51,10 @@ impl fmt::Display for ContractRule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let text = match self {
             Self::UnknownPassesThrough => "unknown data passes through untouched",
-            Self::ArchiveFirst => "everything is archived before any cut",
-            Self::RuleMatchesForwarded => "anything a rule could match is forwarded in full",
+            Self::ArchiveFirst => "everything is archived before any saving",
+            Self::RuleMatchesForwarded => "anything a rule could match is sent in full",
             Self::RareNeverCut => "rare is never cut",
-            Self::ProvenBeforeEnforced => "every cut is proven before it is enforced",
+            Self::ProvenBeforeEnforced => "every saving is proven before it is used",
             Self::AiProposesGuardrailsDecide => "AI proposes; guardrails decide",
         };
         write!(f, "contract rule {}: {text}", self.number())

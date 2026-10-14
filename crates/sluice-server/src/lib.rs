@@ -1,9 +1,12 @@
 //! The Sluice control plane (`sluice up`, ADR 0005).
 //!
 //! It runs Vector as a child process, receives a sampled tap of every source, and every cycle
-//! re-analyzes the rolling window: recipes are shadowed, promoted once proven long enough, and
-//! rolled back the moment a proof fails. Each change rewrites Vector's configuration, which Vector
-//! reloads on its own. If the control plane stops, Vector keeps running the last configuration.
+//! re-analyzes the rolling window: recipes are shadowed and promoted once proven long enough.
+//! By default a promoted configuration is only proposed, for the operator to review and deploy
+//! (ADR 0022); every cycle then proves the configuration Vector runs, and the moment that proof
+//! fails Sluice switches Vector to the safe configuration, which saves nothing. With
+//! `auto_apply`, Sluice applies its configurations itself and rolls back failing recipes. If the
+//! control plane stops, Vector keeps running the last configuration.
 
 mod archive;
 mod config;
@@ -15,6 +18,7 @@ mod operator;
 mod operator_tests;
 mod operators;
 mod routes;
+mod running;
 mod status;
 #[cfg(test)]
 mod tests;
@@ -73,7 +77,11 @@ pub async fn up(
     }
     let shared = Arc::new(Shared::new(config, rules, book, control_token)?);
     shared.write_secrets()?;
-    shared.write_initial_config()?;
+    if shared.config.proposals().is_some() {
+        shared.write_startup_config()?;
+    } else {
+        shared.write_initial_config()?;
+    }
     let mut vector = spawn_vector(&shared.config)?;
     tracing::info!(listen = %shared.config.listen, "control plane listening");
 
@@ -114,6 +122,13 @@ fn check_config(config: &ServerConfig, control_token: Option<&str>) -> Result<()
             "vector_secrets: the name `{}` is reserved for Sluice",
             control::SECRET_BACKEND
         )));
+    }
+    if config.auto_apply && config.proposals_dir.is_some() {
+        return Err(ServerError::Refused(
+            "auto_apply and proposals_dir exclude each other: Sluice either applies its \
+             configurations or proposes them for review"
+                .to_owned(),
+        ));
     }
     if config.oidc.is_some() && control_token.is_none() {
         return Err(ServerError::Refused(format!(

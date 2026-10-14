@@ -7,6 +7,7 @@
 
 use anyhow::{Context, Result, bail};
 use serde_json::json;
+use sluice_autopilot::EMPTY_PROOF;
 use sluice_core::alert::{Engines, RuleEngine};
 use sluice_core::proof::prove as run_proof;
 use sluice_rules::SigmaRules;
@@ -21,6 +22,17 @@ pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
         .with_context(|| format!("reading {}", args.config.display()))?;
     let deployed = sluice_vector::deployed(&yaml, &sources, args.profile.as_deref())
         .with_context(|| format!("reading the reductions of {}", args.config.display()))?;
+    if deployed.unreduced.len() == sources.len() {
+        bail!(
+            "{} has no Sluice program for any of these sources{}",
+            args.config.display(),
+            if args.profile.is_none() {
+                "; for a configuration with several rule profiles, name one with --profile"
+            } else {
+                ""
+            }
+        );
+    }
 
     let sigma_files = match &args.rules {
         Some(dir) => input::files(dir, &["yml", "yaml"])?,
@@ -43,6 +55,35 @@ pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
     engines.extend(kusto.as_ref().map(|k| k as &dyn RuleEngine));
     let proof = run_proof(&events, &Engines(engines), &deployed.reducer)?;
 
+    print(args, &proof, &deployed.unreduced)?;
+    let empty = proof.full_alerts.is_empty();
+    if !args.json && empty {
+        println!("  note    {EMPTY_PROOF}");
+    }
+    if !proof.holds() {
+        bail!(
+            "the configuration changes detections: {} missing, {} extra alerts",
+            proof.missing.len(),
+            proof.extra.len()
+        );
+    }
+    if empty && !args.allow_no_alerts {
+        bail!(
+            "{EMPTY_PROOF} Add a sample with the attacks your rules detect, or pass --allow-no-alerts."
+        );
+    }
+    if !args.json {
+        println!("  ✓ no detection changed");
+    }
+    Ok(())
+}
+
+/// Prints the proof and the savings, as text or as JSON.
+fn print(
+    args: &ProveArgs,
+    proof: &sluice_core::proof::Proof,
+    unreduced: &[sluice_core::ids::SourceId],
+) -> Result<()> {
     let total = proof.total;
     let saved = if total.bytes_in == 0 {
         0.0
@@ -65,7 +106,8 @@ pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
             "bytes_in": total.bytes_in,
             "bytes_out": total.bytes_out,
             "saved_percent": (saved * 10.0).round() / 10.0,
-            "unreduced_sources": deployed.unreduced.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            "note": proof.full_alerts.is_empty().then_some(EMPTY_PROOF),
+            "unreduced_sources": unreduced.iter().map(ToString::to_string).collect::<Vec<_>>(),
         });
         println!("{}", serde_json::to_string_pretty(&summary)?);
     } else {
@@ -85,16 +127,6 @@ pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
         for alert in &proof.extra {
             println!("  extra   {} on event {}", alert.rule, alert.event);
         }
-    }
-    if !proof.holds() {
-        bail!(
-            "the configuration changes detections: {} missing, {} extra alerts",
-            proof.missing.len(),
-            proof.extra.len()
-        );
-    }
-    if !args.json {
-        println!("  ✓ no detection changed");
     }
     Ok(())
 }

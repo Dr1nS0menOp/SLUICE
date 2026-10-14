@@ -7,7 +7,8 @@ use std::sync::{Mutex, PoisonError, RwLock};
 
 use serde_json::{Value, json};
 use sluice_autopilot::{
-    Helpers, Input, Lifecycle, RecipeBook, Report, Sentinel, Settings, Transition, cycle,
+    EMPTY_PROOF, Helpers, Input, Lifecycle, RecipeBook, Report, RulesBasis, Sentinel, Settings,
+    Transition, cycle,
 };
 use sluice_core::alert::RuleEngine;
 use sluice_core::event::{Event, Timestamp};
@@ -35,10 +36,11 @@ pub struct Rules {
     pub wazuh: Option<WazuhRules>,
     /// Microsoft Sentinel analytics rules, for destinations that name `sentinel`.
     pub sentinel: Option<SentinelRuleSet>,
-    /// The rule sets (`sigma`, `wazuh`, `sentinel`) known to be every rule their SIEM runs:
-    /// fetched from it, or claimed by the operator (ADR 0021). A profile summarizes only when
-    /// all of its sets are listed; otherwise it makes lossless cuts only.
-    pub complete: std::collections::BTreeSet<String>,
+    /// Per rule set (`sigma`, `wazuh`, `sentinel`), on what grounds it is every rule its SIEM
+    /// runs: fetched from it, or claimed by the operator (ADR 0021). A set that is missing is
+    /// not known to be complete. A profile is as complete as its weakest set; only a complete
+    /// one summarizes.
+    pub bases: BTreeMap<String, RulesBasis>,
 }
 
 /// Sentinel analytics rules and, if available, the engine that runs them for the proof
@@ -88,6 +90,8 @@ pub(crate) struct Shared {
     /// The bearer token every route but `/healthz` requires, if set.
     pub(crate) control_token: Option<String>,
     last_config: Mutex<String>,
+    /// In proposal mode, the configuration Vector runs as Sluice last read it.
+    pub(crate) running: Mutex<String>,
     /// Where operator decisions and the audit log are kept (ADR 0016).
     pub(crate) store: crate::operator::Store,
     /// Held templates and kept fields per profile.
@@ -138,6 +142,7 @@ impl Shared {
                 status: RwLock::new(Status {
                     profile: name.clone(),
                     profiles: listed.clone(),
+                    mode: mode(&config).to_owned(),
                     ..Status::default()
                 }),
                 name,
@@ -195,6 +200,7 @@ impl Shared {
                 .map_err(|e| ServerError::Config(e.to_string()))?,
             book,
             last_config: Mutex::new(String::new()),
+            running: Mutex::new(String::new()),
             store,
             decisions: Mutex::new(decisions),
             operators,
@@ -276,10 +282,7 @@ impl Shared {
                     .get(&profile.name)
                     .map(|d| d.rules(&self.sources))
                     .unwrap_or_default(),
-                rules_complete: profile
-                    .name
-                    .split('+')
-                    .all(|r| self.rules.complete.contains(r)),
+                rules: self.basis(profile),
                 ..Settings::default()
             };
             let result = cycle(
@@ -307,13 +310,14 @@ impl Shared {
             })
             .collect();
         let yaml = self.render(&live)?;
-        let config_changed = match &self.config.proposals_dir {
-            // GitOps: the proposal is reviewed and deployed by the operator; the running Vector
-            // keeps its configuration, so there is nothing to reload.
+        let config_changed = match self.config.proposals() {
+            // The proposal waits for review; what Vector runs is the operator's deployment,
+            // which is proven here and switched off if it fails.
             Some(dir) => {
-                let proposal = proposal(now, &live, &results);
-                self.write_proposal(dir, &yaml, &proposal)?;
-                false
+                let bases: Vec<RulesBasis> = self.profiles.iter().map(|p| self.basis(p)).collect();
+                let proposal = proposal(now, &live, &results, &bases);
+                self.write_proposal(&dir, &yaml, &proposal)?;
+                self.guard_running(events, now)?
             }
             None => self.write_if_changed(&yaml)?,
         };
@@ -333,6 +337,7 @@ impl Shared {
                 .unwrap_or_else(PoisonError::into_inner);
             status.record(now, result, lifecycle, &report, &self.sources, events);
             status.window.clone_from(&window);
+            mode(&self.config).clone_into(&mut status.mode);
             let decided = decisions.get(&profile.name).cloned().unwrap_or_default();
             status.operator =
                 crate::operator::operator_status(lifecycle, &decided, &status.history);
@@ -349,8 +354,18 @@ impl Shared {
         })
     }
 
+    /// On what grounds a profile's rules are complete: those of its weakest rule set.
+    pub(crate) fn basis(&self, profile: &Profile) -> RulesBasis {
+        RulesBasis::weakest(
+            profile
+                .name
+                .split('+')
+                .map(|set| self.rules.bases.get(set).copied().unwrap_or_default()),
+        )
+    }
+
     /// The analysis input of a profile: the events with the rules it runs.
-    fn input<'a>(&'a self, profile: &Profile, events: &'a [Event]) -> Input<'a> {
+    pub(crate) fn input<'a>(&'a self, profile: &Profile, events: &'a [Event]) -> Input<'a> {
         let sigma = if profile.sigma {
             &self.rules.sigma
         } else {
@@ -445,13 +460,28 @@ impl Shared {
     }
 }
 
+/// `applying` when Sluice applies its own configurations, else `proposing`.
+fn mode(config: &ServerConfig) -> &'static str {
+    if config.auto_apply {
+        "applying"
+    } else {
+        "proposing"
+    }
+}
+
 /// What a proposal enforces and what its proof showed, per rule profile: the evidence a
 /// reviewer reads next to the diff of `vector.yaml`.
-fn proposal(now: i64, live: &[LiveProfile<'_>], results: &[sluice_autopilot::Cycle]) -> Value {
+fn proposal(
+    now: i64,
+    live: &[LiveProfile<'_>],
+    results: &[sluice_autopilot::Cycle],
+    bases: &[RulesBasis],
+) -> Value {
     let profiles: Vec<Value> = live
         .iter()
         .zip(results)
-        .map(|(profile, result)| {
+        .zip(bases)
+        .map(|((profile, result), basis)| {
             // The proof of exactly what the proposed configuration enforces.
             let proof = &result.deployed.proof;
             let enforced: Vec<&str> = profile
@@ -467,6 +497,8 @@ fn proposal(now: i64, live: &[LiveProfile<'_>], results: &[sluice_autopilot::Cyc
                     "alerts_full": proof.full_alerts.len(),
                     "alerts_forwarded": proof.forwarded_alerts.len(),
                 },
+                "note": proof.full_alerts.is_empty().then_some(EMPTY_PROOF),
+                "rules": basis.describe(),
                 "bytes_in": proof.total.bytes_in,
                 "bytes_out": proof.total.bytes_out,
                 "enforced_templates": enforced,

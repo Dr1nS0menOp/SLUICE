@@ -1,12 +1,13 @@
 //! `sluice up`, `sluice status` and `sluice mcp`: the commands that talk to the live system.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
-use sluice_autopilot::RecipeBook;
+use sluice_autopilot::{RecipeBook, RulesBasis};
 use sluice_core::event::Timestamp;
 use sluice_kql::{KustoEngine, Table};
 use sluice_rules::SigmaRules;
@@ -35,7 +36,7 @@ pub(crate) fn up(args: &UpArgs) -> Result<()> {
         )?,
         wazuh: input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?,
         sentinel: sentinel(args, &config)?,
-        complete: complete_sets(args),
+        bases: rule_bases(args),
     };
     let analysis_sources: Vec<_> = config
         .sources
@@ -98,6 +99,18 @@ pub(crate) fn status(args: &StatusArgs) -> Result<()> {
             status.profile,
             status.profiles.join(", ")
         );
+    }
+    println!(
+        "mode        {}{}",
+        status.mode,
+        status
+            .running
+            .as_ref()
+            .map(|r| format!(" ({r})"))
+            .unwrap_or_default()
+    );
+    for note in &status.notes {
+        println!("note        {note}");
     }
     let Some(last) = &status.last_cycle else {
         println!("No cycle has run yet. Window: {:?}", status.window);
@@ -219,48 +232,52 @@ fn sentinel(args: &UpArgs, config: &ServerConfig) -> Result<Option<SentinelRuleS
     }))
 }
 
-/// The rule sets known to be complete (ADR 0021): every set with `--rules-complete`, otherwise
-/// those read from a complete `sluice rules fetch`. Sigma has no SIEM API, so only the flag
-/// marks it. Says so when a set is not.
-fn complete_sets(args: &UpArgs) -> std::collections::BTreeSet<String> {
+/// On what grounds each rule set is complete (ADR 0021): claimed with `--rules-complete`,
+/// fetched with `sluice rules fetch`, or the synthetic sample's own with `--demo-traffic`. Sigma
+/// has no SIEM API, so only a claim marks it. Says so when a set is not complete.
+fn rule_bases(args: &UpArgs) -> BTreeMap<String, RulesBasis> {
+    let fetched = |dir: Option<&Path>| dir.is_some_and(crate::inventory::is_complete);
     let sets = [
         ("sigma", args.rules.as_deref(), false),
         (
             "wazuh",
             args.wazuh_rules.as_deref(),
-            args.wazuh_rules
-                .as_deref()
-                .is_some_and(crate::inventory::is_complete),
+            fetched(args.wazuh_rules.as_deref()),
         ),
         (
             "sentinel",
             args.sentinel_rules.as_deref(),
-            args.sentinel_rules
-                .as_deref()
-                .is_some_and(crate::inventory::is_complete),
+            fetched(args.sentinel_rules.as_deref()),
         ),
     ];
-    let mut complete = std::collections::BTreeSet::new();
+    let mut by_set = BTreeMap::new();
     // Without `--rules` the Sigma set is empty. It is complete only next to a fetched set, whose
     // SIEM it then stands beside; alone, an empty set would let everything be summarized.
-    let any_fetched = sets.iter().any(|(_, _, fetched)| *fetched);
-    if args.rules.is_none() && any_fetched {
-        complete.insert("sigma".to_owned());
+    if args.rules.is_none() && sets.iter().any(|(_, _, fetched)| *fetched) {
+        by_set.insert("sigma".to_owned(), RulesBasis::Fetched);
     }
     for (name, dir, fetched) in sets {
-        if args.rules_complete || fetched {
-            complete.insert(name.to_owned());
-        } else if dir.is_some() {
-            eprintln!(
-                "hint: the {name} rules are not known to be complete, so profiles with them \
-                 make lossless cuts only. Fetch them with `sluice rules fetch`, or pass \
-                 --rules-complete if they are (docs/adr/0021-rule-inventory.md)."
-            );
-        }
+        let basis = if args.demo_traffic {
+            RulesBasis::SelfContained
+        } else if args.rules_complete {
+            RulesBasis::Claimed
+        } else if fetched {
+            RulesBasis::Fetched
+        } else {
+            if dir.is_some() {
+                eprintln!(
+                    "hint: the {name} rules are not known to be complete, so profiles with them \
+                     only make savings that keep every event. Fetch them with `sluice rules \
+                     fetch`, or pass --rules-complete if they are \
+                     (docs/adr/0021-rule-inventory.md)."
+                );
+            }
+            continue;
+        };
+        by_set.insert(name.to_owned(), basis);
     }
-    complete
+    by_set
 }
-
 fn read(dir: Option<&Path>, extensions: &[&str]) -> Result<Vec<String>> {
     match dir {
         Some(dir) => Ok(input::files(dir, extensions)?

@@ -467,6 +467,10 @@ pub(crate) struct ProveArgs {
     /// Print the result as JSON (for CI).
     #[arg(long)]
     pub(crate) json: bool,
+    /// Pass even when the sample raises no alert. Such a proof shows nothing about detections,
+    /// so by default it fails: give a sample with the attacks your rules detect.
+    #[arg(long)]
+    pub(crate) allow_no_alerts: bool,
 }
 
 #[derive(Debug, Args)]

@@ -15,6 +15,12 @@ using the client credentials flow
   `ThreatIntelligence`, …) and `properties` (`displayName`, `enabled`, and `query` for
   `Scheduled` and `NRT`). A fresh Sentinel workspace has one rule: `Fusion` ("Advanced
   Multistage Attack Detection"), enabled, without a query. Lists page with `nextLink`.
+- **Fusion reads alerts, not records.** Every scenario in Microsoft's Fusion scenario reference
+  (checked 2026-10-14, page updated 2026-05-14) lists alert sources only: Microsoft Entra ID
+  Protection, Defender for Cloud Apps, Defender for Endpoint, Defender for Cloud and "Microsoft
+  Sentinel (scheduled analytics rule)". Scenarios that name Palo Alto VPN or Cisco firewall
+  logs consume the alerts of scheduled rules on those logs, and those rules are in the fetched
+  inventory themselves. So `sluice rules fetch` lists Fusion as reading no records.
 - **Saved searches:** `GET {workspace}/savedSearches?api-version=2020-08-01`. A fresh
   workspace carries 39 example searches (category `Log Management` and others) that nobody
   runs, which is why only `Hunting Queries` and functions are read by default. A function has
