@@ -15,5 +15,5 @@ mod wazuh;
 
 pub use crate::error::RulesError;
 pub use crate::sentinel::SentinelRules;
-pub use crate::sigma::{SigmaEngine, SigmaRules};
+pub use crate::sigma::{SigmaEngine, SigmaPipeline, SigmaRules};
 pub use crate::wazuh::WazuhRules;

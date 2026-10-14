@@ -475,8 +475,11 @@ since `sluice prove` in CI would otherwise inherit the same gaps.
      field of every event of its log source (`Reason::FieldNamesDiffer`); only `schema: sigma`
      matches Sigma rules for now; shapes bring their own convention; `sluice analyze` and
      `sluice up` hint at undeclared JSON sources. The ECS and undeclared cases are reproduced in
-     `sluice-core` and `sluice-autopilot` tests, which fail with the check switched off. Open:
-     the pySigma pipelines that let other conventions be cut.
+     `sluice-core` and `sluice-autopilot` tests, which fail with the check switched off.
+   - Status 2026-10-13 (ADR 0020): pySigma pipelines through rsigma (`--sigma-pipeline
+     SCHEMA=PIPELINE`, a file or a builtin). Mapped copies keep the rule id, the proof routes each
+     event to its convention's copy, and the guardrails use the copy instead of widening. The ECS
+     case now saves 597 of 600 events and keeps the 3 alerts. Step 1 is done.
 2. **Event types instead of clusters.** The fields that name the event type are set per source
    (`event_type: [eventSource, eventName]`), with defaults per source family. A template becomes
    an event type with its shape variants under it; rarity is also counted per variant, so a rare
@@ -500,6 +503,14 @@ since `sluice prove` in CI would otherwise inherit the same gaps.
    summary keys to where the shaped record keeps them (`EventData` included). For unknown
    text, the AI may propose a parser (a VRL regex), accepted only when it parses every line of
    its cluster and rebuilds each line exactly.
+   - Status 2026-10-13 (ADR 0020): summary keys follow lineage (the field, else
+     `EventData.<key>`, else the `EventData` XML); the `SecurityEvent` 5156 summaries in Vector
+     0.59 now carry their keys. A fail-open of the same family closed: a Sigma rule testing named
+     fields on a text template (fields the SIEM parses out of the line) now keeps the line whole
+     (`Reason::FieldsParsedFromText`). Open, and moved past the hard cutoff to M12: parser packs
+     and the checked AI parser, which would let such text sources be cut again.
+   - Real data after M9 (2026-10-13, all SigmaHQ rules): Windows 24.2 % saved (was 23.8 %),
+     206 = 206 alerts, with `schema: sigma` declared; Linux 28.6 % saved, unchanged. M9 is done.
 
 Done when: the ECS case keeps the rule's matches with a pipeline and refuses the cut without one,
 sshd failures form a template of their own, and the real-data runs save at least as much as
@@ -552,17 +563,47 @@ detection:
   plane, worked end to end but was rejected and removed (ADR 0017): it would have made Sluice
   the kind of platform it means to make unnecessary.
 
-**M12 — Community and ecosystem.** The flywheel that makes recipes "Sigma for pipelines":
+**Hard cutoff after M11: test everything built so far (decided 2026-10-13).** No new features
+between M11 and M12. In order:
 
-- A recipe hub repository with CI that runs every recipe against its samples and SigmaHQ.
-- `sluice recipes contribute`: export a locally proven, AI-written recipe (values stripped) as a
-  pull request.
-- Signed recipe releases that `sluice up` can follow, with the same shadow and proof before
-  anything enforces.
-- Parser packs (M9) in the same hub, with the same CI.
-- Normalization for teams that want it, on M9's schema layer (OCSF, ECS, CIM, ASIM, UDM
-  mappings), proven against the rules that read the mapped names, and PII masking with the same
-  proof.
+1. **Code review by the maintainer** of the whole workspace, for bugs, before the test phase
+   starts.
+2. **Bug hunt in very small tests.** Every public function, and every non-trivial private one,
+   gets its own small tests aimed at breaking it: edge values, empty and huge input, hostile
+   strings, every branch, every error path. One focused test module per function where it
+   helps. Unit tests next to the code; cross-crate behaviour in `tests/`; a property test
+   wherever a claim holds "for all inputs". Every bug found gets a regression test named after
+   what it broke, and the fix.
+3. **Done when** every crate's functions are covered this way, every found bug is fixed with a
+   test, the gates are green, and the real-data runs (Windows, Linux, Sentinel) reproduce their
+   numbers.
+
+**M12 — Community, ecosystem and every SIEM.** After the test phase, M12 grows much larger: the
+goal is to make Sluice work with as many SIEMs as possible, natively and proven. Its scope is
+planned when it starts; it includes at least:
+
+- Requirements extractors and, where an engine can run offline, proofs for each SIEM's own rule
+  language: Splunk SPL (correlation searches), Elastic (KQL, EQL, ES|QL, detection rules),
+  Google SecOps YARA-L, QRadar AQL, LogScale, Datadog, OpenSearch, Graylog, Wazuh beyond rules.
+- Destinations, table shapes and schema mappings (CIM, ECS, UDM, OCSF, ASIM, LEEF/CEF) for each,
+  with native ingest-time transformations where the platform has them (Elastic ingest
+  pipelines, Splunk ingest actions, SecOps parser extensions), proven like VRL (M5).
+- The flywheel that makes recipes "Sigma for pipelines":
+
+  - A recipe hub repository with CI that runs every recipe against its samples and SigmaHQ.
+  - `sluice recipes contribute`: export a locally proven, AI-written recipe (values stripped) as
+    a pull request.
+  - Signed recipe releases that `sluice up` can follow, with the same shadow and proof before
+    anything enforces.
+  - Dependency hygiene: `unsafe-libyaml` (via `serde_yaml_ng`) is unmaintained
+    (RUSTSEC-2024-0449, ignored in `deny.toml`). Move Sluice's own YAML parsing to a safe-Rust
+    parser (`serde-saphyr`), and drop the ignore once the targeted `vrl` no longer needs it.
+  - Parser packs (M9 step 3) in the same hub, with the same CI, and the AI-proposed parser that
+    is accepted only when it rebuilds every line of its cluster exactly. Both let Sigma field
+    rules be compared with text sources again (ADR 0020).
+  - Normalization for teams that want it, on M9's schema layer (OCSF, ECS, CIM, ASIM, UDM
+    mappings), proven against the rules that read the mapped names, and PII masking with the
+    same proof.
 
 **Out of scope, on purpose:** a hosted service and paid tiers (AGPL, adoption over revenue);
 running or steering a fleet of pipeline nodes (Vector and the user's own deployment tooling do
@@ -645,10 +686,13 @@ sluice/
 ## Honest limits
 
 - Rule parsing is never complete. Failing closed protects detections but costs savings.
-- Sigma rules are compared with a JSON source only when it declares `schema: sigma` (ADR 0018).
-  Records in ECS, CIM, ASIM or any undeclared convention get no cuts a Sigma rule of their log
-  source could object to, until the pySigma pipelines of M9 step 1. Declaring `sigma` for records
-  that use other names is unsafe, and the proof cannot notice (both sides raise no alert).
+- Sigma rules are compared with a JSON source only when it declares `schema: sigma`, or a
+  pySigma pipeline maps them onto its convention (ADR 0018, ADR 0020). Other records get no cuts
+  a Sigma rule of their log source could object to. Declaring `sigma`, or a pipeline the SIEM
+  does not use, for records that use other names is unsafe, and the proof cannot notice (both
+  sides raise no alert).
+- Text sources keep every line a Sigma field rule could see, until Sluice knows the SIEM's
+  parser (ADR 0020; parser packs in M12).
 - Until M10, a rule Sluice was not given does not exist for it. Load every rule the SIEM runs,
   for each destination.
 - Detections aren't the only consumers of data; dashboards, hunts and compliance also use it.

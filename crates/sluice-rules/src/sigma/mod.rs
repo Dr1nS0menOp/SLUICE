@@ -2,6 +2,7 @@
 
 mod engine;
 mod fields;
+mod pipeline;
 mod prefilter;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -17,6 +18,7 @@ use sluice_core::source::Source;
 
 pub use self::engine::SigmaEngine;
 use self::fields::Reads;
+pub use self::pipeline::SigmaPipeline;
 use crate::error::RulesError;
 
 /// The rule id Sluice uses for a Sigma rule: its `id`, else its title.
@@ -28,6 +30,8 @@ pub(crate) fn rule_id(id: Option<&str>, title: &str) -> RuleId {
 #[derive(Debug, Clone)]
 pub struct SigmaRules {
     collection: SigmaCollection,
+    /// The collection mapped onto other field naming conventions, one per pipeline.
+    mapped: Vec<(Schema, SigmaCollection)>,
     requirements: Vec<RuleRequirements>,
     problems: Vec<String>,
 }
@@ -43,6 +47,21 @@ impl SigmaRules {
     ///
     /// Returns [`RulesError::SigmaParse`] if a file is not valid YAML at all.
     pub fn parse<'a>(files: impl IntoIterator<Item = &'a str>) -> Result<Self, RulesError> {
+        Self::parse_with(files, &[])
+    }
+
+    /// As [`SigmaRules::parse`], and each rule also mapped through every pipeline (ADR 0020).
+    /// A mapped rule keeps its id; its requirements name the pipeline's convention, so the
+    /// guardrails compare it with sources that follow it, and the engine runs it on their events.
+    ///
+    /// # Errors
+    ///
+    /// As [`SigmaRules::parse`], and [`RulesError::SigmaPipeline`] if a pipeline fails on a rule
+    /// or two pipelines name the same convention.
+    pub fn parse_with<'a>(
+        files: impl IntoIterator<Item = &'a str>,
+        pipelines: &[SigmaPipeline],
+    ) -> Result<Self, RulesError> {
         let mut collection = SigmaCollection::new();
         for file in files {
             let parsed =
@@ -53,12 +72,40 @@ impl SigmaRules {
             collection.errors.extend(parsed.errors);
         }
         let mut problems = collection.errors.clone();
-        let requirements = requirements(&collection, &mut problems);
+        let mut requirements = requirements(&collection, &mut problems);
+        let mut mapped: Vec<(Schema, SigmaCollection)> = Vec::new();
+        for pipeline in pipelines {
+            if mapped
+                .iter()
+                .any(|(schema, _)| *schema == pipeline.schema())
+            {
+                return Err(RulesError::SigmaPipeline(format!(
+                    "two pipelines for {}",
+                    pipeline.schema()
+                )));
+            }
+            let rules = pipeline.apply(&collection)?;
+            // Problems were reported for the original rules already.
+            let mut ignored = Vec::new();
+            requirements.extend(requirements_of(&rules, &mut ignored).map(|mut r| {
+                r.field_names = Some(pipeline.schema());
+                r
+            }));
+            mapped.push((pipeline.schema(), rules));
+        }
         Ok(Self {
             collection,
+            mapped,
             requirements,
             problems,
         })
+    }
+
+    /// Whether these rules can be compared with records that follow `schema`: Sigma's own
+    /// names, or a convention a pipeline maps onto.
+    #[must_use]
+    pub fn reads(&self, schema: Schema) -> bool {
+        schema == Schema::Sigma || self.mapped.iter().any(|(mapped, _)| *mapped == schema)
     }
 
     /// What each rule needs from the data, after applying filters and correlations.
@@ -79,8 +126,19 @@ impl SigmaRules {
     ///
     /// Returns [`RulesError::SigmaCompile`] if rsigma rejects the collection.
     pub fn engine(&self, sources: &[Source]) -> Result<SigmaEngine, RulesError> {
-        SigmaEngine::new(self.collection.clone(), sources)
+        SigmaEngine::new(self.collection.clone(), self.mapped.clone(), sources)
     }
+}
+
+/// The requirements of a mapped collection's own rules and correlations, without the opaque
+/// stand-ins for documents that did not parse (the original collection has those).
+fn requirements_of(
+    collection: &SigmaCollection,
+    problems: &mut Vec<String>,
+) -> impl Iterator<Item = RuleRequirements> {
+    requirements(collection, problems)
+        .into_iter()
+        .filter(|r| r.field_names.is_some())
 }
 
 fn requirements(collection: &SigmaCollection, problems: &mut Vec<String>) -> Vec<RuleRequirements> {

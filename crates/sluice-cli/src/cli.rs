@@ -264,6 +264,12 @@ pub(crate) struct UpArgs {
     /// Directory of Sigma rules (`*.yml`, `*.yaml`), searched recursively.
     #[arg(long)]
     pub(crate) rules: Option<PathBuf>,
+    /// Map the Sigma rules onto another field naming convention, as the SIEM's own conversion
+    /// does: `SCHEMA=PIPELINE`, such as `ecs=ecs_windows` (built in) or `ecs=my-pipeline.yml`
+    /// (pySigma's format). Sources that declare that `schema` are then compared with the
+    /// mapped rules. Repeatable, one per convention.
+    #[arg(long, value_name = "SCHEMA=PIPELINE")]
+    pub(crate) sigma_pipeline: Vec<String>,
     /// Directory of Wazuh rule files (`*.xml`), searched recursively.
     #[arg(long)]
     pub(crate) wazuh_rules: Option<PathBuf>,
@@ -325,6 +331,11 @@ pub(crate) struct AnalyzeArgs {
     /// Directory of Sigma rules (`*.yml`, `*.yaml`), searched recursively.
     #[arg(long)]
     pub(crate) rules: Option<PathBuf>,
+    /// Map the Sigma rules onto another field naming convention, as the SIEM's own conversion
+    /// does: `SCHEMA=PIPELINE`, such as `ecs=ecs_windows` (built in) or `ecs=my-pipeline.yml`
+    /// (pySigma's format). Repeatable, one per convention.
+    #[arg(long, value_name = "SCHEMA=PIPELINE")]
+    pub(crate) sigma_pipeline: Vec<String>,
     /// Directory of Wazuh rule files (`*.xml`), searched recursively.
     #[arg(long)]
     pub(crate) wazuh_rules: Option<PathBuf>,

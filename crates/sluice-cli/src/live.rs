@@ -28,10 +28,11 @@ pub(crate) fn up(args: &UpArgs) -> Result<()> {
     let config: ServerConfig = serde_yaml_ng::from_value(yaml)
         .with_context(|| format!("reading {}", args.config.display()))?;
     let rules = Rules {
-        sigma: SigmaRules::parse(
+        sigma: SigmaRules::parse_with(
             read(args.rules.as_deref(), &["yml", "yaml"])?
                 .iter()
                 .map(String::as_str),
+            &input::sigma_pipelines(&args.sigma_pipeline)?,
         )?,
         wazuh: input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?,
         sentinel: sentinel(args, &config)?,

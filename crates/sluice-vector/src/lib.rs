@@ -18,6 +18,7 @@ mod live;
 mod predicate;
 mod program;
 mod runtime;
+mod summary;
 mod syntax;
 pub mod syslog;
 pub mod windows;

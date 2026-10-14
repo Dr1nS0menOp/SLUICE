@@ -106,7 +106,6 @@ def data_path():
     s.arrow([(944, 250), (962, 250)], TEAL)
     s.arrow([(469, 450), (469, 530)], TEAL)
     s.arrow([(659, 560), (659, 300)], OCHRE)
-    s.arrow([(849, 350), (849, 368)], RED, head=False, dash=True)
     # cards
     s.card(24, 202, 140, 96, "Source", ["e.g. a Windows", "server"], ["Vector agent"], INK)
     s.card(204, 40, 150, 108, "Archive", ["full copy, before", "any change"],
@@ -125,8 +124,6 @@ def data_path():
            ["Vector sinks", "(azure_logs_ingestion, …)"], INK)
     s.card(990, 40, 160, 108, "Search, replay", ["events back from", "the archive"],
            ["sluice search", "sluice replay"], INK)
-    s.card(756, 370, 184, 92, "LIMIT · M9", ["Sentinel's SecurityEvent", "keeps summary keys", "in EventData"],
-           [], RED, limit=True)
     # labels
     s.text(183, 240, "HTTP", 12, MUTED, anchor="middle")
     s.text(1080, 162, "replay", 12, MUTED)
@@ -170,9 +167,9 @@ def decision_path():
     for i, (step, title, desc, mono) in enumerate(rows):
         x, y = xs[i % 4], 90 if i < 4 else 330
         s.card(x, y, 240, 120, title, desc, mono, OCHRE, step)
-    s.card(24, 500, 270, 96, "LIMIT · D · M9", ["Field names are not mapped yet:",
-                                                 "Sigma rules cut only sources",
-                                                 "declared schema: sigma."], [], RED, limit=True)
+    s.card(24, 500, 270, 96, "LIMIT · D · M12", ["Text lines are not parsed:",
+                                                  "Sigma field rules keep text",
+                                                  "sources whole."], [], RED, limit=True)
     s.card(312, 500, 270, 96, "LIMIT · D · M10", ["Rules come from directories;",
                                                   "hunts, dashboards and other",
                                                   "SIEM languages are not read."], [], RED,

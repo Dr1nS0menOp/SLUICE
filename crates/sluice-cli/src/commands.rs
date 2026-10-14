@@ -67,7 +67,10 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
         Some(dir) => input::files(dir, &["yml", "yaml"])?,
         None => Vec::new(),
     };
-    let sigma = SigmaRules::parse(sigma_files.iter().map(|(_, text)| text.as_str()))?;
+    let sigma = SigmaRules::parse_with(
+        sigma_files.iter().map(|(_, text)| text.as_str()),
+        &input::sigma_pipelines(&args.sigma_pipeline)?,
+    )?;
     input::hint_undeclared_schemas(&sources, &sigma);
     let wazuh = input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?;
     let book = recipe_book(args.recipes.as_deref())?;

@@ -10,6 +10,9 @@ pub enum RulesError {
     /// rsigma rejected the rule collection.
     #[error("cannot compile Sigma rules: {0}")]
     SigmaCompile(String),
+    /// A Sigma processing pipeline cannot be used.
+    #[error("cannot use Sigma pipeline: {0}")]
+    SigmaPipeline(String),
     /// A Wazuh rules file is not well-formed XML.
     #[error("cannot parse Wazuh rules: {0}")]
     WazuhXml(String),

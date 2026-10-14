@@ -7,7 +7,10 @@
 //!
 //! Every decision here fails closed. When something is unknown, the event is forwarded in full.
 
+use std::collections::BTreeSet;
+
 use crate::field::FieldPath;
+use crate::ids::RuleId;
 use crate::predicate::Predicate;
 use crate::recipe::{Level, Recipe, Reduction};
 use crate::rules::RuleRequirements;
@@ -59,11 +62,25 @@ pub fn guard(
 
     // A rule whose field names cannot be compared with the template's is read as widely as can
     // be (ADR 0018): its pre-filter and field list say nothing about records named otherwise.
-    // Widened rules protect identically, so the first one stands for all of them.
+    // Widened rules protect identically, so the first one stands for all of them. A rule that
+    // also comes mapped onto the template's convention (ADR 0020) is covered by that copy.
+    let mapped: BTreeSet<&RuleId> = ctx
+        .rules
+        .iter()
+        .filter(|rule| {
+            matches!(template.shape, TemplateShape::Keyset { .. })
+                && rule
+                    .field_names
+                    .is_some_and(|n| template.schema.can_read(n))
+        })
+        .map(|rule| &rule.rule)
+        .collect();
     let renamed_rules: Vec<&RuleRequirements> = ctx
         .rules
         .iter()
-        .filter(|rule| renamed(rule, template) && applies(rule, template))
+        .filter(|rule| {
+            renamed(rule, template) && !mapped.contains(&rule.rule) && applies(rule, template)
+        })
         .collect();
     let widened: Option<RuleRequirements> = renamed_rules.first().map(|r| r.widened());
     let applicable: Vec<&RuleRequirements> = ctx
@@ -87,20 +104,33 @@ pub fn guard(
     } else if !shaped.drop_fields.is_empty() || shaped.drop_empty_except.is_some() {
         shaped.keep_whole_when = (!keep.is_never()).then_some(keep);
     }
-    // One adjustment for all of them: SigmaHQ alone can put hundreds on one template.
+    // One adjustment for all of them: SigmaHQ alone can put hundreds on one template. A rule
+    // and its mapped copies count once.
+    let rules = renamed_rules
+        .iter()
+        .map(|rule| &rule.rule)
+        .collect::<BTreeSet<_>>()
+        .len();
     if let Some((first, rule_names)) = renamed_rules
         .first()
         .and_then(|rule| rule.field_names.map(|names| (rule, names)))
     {
-        shaped.adjustments.push(Adjustment {
-            contract: ContractRule::RuleMatchesForwarded,
-            level: None,
-            reason: Reason::FieldNamesDiffer {
+        let reason = match template.shape {
+            TemplateShape::Text { .. } => Reason::FieldsParsedFromText {
                 rule: first.rule.clone(),
-                rules: renamed_rules.len(),
+                rules,
+            },
+            TemplateShape::Keyset { .. } => Reason::FieldNamesDiffer {
+                rule: first.rule.clone(),
+                rules,
                 rule_names,
                 data_names: template.schema,
             },
+        };
+        shaped.adjustments.push(Adjustment {
+            contract: ContractRule::RuleMatchesForwarded,
+            level: None,
+            reason,
         });
     }
     dedup(&mut shaped.adjustments);
@@ -255,14 +285,17 @@ fn applies(rule: &RuleRequirements, template: &Template) -> bool {
         && (renamed(rule, template) || rule.prefilter.may_match_with(fixed, paths))
 }
 
-/// Whether `rule` names its fields in a convention the structured records of `template` do not
-/// follow, or do not declare. Text templates have no named fields to compare (their line is
-/// parsed by the SIEM, which is the schema layer's concern), so they never count.
+/// Whether the fields `rule` tests cannot be compared with `template`'s records. On a JSON key
+/// set: the rule names its fields in a convention the records do not follow (ADR 0018). On a
+/// text line: the rule tests named fields at all, which exist only once the SIEM has parsed
+/// the line (ADR 0020); keyword rules search the line itself and are compared as they are.
 fn renamed(rule: &RuleRequirements, template: &Template) -> bool {
-    matches!(template.shape, TemplateShape::Keyset { .. })
-        && rule
+    match template.shape {
+        TemplateShape::Keyset { .. } => rule
             .field_names
-            .is_some_and(|names| !template.schema.can_read(names))
+            .is_some_and(|names| !template.schema.can_read(names)),
+        TemplateShape::Text { .. } => rule.field_names.is_some() && rule.prefilter.names_fields(),
+    }
 }
 #[cfg(test)]
 mod tests;

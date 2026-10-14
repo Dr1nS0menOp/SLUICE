@@ -18,7 +18,7 @@ use sluice_core::recipe::{Provenance, Recipe, Reduction};
 use sluice_core::schema::Schema;
 use sluice_core::source::{Source, SourceFormat};
 use sluice_discover::{DiscoverConfig, discover};
-use sluice_rules::SigmaRules;
+use sluice_rules::{SigmaPipeline, SigmaRules};
 
 const WHOAMI: &str = r"
 title: Whoami execution
@@ -105,6 +105,15 @@ fn summarize_by(
 
 fn analyze(schema: Schema, record: fn(u64) -> Value, key: &str) -> Analysis {
     let rules = SigmaRules::parse([WHOAMI]).expect("the rule parses");
+    analyze_with(&rules, schema, record, key)
+}
+
+fn analyze_with(
+    rules: &SigmaRules,
+    schema: Schema,
+    record: fn(u64) -> Value,
+    key: &str,
+) -> Analysis {
     let sources = [source(schema)];
     let events = events(record);
     let discovery = discover(DiscoverConfig::default(), &sources, &events);
@@ -113,7 +122,7 @@ fn analyze(schema: Schema, record: fn(u64) -> Value, key: &str) -> Analysis {
         Input {
             sources: &sources,
             events: &events,
-            sigma: &rules,
+            sigma: rules,
             wazuh: None,
             sentinel: None,
         },
@@ -152,6 +161,32 @@ fn c3_a_sigma_rule_on_ecs_records_cuts_nothing_it_could_read() {
     // The proof is blind here (the rule's names never occur in ECS records): the guardrails are
     // what keep the data, which is why they must not rely on the pre-filter finding a match.
     assert!(proof.full_alerts.is_empty());
+}
+
+/// With the pipeline Elastic's conversion uses (ADR 0020), the rule reads the ECS names: the
+/// ECS records are cut like the Sigma-named ones, the proof runs the mapped rule on them, and its
+/// matches are forwarded.
+#[test]
+fn c3_ecs_records_are_cut_through_the_ecs_pipeline_and_their_matches_kept() {
+    let ecs = SigmaPipeline::builtin(Schema::Ecs, "ecs_windows").expect("built in");
+    let rules = SigmaRules::parse_with([WHOAMI], &[ecs]).expect("the rule maps");
+    let analysis = analyze_with(&rules, Schema::Ecs, ecs_named, "host.name");
+    let proof = &analysis.selection.proof;
+    assert_eq!(
+        proof.full_alerts.len(),
+        MATCHES.len(),
+        "the mapped rule fires on ECS"
+    );
+    assert!(proof.holds(), "missing {:?}", proof.missing);
+    assert_eq!(
+        proof.total.summarized,
+        600 - u64::try_from(MATCHES.len()).unwrap_or(0)
+    );
+    assert!(!differs(&analysis));
+    // The original rule still serves Sigma-named records.
+    let sigma = analyze_with(&rules, Schema::Sigma, sigma_named, "Computer");
+    assert_eq!(sigma.selection.proof.full_alerts.len(), MATCHES.len());
+    assert!(sigma.selection.proof.holds());
 }
 
 #[test]

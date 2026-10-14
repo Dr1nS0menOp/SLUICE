@@ -7,6 +7,12 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+    # unsafe-libyaml is archived (unmaintained, no known vulnerability). It comes in through
+    # serde_yaml_ng, which vrl 0.36 itself depends on, so it stays as long as Sluice targets
+    # Vector 0.59. Moving our own YAML parsing to a safe-Rust parser is on PLAN.md (M12).
+    { id = "RUSTSEC-2024-0449", reason = "unmaintained only; required by vrl 0.36 (Vector 0.59)" },
+]
 
 [licenses]
 version = 2

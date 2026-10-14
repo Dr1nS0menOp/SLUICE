@@ -75,15 +75,50 @@ pub(crate) fn hint_undeclared_schemas(sources: &[Source], sigma: &sluice_rules::
     }
     for source in sources
         .iter()
-        .filter(|s| matches!(s.format, SourceFormat::Json) && !s.schema.is_declared())
+        .filter(|s| matches!(s.format, SourceFormat::Json) && !sigma.reads(s.schema))
     {
-        eprintln!(
-            "hint: source {} does not declare `schema`, so Sigma rules cannot be compared with \
-             its field names and nothing they could read is cut. Add `schema: sigma` if its \
-             records use the names your Sigma rules use (docs/guide.md, \"Field names\").",
-            source.id
-        );
+        if source.schema.is_declared() {
+            eprintln!(
+                "hint: source {} declares `schema: {}`, but no --sigma-pipeline maps the Sigma \
+                 rules onto it, so nothing they could read is cut there. Add the pipeline your \
+                 SIEM converts Sigma rules with, such as `--sigma-pipeline {}=ecs_windows` for \
+                 Elastic (docs/guide.md, \"Field names\").",
+                source.id, source.schema, source.schema
+            );
+        } else {
+            eprintln!(
+                "hint: source {} does not declare `schema`, so Sigma rules cannot be compared \
+                 with its field names and nothing they could read is cut. Add `schema: sigma` \
+                 if its records use the names your Sigma rules use, or the convention they \
+                 follow plus a --sigma-pipeline (docs/guide.md, \"Field names\").",
+                source.id
+            );
+        }
     }
+}
+
+/// The pipelines of `--sigma-pipeline SCHEMA=PIPELINE`: a built-in name or a pipeline file.
+pub(crate) fn sigma_pipelines(specs: &[String]) -> Result<Vec<sluice_rules::SigmaPipeline>> {
+    specs
+        .iter()
+        .map(|spec| {
+            let (schema, pipeline) = spec
+                .split_once('=')
+                .with_context(|| format!("--sigma-pipeline {spec}: expected SCHEMA=PIPELINE"))?;
+            let schema: sluice_core::schema::Schema = serde_json::from_value(Value::String(
+                schema.trim().to_owned(),
+            ))
+            .with_context(|| format!("--sigma-pipeline {spec}: unknown schema `{schema}`"))?;
+            let path = Path::new(pipeline);
+            if path.is_file() {
+                let yaml = fs::read_to_string(path)
+                    .with_context(|| format!("reading {}", path.display()))?;
+                Ok(sluice_rules::SigmaPipeline::parse(schema, pipeline, &yaml)?)
+            } else {
+                Ok(sluice_rules::SigmaPipeline::builtin(schema, pipeline)?)
+            }
+        })
+        .collect()
 }
 
 /// Wazuh rules from `rules`, bounded by the decoders in `decoders` if given.
