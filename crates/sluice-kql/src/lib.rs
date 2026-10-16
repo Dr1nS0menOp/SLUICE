@@ -18,6 +18,11 @@ mod engine;
 mod predicate;
 mod schema;
 mod syntax;
+mod transform;
 
 pub use crate::engine::{KustoEngine, KustoError, Table};
 pub use crate::predicate::compile;
+pub use crate::transform::{
+    ALLOWED_FUNCTIONS, SERVICE_COLUMNS, TransformPlan, Transformation, disallowed_functions,
+    run_transformation, transformation,
+};

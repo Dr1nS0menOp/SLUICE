@@ -83,6 +83,11 @@ impl Table {
     /// The table's columns, with the ones every workspace table has but the tables API does
     /// not list; rules project `_ResourceId` for entity mapping.
     fn columns(self) -> impl Iterator<Item = (&'static str, &'static str)> {
+        self.own_columns().chain(HIDDEN_COLUMNS.iter().copied())
+    }
+
+    /// The columns the tables API lists, with their types.
+    pub(crate) fn own_columns(self) -> impl Iterator<Item = (&'static str, &'static str)> {
         let own = match self {
             Self::SecurityEvent => schema::SECURITY_EVENT,
             Self::WindowsEvent => schema::WINDOWS_EVENT,
@@ -92,7 +97,7 @@ impl Table {
             Self::ASimDnsActivityLogs => schema::ASIM_DNS_ACTIVITY_LOGS,
             Self::ASimWebSessionLogs => schema::ASIM_WEB_SESSION_LOGS,
         };
-        own.iter().chain(HIDDEN_COLUMNS).copied()
+        own.iter().copied()
     }
 }
 
@@ -268,7 +273,7 @@ fn first_line(message: &str) -> String {
 
 /// The record a table receives for an event: its columns, plus `Type`, which Log Analytics
 /// sets from the table. Fields that are not columns are left out, as the workspace drops them.
-fn record(table: Table, event: &Event) -> Value {
+pub(crate) fn record(table: Table, event: &Event) -> Value {
     let mut out = Map::new();
     for (column, _) in table.columns() {
         if let Some(value) = event.fields.get(column) {
@@ -280,13 +285,13 @@ fn record(table: Table, event: &Event) -> Value {
 }
 
 /// A volatile database that lives as long as this value.
-struct Database<'c> {
+pub(crate) struct Database<'c> {
     client: &'c Client,
     name: String,
 }
 
 impl<'c> Database<'c> {
-    fn create(client: &'c Client) -> Result<Self, KustoError> {
+    pub(crate) fn create(client: &'c Client) -> Result<Self, KustoError> {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let name = format!(
             "sluice_{}_{}",
@@ -308,7 +313,7 @@ impl<'c> Database<'c> {
         Ok(database)
     }
 
-    fn load(&self, table: Table, events: &[&Event]) -> Result<(), KustoError> {
+    pub(crate) fn load(&self, table: Table, events: &[&Event]) -> Result<(), KustoError> {
         for batch in events.chunks(INGEST_BATCH) {
             let lines: Vec<String> = batch
                 .iter()
@@ -326,8 +331,36 @@ impl<'c> Database<'c> {
         Ok(())
     }
 
+    /// Creates table `name` with `columns` and loads `records` (JSON objects) into it.
+    pub(crate) fn load_table(
+        &self,
+        name: &str,
+        columns: &[(&str, &str)],
+        records: &[Value],
+    ) -> Result<(), KustoError> {
+        let declared: Vec<String> = columns
+            .iter()
+            .map(|(column, kind)| format!("['{column}']:{kind}"))
+            .collect();
+        self.client.mgmt(
+            &self.name,
+            &format!(".create table {name} ({})", declared.join(", ")),
+        )?;
+        for batch in records.chunks(INGEST_BATCH) {
+            let lines: Vec<String> = batch.iter().map(Value::to_string).collect();
+            self.client.mgmt(
+                &self.name,
+                &format!(
+                    ".ingest inline into table {name} with (format='multijson') <|\n{}",
+                    lines.join("\n")
+                ),
+            )?;
+        }
+        Ok(())
+    }
+
     /// The rows of the query's primary result, each as JSON with its column names.
-    fn query(&self, query: &str) -> Result<Vec<String>, KustoError> {
+    pub(crate) fn query(&self, query: &str) -> Result<Vec<String>, KustoError> {
         let answer = self.client.query(&self.name, query)?;
         let table = answer
             .get("Tables")
@@ -366,13 +399,13 @@ impl Drop for Database<'_> {
 
 /// The emulator's REST API (v1).
 #[derive(Debug)]
-struct Client {
+pub(crate) struct Client {
     agent: ureq::Agent,
     url: String,
 }
 
 impl Client {
-    fn new(url: &str) -> Self {
+    pub(crate) fn new(url: &str) -> Self {
         let agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .timeout_global(Some(TIMEOUT))

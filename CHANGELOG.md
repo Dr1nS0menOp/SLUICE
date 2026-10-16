@@ -197,6 +197,10 @@ explains the terms.
   savings plan for any tool, per source and kind of event what may be removed or counted, which
   events keep every field, where each saving can run (a pipeline tool, or also the SIEM's own
   ingestion), and the proof.
+- `sluice analyze --sentinel-native`: per `--sentinel-table` source, a data collection rule
+  `transformKql` that makes the plan's field removals in Sentinel's own ingestion, without
+  Vector, written only after the Kusto emulator shows it empties nothing the proven data plane
+  keeps and changes no alert of Microsoft's rules (ADR 0013).
 - `scripts/real-data/`: collects real Windows, Linux and Sentinel events (kept outside the
   repository), sends Windows events through `sluice up` to a Sentinel workspace, and runs
   `sluice analyze` on them with SigmaHQ, the stock Wazuh ruleset and Microsoft's rules in the

@@ -56,6 +56,7 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
         // The demo's rules are its own: complete by construction.
         RulesBasis::SelfContained,
         Vec::new(),
+        None,
     )?;
     println!(
         "Re-run on the same data: sluice analyze --input {} --sources {} --rules <dir>",
@@ -119,6 +120,10 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
         &args.out,
         basis,
         inventory_notes,
+        args.kusto
+            .as_deref()
+            .filter(|_| args.sentinel_native)
+            .map(|url| (url, args.sentinel_table.as_slice())),
     )
 }
 
@@ -237,6 +242,7 @@ fn run(
     out: &Path,
     rules: RulesBasis,
     inventory_notes: Vec<String>,
+    native: Option<(&str, &[String])>,
 ) -> Result<()> {
     let Input {
         sources, events, ..
@@ -277,5 +283,8 @@ fn run(
         out.join("vector.yaml").display(),
         out.join("report.html").display()
     );
+    if let Some((url, specs)) = native {
+        crate::native::sentinel(&analysis, input, url, specs, out)?;
+    }
     Ok(())
 }

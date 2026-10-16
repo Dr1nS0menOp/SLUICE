@@ -1,6 +1,6 @@
 # ADR 0013: Native Sentinel transformations, proven like VRL
 
-- Status: Proposed
+- Status: Accepted (steps 1, 2 and the proof of 4 done; 3 open)
 - Date: 2026-10-10
 
 ## Context
@@ -65,6 +65,22 @@ The constraints (docs/notes/sentinel-dcr.md) shape everything:
    against the VRL predicates on the synthetic sample. **Done 2026-10-10**
    (`scripts/kql-check.sh`, part of `check.sh` when the emulator image is present; results in
    docs/notes/sentinel-dcr.md).
-2. Template recognition and L1 reductions → `transformKql`; static allowlist check.
+2. Template recognition and L1 reductions → `transformKql`; static allowlist check. **Done
+   2026-10-17** (`sluice_kql::transformation`, from the plan of ADR 0023). Recognition is on a
+   signature: one bit per column the source's templates have (empty or not), plus a test that
+   every other column is empty, and the discriminator values. That is exact only where an empty
+   column and a missing one are the same, so `sluice analyze --sentinel-native` generates only
+   from samples without empty fields: records read back from the table. Columns Azure fills
+   itself are not part of the signature; templates it cannot tell apart remove what all of them
+   remove and keep every column where any keeps the event whole. Nested fields, counting and
+   text templates stay with a pipeline tool and are listed. Empty-field removal is left out: an
+   empty column is not billed.
 3. Stream declaration and DCR JSON with the archive flow; `sluice connect sentinel --native`.
-4. The proof gate on emulator output; a real-workspace measurement of `_BilledSize`.
+4. The proof gate on emulator output; a real-workspace measurement of `_BilledSize`. **Proof
+   done 2026-10-17**: `--sentinel-native` runs the transformation on the sample in the emulator,
+   checks that every column it empties on a record the proven data plane removes from it too,
+   and that Microsoft's rules raise the same alerts on the transformed records; only then is
+   `sentinel/SOURCE.transform.kql` written. On the 40,590 records of the test workspace (Windows
+   Security Events solution): `SecurityEvent` 33.5 → 32.1 MB (4.1 %, `EventData` of 4672 and
+   4798), `WindowsEvent` unchanged, 9.7 KB of KQL. The emulator test in `transform/tests.rs`
+   (run by `scripts/kql-check.sh`) checks recognition on records built for each edge.

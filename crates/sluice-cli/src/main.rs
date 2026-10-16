@@ -12,6 +12,7 @@ mod connect;
 mod input;
 mod inventory;
 mod live;
+mod native;
 mod output;
 mod prove;
 

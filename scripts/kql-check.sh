@@ -26,3 +26,5 @@ if ! ready; then
 fi
 
 SLUICE_KUSTO_URL="$url" cargo test --locked -p sluice-kql --test emulator --test rules -- --nocapture
+# The generated DCR transformation, run in the engine (ADR 0013).
+SLUICE_KUSTO_URL="$url" cargo test --locked -p sluice-kql --lib transform -- --nocapture

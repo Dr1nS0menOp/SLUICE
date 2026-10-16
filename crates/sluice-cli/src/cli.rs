@@ -408,6 +408,12 @@ pub(crate) struct AnalyzeArgs {
     /// `windows-security=SecurityEvent`). Repeatable.
     #[arg(long, value_name = "SOURCE=TABLE", requires = "kusto")]
     pub(crate) sentinel_table: Vec<String>,
+    /// Also write, per `--sentinel-table` source, a data collection rule transformation
+    /// (`sentinel/SOURCE.transform.kql`) that makes the plan's field removals in Sentinel's own
+    /// ingestion, after proving it in the emulator (ADR 0013). Needs a sample read from the
+    /// table, where empty and missing columns are the same.
+    #[arg(long, requires = "sentinel_table")]
+    pub(crate) sentinel_native: bool,
     /// Wazuh manager API (for example `https://wazuh:55000`) to spot-check reductions with its
     /// real decoders and rules through `logtest`. The password is read from
     /// `WAZUH_API_PASSWORD`.
