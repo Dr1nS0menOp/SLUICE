@@ -176,4 +176,22 @@ mod tests {
         );
         assert_eq!(keys, json!({"Application": null, "DestPort": null}));
     }
+
+    #[test]
+    fn only_plain_names_are_looked_up_in_the_xml() {
+        let with_xml = template(&["EventID", "EventData"]);
+        let regex = |key: &str| key_value(&with_xml, &FieldPath::new(key)).contains("parse_regex");
+        assert!(
+            regex("Logon_Type2"),
+            "letters, digits and `_` are a plain name"
+        );
+        for key in ["Bad'Key", "a-b", "a.b", "a b"] {
+            assert!(!regex(key), "{key} never reaches the pattern");
+        }
+        let without_xml = template(&["EventID"]);
+        assert_eq!(
+            key_value(&without_xml, &FieldPath::new("Logon_Type")),
+            syntax::path(&FieldPath::new("Logon_Type"))
+        );
+    }
 }

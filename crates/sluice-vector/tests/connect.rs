@@ -47,6 +47,46 @@ fn every_target_renders_a_sink_without_secrets() {
 }
 
 #[test]
+fn every_example_endpoint_is_a_url_or_for_wazuh_a_file() {
+    let endpoints: std::collections::BTreeSet<&str> =
+        Target::ALL.iter().map(|t| t.example_endpoint()).collect();
+    assert_eq!(endpoints.len(), Target::ALL.len(), "one each");
+    for target in Target::ALL {
+        let endpoint = target.example_endpoint();
+        let expected = if target == Target::Wazuh {
+            "/"
+        } else {
+            "https://"
+        };
+        assert!(
+            endpoint.starts_with(expected),
+            "{}: {endpoint}",
+            target.name()
+        );
+    }
+}
+
+#[test]
+fn targets_with_secrets_bring_a_directory_backend_and_the_others_none() {
+    for target in Target::ALL {
+        match target.secret_backend() {
+            Some((name, settings)) => {
+                assert!(!target.secrets().is_empty(), "{}", target.name());
+                assert_eq!(name, SECRET_BACKEND);
+                assert_eq!(settings["type"], "directory");
+                assert!(
+                    settings["path"]
+                        .as_str()
+                        .is_some_and(|p| p.starts_with('/'))
+                );
+            }
+            None => assert!(target.secrets().is_empty(), "{}", target.name()),
+        }
+    }
+    assert!(Target::Splunk.secret_backend().is_some());
+}
+
+#[test]
 fn wazuh_notes_name_the_file_it_writes() {
     let notes = Target::Wazuh.notes("/srv/sluice.ndjson");
     assert!(notes.contains("<location>/srv/sluice.ndjson</location>"));

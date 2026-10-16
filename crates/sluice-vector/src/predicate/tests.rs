@@ -276,9 +276,10 @@ fn thousands_of_alternatives_compile_without_overflowing_the_stack() {
     assert!(matches(&p, json!({format!("F{}", n - 1): "x"})));
     assert!(!matches(&p, json!({"F3000": "x"})));
     // Linear compile time: one variable per nesting level, not per test. Quadratic took
-    // minutes here.
+    // minutes for 800 tests and would take hours here. The bound leaves room for a loaded
+    // machine: 30 s failed while a mutation run shared the CPU.
     assert!(
-        started.elapsed() < std::time::Duration::from_secs(30),
+        started.elapsed() < std::time::Duration::from_secs(120),
         "{:?}",
         started.elapsed()
     );
@@ -347,4 +348,89 @@ fn keywords_with_many_values_use_one_alternation_that_decides_alike() {
     assert!(matches(&p, json!({"A": "run SEKURLSA::logonpasswords"})));
     assert!(matches(&p, json!({"A": "échec total"})));
     assert!(!matches(&p, json!({"A": "aXb"})));
+}
+
+/// Every identifier in `compiled` that starts with `prefix`.
+fn variables(
+    compiled: &super::CompiledPredicate,
+    prefix: &str,
+) -> std::collections::BTreeSet<String> {
+    let text = format!(
+        "{}\n{}",
+        compiled.statements.join("\n"),
+        compiled.expression
+    );
+    regex::Regex::new(&format!(r"\b{prefix}\w*"))
+        .unwrap()
+        .find_iter(&text)
+        .map(|m| m.as_str().to_owned())
+        .collect()
+}
+
+#[test]
+fn every_variable_carries_the_prefix_so_predicates_can_share_a_program() {
+    let keywords = Predicate::Keywords(KeywordTest {
+        values: vec!["mimikatz".into()],
+        case_sensitive: false,
+    });
+    let p = Predicate::Any(vec![
+        Predicate::All(vec![test("A", MatchOp::Equals, &["1"], true), keywords]),
+        test("B", MatchOp::Contains, &["y"], false),
+    ]);
+    let compiled = super::compile(&p, "q7");
+    let expected: std::collections::BTreeSet<String> =
+        ["q70", "q71", "q7_v", "q7_s", "q7_kv", "q7_ks"]
+            .map(str::to_owned)
+            .into();
+    assert_eq!(variables(&compiled, "q7"), expected, "{compiled:?}");
+    assert_eq!(compiled.expression, "q70");
+    assert!(variables(&super::compile(&p, "r"), "q7").is_empty());
+}
+
+#[test]
+fn five_or_more_values_become_one_alternation_and_fewer_stay_comparisons() {
+    let values = ["a", "b", "c", "d", "e"];
+    for op in [
+        MatchOp::Equals,
+        MatchOp::Contains,
+        MatchOp::StartsWith,
+        MatchOp::EndsWith,
+    ] {
+        let few = super::compile(&test("X", op, &values[..4], false), "p");
+        let many = super::compile(&test("X", op, &values, false), "p");
+        assert!(!few.statements.join("\n").contains("match("), "{op:?}");
+        assert!(many.statements.join("\n").contains("match("), "{op:?}");
+    }
+    let keywords = |n: usize| {
+        let p = Predicate::Keywords(KeywordTest {
+            values: values[..n].iter().map(|v| (*v).to_owned()).collect(),
+            case_sensitive: true,
+        });
+        super::compile(&p, "p").statements.join("\n")
+    };
+    assert!(!keywords(4).contains("match("));
+    assert!(keywords(5).contains("match("));
+    // Both forms decide alike.
+    let field = test("X", MatchOp::Contains, &values, false);
+    assert!(matches(&field, json!({"X": "zzEzz"})));
+    assert!(!matches(&field, json!({"X": "zzz"})));
+}
+
+#[test]
+fn joining_nothing_gives_the_operators_neutral_value() {
+    assert_eq!(super::balanced(&[], " || "), "false");
+    assert_eq!(super::balanced(&[], " && "), "true");
+    assert_eq!(super::balanced(&["a".into()], " || "), "a");
+    assert_eq!(
+        super::balanced(&["a".into(), "b".into(), "c".into()], " && "),
+        "(a && (b && c))"
+    );
+}
+
+#[test]
+fn a_predicate_program_shows_the_vrl_it_runs() {
+    let program = PredicateProgram::compile(&test("A", MatchOp::Equals, &["1"], true)).unwrap();
+    let source = program.source();
+    assert!(source.contains(".sluice_match = _p0"), "{source}");
+    assert!(source.contains("_p0 = false"), "{source}");
 }

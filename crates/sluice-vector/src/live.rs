@@ -699,4 +699,79 @@ mod tests {
         );
         assert!(!yaml.contains(RULES_KEY));
     }
+
+    /// The names of every transform in a rendered configuration.
+    fn transform_names(yaml: &str) -> Vec<String> {
+        let config: Value = serde_yaml_ng::from_str(yaml).unwrap();
+        config["transforms"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn components_carry_a_profile_tag_only_with_several_profiles_and_secrets_only_when_given() {
+        let source = Source {
+            id: "fw".into(),
+            logsource: LogSource::default(),
+            schema: Schema::default(),
+            event_type: Vec::new(),
+            format: SourceFormat::Json,
+        };
+        let vector = json!({"type": "http_server", "address": "127.0.0.1:9000"});
+        let mut destinations = Map::new();
+        destinations.insert("siem".into(), json!({"type": "blackhole"}));
+        let program =
+            crate::CompiledProgram::compile("p", "%sluice.route = \"forward\"".to_owned()).unwrap();
+        let reducer = crate::VrlReducer::new([(source.id.clone(), program)].into());
+        let profile = |name| LiveProfile {
+            name,
+            plans: &[],
+            data_plane: &reducer,
+        };
+        let mut secrets = Map::new();
+        secrets.insert(
+            "siem".into(),
+            json!({"type": "directory", "path": "/run/secrets/siem"}),
+        );
+        let settings = |secret_backends| LiveSettings {
+            control_plane: "http://127.0.0.1:8686",
+            tap_rate: 10,
+            archive_dir: "/archive",
+            data_dir: "/data",
+            destinations: &destinations,
+            tap_token: None,
+            secret_backends,
+        };
+        let sources = [LiveSource {
+            source: &source,
+            vector: &vector,
+            shape: None,
+        }];
+        let empty = Map::new();
+
+        let one =
+            live_config(&sources, &[profile("sigma")], &["sigma"], &settings(&empty)).unwrap();
+        let names = transform_names(&one);
+        assert!(names.iter().any(|n| n == "sluice_fw"), "{names:?}");
+        assert!(!names.iter().any(|n| n.contains("sigma")), "{names:?}");
+        let config: Value = serde_yaml_ng::from_str(&one).unwrap();
+        assert!(config.get("secret").is_none(), "no backends, no section");
+
+        let two = live_config(
+            &sources,
+            &[profile("sigma"), profile("wazuh")],
+            &["sigma", "wazuh"],
+            &settings(&secrets),
+        )
+        .unwrap();
+        let names = transform_names(&two);
+        for tag in ["sigma", "wazuh"] {
+            assert!(names.iter().any(|n| n.contains(tag)), "{tag}: {names:?}");
+        }
+        let config: Value = serde_yaml_ng::from_str(&two).unwrap();
+        assert_eq!(config["secret"]["siem"]["type"], "directory");
+    }
 }

@@ -121,6 +121,100 @@ fn sigma_pipeline_specs_need_a_known_schema_and_an_equals_sign() {
 }
 
 #[test]
+fn sigma_pipelines_are_built_in_names_or_files() {
+    let dir = scratch("pipeline");
+    let file = dir.join("snake.yml");
+    fs::write(
+        &file,
+        "name: snake\ntransformations:\n  - type: field_name_mapping\n    mapping:\n      EventID: event_id\n",
+    )
+    .unwrap();
+    let specs = [
+        "ecs=ecs_windows".to_owned(),
+        format!(" cim ={}", file.display()),
+    ];
+    let pipelines = sigma_pipelines(&specs).unwrap();
+    let names: Vec<_> = pipelines
+        .iter()
+        .map(|p| (p.schema(), p.name().to_owned()))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            (sluice_core::schema::Schema::Ecs, "ecs_windows".to_owned()),
+            (sluice_core::schema::Schema::Cim, file.display().to_string()),
+        ]
+    );
+}
+
+#[test]
+fn wazuh_rules_load_with_or_without_decoders() {
+    let dir = scratch("wazuh");
+    fs::create_dir_all(dir.join("rules")).unwrap();
+    fs::create_dir_all(dir.join("decoders")).unwrap();
+    fs::write(
+        dir.join("rules/local.xml"),
+        "<group name=\"t,\"><rule id=\"1\" level=\"3\"><decoded_as>sshd</decoded_as></rule></group>",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("decoders/sshd.xml"),
+        "<decoder name=\"sshd\"><program_name>^sshd</program_name></decoder>",
+    )
+    .unwrap();
+    let bounded = wazuh(Some(&dir.join("rules")), Some(&dir.join("decoders")))
+        .unwrap()
+        .unwrap();
+    assert!(!bounded.requirements()[0].prefilter.is_always());
+    let unbounded = wazuh(Some(&dir.join("rules")), None).unwrap().unwrap();
+    assert!(unbounded.requirements()[0].prefilter.is_always());
+    assert!(wazuh(Some(&dir.join("missing")), None).is_err());
+}
+
+#[test]
+fn sentinel_rules_load_and_keep_their_problems() {
+    let dir = scratch("sentinel");
+    fs::write(
+        dir.join("ok.yaml"),
+        "id: a\nquery: SecurityEvent | where EventID == 1\n",
+    )
+    .unwrap();
+    fs::write(dir.join("broken.yml"), "id: [unclosed\n").unwrap();
+    let rules = sentinel(Some(&dir)).unwrap().unwrap();
+    assert_eq!(rules.problems().len(), 1, "{:?}", rules.problems());
+    // The unreadable file stays a rule that may read anything: fail closed.
+    assert_eq!(rules.requirements().len(), 2);
+    assert!(
+        rules
+            .requirements()
+            .iter()
+            .any(|r| r.fields == sluice_core::rules::RequiredFields::Unknown)
+    );
+}
+
+#[test]
+fn sentinel_table_specs_are_checked_before_the_emulator_is_asked() {
+    let rules = sluice_rules::SentinelRules::parse(std::iter::empty::<(&str, &str)>());
+    // An address nothing listens on: the spec errors must come first.
+    let url = "http://127.0.0.1:9";
+    let error = format!("{:#}", kusto(url, &rules, &["win".to_owned()]).unwrap_err());
+    assert!(error.contains("expected SOURCE=TABLE"), "{error}");
+    let error = format!(
+        "{:#}",
+        kusto(url, &rules, &["win=Nope".to_owned()]).unwrap_err()
+    );
+    assert!(error.contains("cannot load table `Nope`"), "{error}");
+    let error = format!(
+        "{:#}",
+        kusto(url, &rules, &["win = SecurityEvent".to_owned()]).unwrap_err()
+    );
+    assert!(
+        error.contains("connecting to the Kusto emulator"),
+        "{error}"
+    );
+}
+
+#[test]
 fn without_rules_there_is_no_wazuh_or_sentinel_rule_set() {
     assert!(wazuh(None, None).unwrap().is_none());
     assert!(sentinel(None).unwrap().is_none());

@@ -323,6 +323,229 @@ fn connect_prints_a_destination_without_secrets() {
     assert_eq!(yaml["vector_secrets"]["siem"]["type"], "directory");
 }
 
+/// Runs `sluice` expecting it to fail; returns what it wrote to stderr.
+fn sluice_fails(args: &[&str]) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_sluice"))
+        .args(args)
+        .output()
+        .expect("sluice runs");
+    assert!(!output.status.success(), "sluice {args:?} succeeded");
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+fn scratch(name: &str) -> std::path::PathBuf {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("scratch directory");
+    dir
+}
+
+#[test]
+fn connect_sentinel_derives_a_custom_table_and_its_rule_from_a_sample() {
+    let dir = scratch("connect-custom");
+    let sample = dir.join("firewall.ndjson");
+    std::fs::write(
+        &sample,
+        "{\"host\":\"fw1\",\"action\":\"deny\",\"bytes\":10}\n\n{\"host\":\"fw2\",\"action\":\"allow\",\"bytes\":20}\n",
+    )
+    .unwrap();
+    let out_dir = dir.join("azure");
+    let workspace =
+        "/subscriptions/s/resourceGroups/g/providers/Microsoft.OperationalInsights/workspaces/w";
+    let out = sluice(&[
+        "connect",
+        "sentinel",
+        "--sample",
+        sample.to_str().unwrap(),
+        "--table",
+        "Firewall",
+        "--out",
+        out_dir.to_str().unwrap(),
+        "--workspace",
+        workspace,
+    ]);
+    assert!(out.contains("Replace the placeholder endpoint"), "{out}");
+    assert!(out.contains("Create the table Firewall_CL"), "{out}");
+    let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).expect("valid YAML");
+    let stream = yaml["destinations"]["sentinel"]["stream_name"]
+        .as_str()
+        .expect("a stream");
+    assert_eq!(stream, "Custom-Firewall", "the rule's input stream");
+    let table = read(&out_dir.join("Firewall_CL.table.json"));
+    assert!(
+        table.contains("\"action\"") && table.contains("\"bytes\""),
+        "{table}"
+    );
+    assert!(read(&out_dir.join("Firewall.dcr.json")).contains(workspace));
+}
+
+#[test]
+fn connect_sentinel_writes_the_rule_of_each_standard_table() {
+    let dir = scratch("connect-standard");
+    for (table, file, shape) in [
+        ("syslog", "Syslog.dcr.json", "sentinel_syslog"),
+        (
+            "common-security-log",
+            "CommonSecurityLog.dcr.json",
+            "sentinel_common_security_log",
+        ),
+        (
+            "asim-network-session",
+            "ASimNetworkSessionLogs.dcr.json",
+            "sentinel_asim_network_session",
+        ),
+        (
+            "asim-dns",
+            "ASimDnsActivityLogs.dcr.json",
+            "sentinel_asim_dns",
+        ),
+        (
+            "asim-web-session",
+            "ASimWebSessionLogs.dcr.json",
+            "sentinel_asim_web_session",
+        ),
+    ] {
+        let out = sluice(&[
+            "connect",
+            "sentinel",
+            "--standard-table",
+            table,
+            "--out",
+            dir.to_str().unwrap(),
+            "--endpoint",
+            "https://dce.example",
+        ]);
+        assert!(out.contains(&format!("shape: {shape}")), "{out}");
+        assert!(!out.contains("Replace the placeholder"), "{out}");
+        let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).expect("valid YAML");
+        assert!(
+            yaml["destinations"]["sentinel"]["stream_name"].is_string(),
+            "{table}"
+        );
+        let dcr: serde_json::Value =
+            serde_json::from_str(&read(&dir.join(file))).expect("a JSON rule");
+        assert!(dcr.is_object(), "{table}");
+    }
+}
+
+#[test]
+fn connect_refuses_sentinel_options_elsewhere_and_samples_that_are_not_json() {
+    let dir = scratch("connect-refused");
+    let out = dir.to_str().unwrap();
+    let error = sluice_fails(&[
+        "connect",
+        "elastic",
+        "--standard-table",
+        "syslog",
+        "--out",
+        out,
+    ]);
+    assert!(error.contains("only applies to `sentinel`"), "{error}");
+
+    let sample = dir.join("bad.ndjson");
+    std::fs::write(&sample, "{\"a\":1}\nnot json\n").unwrap();
+    let sample = sample.to_str().unwrap();
+    let error = sluice_fails(&[
+        "connect", "splunk", "--sample", sample, "--table", "T", "--out", out,
+    ]);
+    assert!(error.contains("only applies to `sentinel`"), "{error}");
+    let error = sluice_fails(&[
+        "connect", "sentinel", "--sample", sample, "--table", "T", "--out", out,
+    ]);
+    assert!(error.contains("line 2: not a JSON object"), "{error}");
+}
+
+#[test]
+fn agent_windows_prints_a_vector_config_and_writes_the_rule_on_request() {
+    let dir = scratch("agent");
+    let dcr = dir.join("windows.dcr.json");
+    let workspace =
+        "/subscriptions/s/resourceGroups/g/providers/Microsoft.OperationalInsights/workspaces/w";
+    let out = sluice(&[
+        "agent",
+        "windows",
+        "--to",
+        "http://sluice:8601",
+        "--events-to",
+        "http://sluice:8602",
+        "--channel",
+        "Security",
+        "--channel",
+        "System",
+        "--dcr",
+        dcr.to_str().unwrap(),
+        "--workspace",
+        workspace,
+    ]);
+    let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).expect("valid YAML");
+    let text = serde_json::to_string(&yaml).unwrap();
+    for wanted in [
+        "windows_event_log",
+        "http://sluice:8601",
+        "http://sluice:8602",
+        "System",
+    ] {
+        assert!(text.contains(wanted), "{wanted}: {out}");
+    }
+    assert!(read(&dcr).contains(workspace));
+
+    let error = sluice_fails(&["agent", "windows", "--to", "http://x", "--dcr", "d.json"]);
+    assert!(error.contains("--workspace"), "{error}");
+}
+
+/// Runs `sluice` without the credentials of the user running the tests; returns stderr.
+fn sluice_fails_without_credentials(args: &[&str]) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_sluice"))
+        .args(args)
+        .env_remove("WAZUH_API_PASSWORD")
+        .env_remove("AZURE_TENANT_ID")
+        .env("AZURE_CLIENT_ID", "")
+        .output()
+        .expect("sluice runs");
+    assert!(!output.status.success(), "sluice {args:?} succeeded");
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+#[test]
+fn rules_fetch_needs_a_directory_and_credentials_before_it_asks_anything() {
+    let error = sluice_fails_without_credentials(&[
+        "rules",
+        "fetch",
+        "wazuh",
+        "--api",
+        "https://127.0.0.1:9",
+        "--user",
+        "u",
+    ]);
+    assert!(error.contains("--out DIR is required"), "{error}");
+    let out = scratch("fetch-credentials");
+    let out = out.join("rules");
+    let out = out.to_str().unwrap();
+    let error = sluice_fails_without_credentials(&[
+        "rules",
+        "fetch",
+        "wazuh",
+        "--api",
+        "https://127.0.0.1:9",
+        "--user",
+        "u",
+        "--out",
+        out,
+    ]);
+    assert!(error.contains("WAZUH_API_PASSWORD is not set"), "{error}");
+    let error = sluice_fails_without_credentials(&[
+        "rules",
+        "fetch",
+        "sentinel",
+        "--workspace",
+        "/subscriptions/s/resourceGroups/g/providers/Microsoft.OperationalInsights/workspaces/w",
+        "--out",
+        out,
+    ]);
+    assert!(error.contains("AZURE_TENANT_ID is not set"), "{error}");
+    assert!(!Path::new(out).exists(), "nothing written");
+}
+
 #[test]
 fn up_check_validates_without_starting() {
     let config = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/up/sluice-up.yaml");
