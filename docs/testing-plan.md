@@ -148,7 +148,8 @@ Each was fixed with a regression test named after what it broke.
 | 24 | `sluice-rules` `wazuh/xml.rs` | quick_xml's `trim_text` trimmed each piece of text between entities, so the spaces next to `&quot;`, `&lt;` or a bare `&` were lost | `<match>user &quot;root&quot; in</match>` was read as `user"root"in`; a literal bound on that text kept out events the rule fires on: fail-open | `entities_are_read_and_bare_ampersands_and_angles_are_text` |
 | 25 | `sluice-rules` `sentinel/lexer.rs` | An unterminated multi-line string (```` ``` ````) kept only its first character | A malformed query's string value was cut short (the query cannot run, so no rule depended on it) | `multi_line_strings_end_at_the_next_fence_or_the_query` |
 | 26 | `sluice-server` `running.rs` | In proposal mode, a deployed configuration Sluice could not read (missing, other permissions, not UTF-8) made the cycle fail instead of switching to the safe configuration, as the module promised | Vector could run a configuration no proof covered, cycle after cycle, with only an error in the log: fail-open | `c5_a_configuration_sluice_cannot_read_is_switched_off` |
-| 27 | `sluice-ai` `prompt.rs` | A template's pattern and field names, which come from log text, were put outside the fence that marks samples as untrusted, and the pattern was not redacted | A crafted log line could address the model as an instruction, and an address in a pattern reached a cloud model (the guardrails and the proof still decide what is saved) | `c2_everything_from_the_logs_is_inside_one_fence` |
+| 27 | `sluice-ai` `prompt.rs` | A template's pattern and field names, which come from log text, were put outside the fence that marks samples as untrusted, and the pattern was not redacted | A crafted log line could address the model as an instruction, and an address in a pattern reached a cloud model (the guardrails and the proof still decide what is saved) | `c6_everything_from_the_logs_is_inside_one_fence` |
+| 28 | `sluice-vector` `connect.rs`, `live.rs` | Sentinel destinations had no batch limit. Azure's Logs Ingestion API refuses requests over 1 MB, and Vector drops a refused batch rather than splitting it (found sending real events to the test workspace with `scripts/real-data/send-sentinel.sh`) | A burst of events never reached Sentinel: 5,090 of 18,000 Windows events in one batch were dropped, unnoticed by the proof | `c3_azure_batches_stay_below_what_azure_accepts` (`sluice up` sets 900 KB when a destination has no limit and refuses one above 1 MB) |
 
 Mutation testing (`cargo-mutants` 27.1.0, MIT) on `sluice-core`, 2026-10-14: 246 mutants, 214
 caught, 30 unviable, 0 timeouts, 2 missed. Both are closed:
@@ -235,9 +236,10 @@ was fetched with `sluice rules fetch sentinel` (which resolves it).
 
 `scripts/real-data/` collects real events and runs `sluice analyze` on them; the data stays
 outside the repository (`~/.cache/sluice-realdata`). Collect with `collect-windows.ps1` (System,
-Application and PowerShell Operational of a Windows host), `collect-linux.sh` (auth.log and
-syslog over SSH) and `collect-sentinel.sh` (`SecurityEvent` and `WindowsEvent` from a Log
-Analytics workspace), then run `run.sh`. Rules: SigmaHQ `8a48134` (3,152 rules), the stock Wazuh
+Application and PowerShell Operational of a Windows host; `-Format agent -Security` in an
+elevated shell for the Security channel), `collect-linux.sh` (auth.log and syslog over SSH) and
+`collect-sentinel.sh` (`SecurityEvent` and `WindowsEvent` from a Log Analytics workspace, which
+`send-sentinel.sh` fills through `sluice up`), then run `run.sh`. Rules: SigmaHQ `8a48134` (3,152 rules), the stock Wazuh
 ruleset (4,652 rules, `sluice rules fetch wazuh`) and Azure-Sentinel `55296e6` ("Windows
 Security Events", 21 rules, 18 of them run in the Kusto emulator). All with `--rules-complete`,
 as the earlier runs predate ADR 0021.
@@ -248,16 +250,23 @@ as the earlier runs predate ADR 0021.
 | Windows, SigmaHQ + Wazuh | same | 0.0 % | 236 = 236 | 0 %, 206 = 206 |
 | Linux, SigmaHQ | 166,665 lines, 33.6 MB | 25.7 % (66,258 summarized) | 0 = 0 | 28.6 % |
 | Linux, SigmaHQ + Wazuh | same | 0.0 % | 0 = 0 | 0 % |
-| Sentinel records, solution + SigmaHQ | 590 records, 1.0 MB | 0.0 % | 3 = 3 | 11 % |
+| Sentinel records, solution | 40,590 records, 46.2 MB | 3.0 %; 4672 −39 %, 4798 −38 % | 0 = 0 | 11 %; 4672 −43 % |
+| Sentinel records, solution + SigmaHQ | same | 0.0 % | 1,706 = 1,706 | (before ADR 0018) |
 
-The first four reproduce. Two findings:
+All reproduce. Findings:
 - Linux needs `complete: true` on its sources, as the earlier run had: without it, rules for any
   Linux category apply and nothing is summarized (`run.sh` now declares it).
-- The Sentinel sample saves nothing because no template reaches 100 events in a source of 323
-  (contract rule 4: rare templates are never cut). The recipes still match (4672
-  `special-privileges-eventdata`). Repeating the 11 % needs a sample whose 4672 and 4798
-  templates pass that floor, which the test workspace will hold once the Windows agent has sent
-  more.
+- The Sentinel records were sent to the test workspace for this run (`send-sentinel.sh`: the
+  Security channel of the author's machine, 20,000 events, and 20,000 of its other channels,
+  through `sluice up` to `SecurityEvent` and `WindowsEvent`: 47 MB sent, 28.7 MB billed) and read
+  back. Sending them
+  found bug 28. Per template the savings are those of the earlier run; the total differs because
+  this sample is 80 % 5379 and 4907, for which no recipe drops `EventData`, where the earlier
+  sample of 154 events was half 4672 and 4798. With 323 records (before sending) no template
+  reached the rarity floor of 100 and nothing was saved.
+- With SigmaHQ loaded, nothing is saved on Sentinel records: they use Sentinel's field names, so
+  without a `--sigma-pipeline` Sigma rules protect everything they could read (ADR 0018). The
+  earlier run predates that.
 
 ## Done when
 

@@ -77,10 +77,19 @@ sources:
     format: { kind: json }
     schema: sentinel
 EOF
-    echo "=== Sentinel records, Windows Security Events solution in the emulator + SigmaHQ"
-    /usr/bin/time -f "(%e s, %M KB)" "$sluice" analyze --input "$data/sentinel" \
-        --sources "$data/sentinel/sources.yaml" --rules "$sigma" --sentinel-rules "$sentinel" \
-        --kusto "$kusto" --sentinel-table SecurityEvent=SecurityEvent \
-        --sentinel-table WindowsEvent=WindowsEvent --rules-complete \
-        --out "$data/out/sentinel" 2>&1 | grep -v -e '^hint:' -e '^warning:'
+    # Sentinel's field names are not Sigma's: without a pipeline, SigmaHQ protects everything it
+    # could read there (ADR 0018), so the solution alone shows what Microsoft's rules allow.
+    for with_sigma in no yes; do
+        args=(--input "$data/sentinel" --sources "$data/sentinel/sources.yaml"
+            --sentinel-rules "$sentinel" --kusto "$kusto"
+            --sentinel-table SecurityEvent=SecurityEvent --sentinel-table WindowsEvent=WindowsEvent
+            --rules-complete --out "$data/out/sentinel-$with_sigma-sigma")
+        if [ "$with_sigma" = yes ]; then
+            args+=(--rules "$sigma")
+        fi
+        echo "=== Sentinel records, Windows Security Events solution in the emulator$(
+            [ "$with_sigma" = yes ] && echo ' + SigmaHQ')"
+        /usr/bin/time -f "(%e s, %M KB)" "$sluice" analyze "${args[@]}" 2>&1 \
+            | grep -v -e '^hint:' -e '^warning:'
+    done
 fi

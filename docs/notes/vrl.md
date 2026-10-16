@@ -110,7 +110,11 @@ full default configuration, which is the quickest way to see its real field name
 - `elasticsearch`: `endpoints` (a list), `mode: bulk`, `bulk.index`, `auth.strategy: basic`.
 - `azure_logs_ingestion` (Sentinel): `endpoint`, `dcr_immutable_id`, `stream_name`, and the
   credentials nested under `auth` with `azure_credential_kind: client_secret_credential` (the
-  default kind is `managed_identity`). Top-level `azure_client_id` is rejected.
+  default kind is `managed_identity`). Top-level `azure_client_id` is rejected. **Set
+  `batch.max_bytes` below 1 MB**: Azure's Logs Ingestion API refuses larger requests, and the
+  sink drops a refused batch ("Not retriable; dropping the request") instead of splitting it.
+  With Vector's default, a burst of 18,000 Windows events lost a batch of 5,090; at 900,000
+  all arrived (Vector 0.59.0, 2026-10-16).
 - `gcp_chronicle_unstructured`: `endpoint`, `customer_id`, `credentials_path`, `log_type`,
   `encoding`.
 - **`${VAR}` is not interpolated** in Vector 0.59 unless it runs with

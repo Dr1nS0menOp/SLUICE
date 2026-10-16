@@ -35,6 +35,11 @@ fn every_target_renders_a_sink_without_secrets() {
         }
     }
     assert_eq!(sinks["wazuh_lines"]["encoding"]["codec"], "text");
+    assert_eq!(
+        sinks["sentinel"]["batch"]["max_bytes"],
+        sluice_vector::AZURE_MAX_BATCH_BYTES,
+        "Azure refuses requests over 1 MB"
+    );
 
     let config = json!({
         "data_dir": dir,

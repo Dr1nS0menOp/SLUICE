@@ -1,13 +1,21 @@
 //! Destination sinks for common SIEMs (`sluice connect`).
 //!
 //! Each target is a Vector sink, written for the `destinations:` map of the `sluice up`
-//! configuration. Secrets are never written: they are `${VAR}` references that Vector reads from
-//! its environment. Every sink here is checked with `vector validate` against the Vector release
-//! in `docs/compatibility.md` (`scripts/vector-check.sh`).
+//! configuration. Secrets are never written: they are `SECRET[…]` references that Vector reads
+//! from a secret backend (ADR 0010). Every sink here is checked with `vector validate` against the
+//! Vector release in `docs/compatibility.md` (`scripts/vector-check.sh`).
 
 use serde_json::{Map, Value, json};
 
 use crate::live::FORMATS_KEY;
+
+/// Largest batch an `azure_logs_ingestion` sink may send. Azure's Logs Ingestion API refuses a
+/// request over 1 MB, and Vector drops a refused batch instead of splitting it: a burst of 18,000
+/// Windows events lost 5,090 in one batch (Vector 0.59, 2026-10-16). With this limit all arrived.
+pub const AZURE_MAX_BATCH_BYTES: u64 = 900_000;
+
+/// The size Azure's Logs Ingestion API accepts per request.
+pub(crate) const AZURE_MAX_REQUEST_BYTES: u64 = 1_000_000;
 
 /// A SIEM or log platform Sluice can forward to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -142,6 +150,7 @@ impl Target {
                 "endpoint": endpoint,
                 "dcr_immutable_id": "dcr-00000000000000000000000000000000",
                 "stream_name": "Custom-Sluice_CL",
+                "batch": { "max_bytes": AZURE_MAX_BATCH_BYTES },
                 "auth": {
                     "azure_credential_kind": "client_secret_credential",
                     "azure_tenant_id": "00000000-0000-0000-0000-000000000000",

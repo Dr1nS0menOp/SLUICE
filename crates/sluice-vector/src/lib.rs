@@ -29,7 +29,7 @@ use std::collections::BTreeMap;
 use sluice_core::ids::SourceId;
 
 pub use crate::config::{Paths, vector_config};
-pub use crate::connect::{SECRET_BACKEND, Target};
+pub use crate::connect::{AZURE_MAX_BATCH_BYTES, SECRET_BACKEND, Target};
 pub use crate::custom_table::{Column, ColumnKind, CustomTable};
 pub use crate::deployed::{Deployed, deployed};
 pub use crate::error::VectorError;

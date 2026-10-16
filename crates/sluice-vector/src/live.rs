@@ -24,6 +24,7 @@ use sluice_core::ids::SourceId;
 use sluice_core::source::{Source, SourceFormat};
 
 use crate::config::{Components, Pipeline};
+use crate::connect::{AZURE_MAX_BATCH_BYTES, AZURE_MAX_REQUEST_BYTES};
 use crate::error::VectorError;
 use crate::program::{FORWARD, Plan};
 use crate::runtime::VrlReducer;
@@ -368,7 +369,33 @@ fn destination(
     let only = destination_sources(name, only.as_ref(), sources)?;
     let feeds = outputs.get(profile.as_str()).unwrap_or(unreduced);
     sink["inputs"] = json!(feeds.select(name, formats.as_ref(), only.as_ref(), sources)?);
+    azure_batch_limit(name, &mut sink)?;
     Ok(sink)
+}
+
+/// Keeps an `azure_logs_ingestion` sink's batches below what Azure accepts: one without a limit
+/// gets [`AZURE_MAX_BATCH_BYTES`], one above 1 MB is refused. Vector's default is larger, and a
+/// refused batch is dropped, so a burst would never reach the SIEM.
+fn azure_batch_limit(name: &str, sink: &mut Value) -> Result<(), VectorError> {
+    if sink["type"] != "azure_logs_ingestion" {
+        return Ok(());
+    }
+    if !(sink["batch"].is_null() || sink["batch"].is_object()) {
+        return Err(VectorError::Config(format!(
+            "destination {name}: batch must be a map"
+        )));
+    }
+    match &sink["batch"]["max_bytes"] {
+        Value::Null => {
+            sink["batch"]["max_bytes"] = json!(AZURE_MAX_BATCH_BYTES);
+            Ok(())
+        }
+        limit if limit.as_u64().is_some_and(|n| n <= AZURE_MAX_REQUEST_BYTES) => Ok(()),
+        limit => Err(VectorError::Config(format!(
+            "destination {name}: batch.max_bytes {limit} is above the {AZURE_MAX_REQUEST_BYTES} \
+             bytes Azure's Logs Ingestion API accepts; Vector would drop every larger batch"
+        ))),
+    }
 }
 
 /// The sources a destination's `sluice_sources` names; `None` without the key.
@@ -698,6 +725,64 @@ mod tests {
             json!(["sluice_fw_input"])
         );
         assert!(!yaml.contains(RULES_KEY));
+    }
+
+    #[test]
+    fn c3_azure_batches_stay_below_what_azure_accepts() {
+        let source = Source {
+            id: "fw".into(),
+            logsource: LogSource::default(),
+            schema: Schema::default(),
+            event_type: Vec::new(),
+            format: SourceFormat::Json,
+        };
+        let vector = json!({"type": "http_server", "address": "127.0.0.1:9000"});
+        let sources = [LiveSource {
+            source: &source,
+            vector: &vector,
+            shape: None,
+        }];
+        let render = |batch: Option<Value>| {
+            let mut sink = json!({"type": "azure_logs_ingestion", "endpoint": "https://dce"});
+            if let Some(batch) = batch {
+                sink["batch"] = batch;
+            }
+            let mut destinations = Map::new();
+            destinations.insert("sentinel".into(), sink);
+            let settings = LiveSettings {
+                control_plane: "http://127.0.0.1:8686",
+                tap_rate: 10,
+                archive_dir: "/archive",
+                data_dir: "/data",
+                destinations: &destinations,
+                tap_token: None,
+                secret_backends: &Map::new(),
+            };
+            live_config(&sources, &[], &["sigma"], &settings).map(|yaml| {
+                let config: Value = serde_yaml_ng::from_str(&yaml).unwrap();
+                config["sinks"]["sentinel"]["batch"].clone()
+            })
+        };
+        assert_eq!(
+            render(None).unwrap(),
+            json!({"max_bytes": AZURE_MAX_BATCH_BYTES}),
+            "Vector's default is larger than Azure accepts"
+        );
+        assert_eq!(
+            render(Some(json!({"timeout_secs": 5}))).unwrap(),
+            json!({"timeout_secs": 5, "max_bytes": AZURE_MAX_BATCH_BYTES})
+        );
+        assert_eq!(
+            render(Some(json!({"max_bytes": 500_000}))).unwrap(),
+            json!({"max_bytes": 500_000})
+        );
+        for refused in [
+            json!({"max_bytes": 2_000_000}),
+            json!({"max_bytes": "1MB"}),
+            json!("big"),
+        ] {
+            assert!(render(Some(refused.clone())).is_err(), "{refused}");
+        }
     }
 
     /// The names of every transform in a rendered configuration.
