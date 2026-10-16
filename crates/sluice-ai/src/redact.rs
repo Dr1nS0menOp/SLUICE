@@ -43,6 +43,11 @@ impl Redactor {
         self.object("", fields)
     }
 
+    /// Free text from the logs outside any field, such as a template's pattern.
+    pub(crate) fn text(&mut self, text: &str) -> String {
+        self.scan(text)
+    }
+
     fn object(&mut self, prefix: &str, fields: &Map<String, Value>) -> Map<String, Value> {
         fields
             .iter()

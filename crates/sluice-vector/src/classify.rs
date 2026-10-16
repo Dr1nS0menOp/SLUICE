@@ -162,6 +162,13 @@ mod tests {
     }
 
     #[test]
+    fn placeholders_are_replaced_in_the_order_they_occur() {
+        let hex = r"(?:0[xX][0-9a-fA-F]+|[0-9a-fA-F]{8,})";
+        assert_eq!(token_regex("<HEX>-<NUM>"), format!(r"{hex}\-\d+"));
+        assert_eq!(token_regex("<NUM>-<HEX>"), format!(r"\d+\-{hex}"));
+    }
+
+    #[test]
     fn syslog_lines_match_by_program_and_content() {
         let tokens = [
             "sshd",

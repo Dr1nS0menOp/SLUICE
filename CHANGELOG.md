@@ -179,6 +179,9 @@ explains the terms.
   - Rule files with upper-case extensions are no longer skipped.
   - Single sign-on refuses an `email` the provider marks as not verified.
   - Wazuh rule text keeps the spaces next to an entity or a bare `&` (`user &quot;root&quot;`).
+  - In proposal mode, a deployed configuration Sluice cannot read switches to the safe one.
+  - A template's pattern and field names are redacted and fenced as untrusted in the AI prompt,
+    like the samples (cached answers from the old prompt are not reused).
 - `oidc.enabled` (default `true`) switches single sign-on off without removing its settings.
 
 ### Interfaces and packaging
@@ -188,6 +191,9 @@ explains the terms.
 - `sluice recipes schema|export` and a JSON Schema for recipes; `sluice rules requirements`.
 - Static musl binaries, a Docker image on Vector's distroless image, a compose example (ADR 0007),
   and a Helm chart.
+- `scripts/real-data/`: collects real Windows, Linux and Sentinel events (kept outside the
+  repository) and runs `sluice analyze` on them with SigmaHQ, the stock Wazuh ruleset and
+  Microsoft's rules in the Kusto emulator.
 - `sluice up --check`: validates a configuration and prints the Vector configuration it starts
   with, without starting anything.
 - AGPL-3.0-only (ADR 0008).

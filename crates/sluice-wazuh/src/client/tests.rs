@@ -275,3 +275,86 @@ fn a_non_zero_error_field_or_a_missing_one_fails() {
     assert!(ok_json(200, "not json").is_err());
     assert!(ok_json(200, r#"{"error": 0}"#).is_ok());
 }
+
+/// A server that answers one request with `status` and `body`, and hands back what it got:
+/// the request line, the headers (lower-case names) and the body.
+fn one_request(status: u16, body: &'static str) -> (String, std::thread::JoinHandle<String>) {
+    use std::io::{BufRead, BufReader, Read, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let url = format!("http://{}", listener.local_addr().expect("bound"));
+    let handle = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("a connection");
+        let mut reader = BufReader::new(stream);
+        let mut seen = String::new();
+        let mut length = 0;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).expect("a header line");
+            if line.trim_end().is_empty() {
+                break;
+            }
+            let lower = line.to_ascii_lowercase();
+            if let Some(value) = lower.strip_prefix("content-length:") {
+                length = value.trim().parse().expect("a length");
+            }
+            seen.push_str(&lower);
+        }
+        let mut sent = vec![0; length];
+        reader.read_exact(&mut sent).expect("the body");
+        seen.push_str(&String::from_utf8(sent).expect("UTF-8"));
+        let answer = format!(
+            "HTTP/1.1 {status} X\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        reader
+            .get_mut()
+            .write_all(answer.as_bytes())
+            .expect("answer");
+        seen
+    });
+    (url, handle)
+}
+
+#[test]
+fn the_http_transport_sends_method_headers_and_body_and_returns_any_status() {
+    let (url, server) = one_request(401, "{\"title\": \"Unauthorized\"}");
+    let answer = Http::new(false).send(
+        "PUT",
+        &format!("{url}/logtest"),
+        &[("authorization", "Bearer t".to_owned())],
+        Some("{\"event\": 1}"),
+    );
+    assert_eq!(
+        answer,
+        Ok((401, "{\"title\": \"Unauthorized\"}".to_owned())),
+        "an error status is an answer, not a transport failure"
+    );
+    let seen = server.join().unwrap();
+    assert!(seen.starts_with("put /logtest http/1.1"), "{seen}");
+    assert!(seen.contains("authorization: bearer t"), "{seen}");
+    assert!(seen.contains("content-type: application/json"), "{seen}");
+    assert!(seen.ends_with("{\"event\": 1}"), "{seen}");
+}
+
+#[test]
+fn the_http_transport_names_the_request_it_could_not_send() {
+    let closed = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        format!(
+            "http://{}/security/user/authenticate",
+            listener.local_addr().unwrap()
+        )
+    };
+    let Err(WazuhError::Http(message)) = Http::new(true).send("POST", &closed, &[], None) else {
+        panic!("a refused connection is an error");
+    };
+    assert!(
+        message.starts_with(&format!("POST {closed}: ")),
+        "{message}"
+    );
+    assert!(matches!(
+        Http::new(false).send("NOT A METHOD", &closed, &[], None),
+        Err(WazuhError::Http(_))
+    ));
+}

@@ -50,35 +50,52 @@ impl Shared {
     /// reload: because the operator deployed a new, proven configuration, or because Sluice
     /// switched to the safe one.
     pub(crate) fn guard_running(&self, events: &[Event], now: i64) -> Result<bool, ServerError> {
-        let deployed = fs::read_to_string(&self.config.vector_config).map_err(|e| {
-            ServerError::Io(format!("{}: {e}", self.config.vector_config.display()))
-        })?;
         let safe = self.initial_config()?;
         let mut running = lock(&self.running);
+        // Vector may read what Sluice cannot (other permissions, bytes that are not UTF-8):
+        // unread is unproven.
+        let deployed = match fs::read_to_string(&self.config.vector_config) {
+            Ok(deployed) => deployed,
+            Err(e) => {
+                let reason = format!(
+                    "Sluice cannot read it ({}: {e})",
+                    self.config.vector_config.display()
+                );
+                return self.switch_off(&mut running, safe, now, &reason);
+            }
+        };
         if deployed == safe {
             let changed = *running != deployed;
             *running = deployed;
             self.set_running_status("safe configuration: nothing is saved");
             return Ok(changed);
         }
-        let failure = self.prove_every_profile(&deployed, events).err();
-        match failure {
-            None => {
+        match self.prove_every_profile(&deployed, events) {
+            Ok(()) => {
                 let changed = *running != deployed;
                 write_atomic(&self.proven_copy(), &deployed)?;
                 *running = deployed;
                 self.set_running_status("deployed configuration, proven on the last window");
                 Ok(changed)
             }
-            Some(reason) => {
-                tracing::warn!(%reason, "the deployed configuration failed its proof; switching to the safe configuration");
-                write_atomic(&self.config.vector_config, &safe)?;
-                let _ = fs::remove_file(self.proven_copy());
-                *running = safe;
-                self.record_switch_off(now, &reason);
-                Ok(true)
-            }
+            Err(reason) => self.switch_off(&mut running, safe, now, &reason),
         }
+    }
+
+    /// Replaces the deployed configuration with the safe one; Vector must reload.
+    fn switch_off(
+        &self,
+        running: &mut String,
+        safe: String,
+        now: i64,
+        reason: &str,
+    ) -> Result<bool, ServerError> {
+        tracing::warn!(%reason, "the deployed configuration failed its proof; switching to the safe configuration");
+        write_atomic(&self.config.vector_config, &safe)?;
+        let _ = fs::remove_file(self.proven_copy());
+        *running = safe;
+        self.record_switch_off(now, reason);
+        Ok(true)
     }
 
     /// Proves every profile's programs in `deployed`, and that they are all its programs: a
@@ -171,3 +188,6 @@ impl Shared {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

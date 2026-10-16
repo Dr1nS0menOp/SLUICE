@@ -227,6 +227,120 @@ fn single_sign_on_is_on_unless_switched_off() {
     assert!(off.oidc.is_none());
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn the_sign_in_routes_open_a_session_the_api_accepts_and_close_it() {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode, header};
+    use tower::ServiceExt;
+
+    let idp = start().await;
+    let config = OidcConfig {
+        enabled: true,
+        issuer: idp.issuer.clone(),
+        client_id: "sluice".into(),
+        client_secret_file: None,
+        redirect_url: "https://sluice.example/auth/callback".into(),
+        name_claim: "email".into(),
+        operators: vec!["alice@example.org".into()],
+        session_secs: 3_600,
+    };
+    let shared = tokio::task::spawn_blocking(move || shared_with_oidc("oidc-flow", config))
+        .await
+        .unwrap()
+        .expect("starts");
+    let shared = Arc::new(shared);
+    let call = |request: Request<Body>| {
+        let app = crate::routes::router(Arc::clone(&shared));
+        async move { app.oneshot(request).await.unwrap() }
+    };
+    let get = |uri: &str, cookie: Option<&str>| {
+        let mut request = Request::get(uri);
+        if let Some(cookie) = cookie {
+            request = request.header(header::COOKIE, cookie);
+        }
+        request.body(Body::empty()).unwrap()
+    };
+
+    let login = call(get("/auth/login", None)).await;
+    assert!(login.status().is_redirection(), "{}", login.status());
+    let location = login.headers()[header::LOCATION]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert!(location.starts_with(&format!("{}/authorize", idp.issuer)));
+    *idp.nonce.lock().unwrap() = param(&location, "nonce");
+    let state = param(&location, "state");
+
+    for (uri, refused) in [
+        ("/auth/callback?error=access_denied", StatusCode::FORBIDDEN),
+        ("/auth/callback?code=c", StatusCode::BAD_REQUEST),
+        ("/auth/callback?state=s", StatusCode::BAD_REQUEST),
+        ("/auth/callback?code=c&state=forged", StatusCode::FORBIDDEN),
+    ] {
+        assert_eq!(call(get(uri, None)).await.status(), refused, "{uri}");
+    }
+
+    let done = call(get(&format!("/auth/callback?code=c&state={state}"), None)).await;
+    assert!(done.status().is_redirection(), "{}", done.status());
+    assert_eq!(done.headers()[header::LOCATION], "/");
+    let set_cookie = done.headers()[header::SET_COOKIE].to_str().unwrap();
+    let session = set_cookie.split(';').next().unwrap().to_owned();
+
+    let with_others = format!("theme=dark; {session}");
+    assert_eq!(
+        call(get("/status", Some(&with_others))).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(get("/status", Some("sluice_session=guessed")))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    let logout = Request::post("/auth/logout")
+        .header(header::COOKIE, &session)
+        .body(Body::empty())
+        .unwrap();
+    let out = call(logout).await;
+    assert_eq!(out.status(), StatusCode::NO_CONTENT);
+    assert!(out.headers().contains_key(header::SET_COOKIE), "cleared");
+    assert_eq!(
+        call(get("/status", Some(&session))).await.status(),
+        StatusCode::UNAUTHORIZED,
+        "signed out"
+    );
+}
+
+#[test]
+fn the_session_cookie_is_found_among_others_and_is_never_empty() {
+    use axum::http::{HeaderMap, header};
+
+    use super::COOKIE;
+    use super::routes::session_id;
+
+    let headers = |values: &[String]| {
+        let mut headers = HeaderMap::new();
+        for value in values {
+            headers.append(header::COOKIE, value.parse().unwrap());
+        }
+        headers
+    };
+    let found = |values: &[String]| session_id(&headers(values));
+    assert_eq!(
+        found(&[format!("a=1; {COOKIE}=s1; b=2")]).as_deref(),
+        Some("s1")
+    );
+    assert_eq!(
+        found(&["a=1".into(), format!("{COOKIE}=s2")]).as_deref(),
+        Some("s2"),
+        "in a second Cookie header"
+    );
+    assert_eq!(found(&[format!("{COOKIE}=")]), None);
+    assert_eq!(found(&[format!("x{COOKIE}=s3")]), None);
+    assert_eq!(found(&[]), None);
+}
+
 #[tokio::test]
 async fn switched_off_the_sign_in_routes_say_so() {
     use tower::ServiceExt;
@@ -249,8 +363,20 @@ async fn switched_off_the_sign_in_routes_say_so() {
         serde_json::from_slice::<Value>(&body).unwrap(),
         json!({"oidc": false})
     );
-    assert_eq!(
-        get("/auth/login").await.status(),
-        axum::http::StatusCode::NOT_FOUND
-    );
+    for uri in ["/auth/login", "/auth/callback?code=c&state=s"] {
+        assert_eq!(
+            get(uri).await.status(),
+            axum::http::StatusCode::NOT_FOUND,
+            "{uri}"
+        );
+    }
+    let logout = crate::routes::router(Arc::clone(&shared))
+        .oneshot(
+            axum::http::Request::post("/auth/logout")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(logout.status(), axum::http::StatusCode::NOT_FOUND);
 }

@@ -49,3 +49,39 @@ fn default_cache() -> Option<PathBuf> {
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))?;
     Some(base.join("sluice").join("ai"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parsed(llm: &str) -> Result<bool> {
+        advisor(&AiArgs {
+            llm: llm.to_owned(),
+            llm_cache: Some(PathBuf::from("/nonexistent/cache")),
+        })
+        .map(|advisor| advisor.is_some())
+    }
+
+    #[test]
+    fn local_and_compatible_models_need_no_key() {
+        assert!(!parsed("none").unwrap());
+        for llm in [
+            "ollama:qwen3",
+            "lmstudio:qwen3",
+            "openai:http://localhost:8000/v1#qwen3",
+            "openai:http://host/v1#a#b",
+        ] {
+            assert!(parsed(llm).unwrap(), "{llm}");
+        }
+    }
+
+    #[test]
+    fn unknown_or_incomplete_models_are_refused_with_the_choices() {
+        let error = parsed("openai:http://localhost:8000/v1").unwrap_err();
+        assert!(error.to_string().contains("BASE_URL#MODEL"), "{error}");
+        for llm in ["gpt", "ollama", "claude:opus", ""] {
+            let error = parsed(llm).unwrap_err().to_string();
+            assert!(error.contains("use none, anthropic"), "{llm}: {error}");
+        }
+    }
+}

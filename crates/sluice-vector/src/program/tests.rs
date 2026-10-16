@@ -167,6 +167,31 @@ fn empty_fields_go_except_those_rules_need() {
 }
 
 #[test]
+fn c3_a_field_a_rule_needs_keeps_what_lies_under_and_over_it() {
+    let template = keyset("nested", "1", &["EventID", "Host.Name", "Data", "Other"]);
+    let recipe = EffectiveRecipe {
+        // A rule reads the object `Host`, and one reads `Data.Inner` (parsed from `Data`).
+        drop_empty_except: Some(paths(&["Host", "Data.Inner"])),
+        ..EffectiveRecipe::passthrough("nested".into())
+    };
+    let plans = [(template, recipe)];
+    let body = forwarded(
+        reduce(
+            &plans,
+            json!({"EventID": 1, "Host": {"Name": ""}, "Data": "", "Other": ""}),
+        )
+        .1,
+    );
+    assert_eq!(
+        body.get("Host"),
+        Some(&json!({"Name": ""})),
+        "under a needed field"
+    );
+    assert_eq!(body.get("Data"), Some(&json!("")), "over a needed field");
+    assert!(!body.contains_key("Other"));
+}
+
+#[test]
 fn key_set_templates_are_tried_before_text_templates() {
     // A JSON event with a `message` that the text template would also take.
     let json_template = keyset("json", "0", &["EventID", "message"]);

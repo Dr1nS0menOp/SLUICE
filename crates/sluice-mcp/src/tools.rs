@@ -504,16 +504,4 @@ fn failure(message: String) -> CallToolResult {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::status_path;
-
-    #[test]
-    fn profiles_reach_the_control_plane_encoded() {
-        assert_eq!(status_path(None), "status");
-        assert_eq!(
-            status_path(Some("sigma+wazuh")),
-            "status?profile=sigma%2Bwazuh",
-            "a raw + would arrive as a space"
-        );
-    }
-}
+mod tests;

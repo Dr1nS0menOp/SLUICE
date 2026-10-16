@@ -71,6 +71,7 @@ fn config_is_valid_yaml_with_a_pipeline_and_tests_per_source() {
     for component in [
         "sluice_windows_security",
         "sluice_sysmon_route",
+        "sluice_sysmon_summary",
         "sluice_dns_archive",
     ] {
         let found = ["transforms", "sinks"]
@@ -106,6 +107,31 @@ fn config_is_valid_yaml_with_a_pipeline_and_tests_per_source() {
 
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"));
     std::fs::write(dir.join("vector.yaml"), &yaml).expect("write vector.yaml");
+}
+
+#[test]
+fn one_test_per_reduced_template_and_outcome_and_one_per_source_for_the_rest() {
+    let config: serde_json::Value = serde_yaml_ng::from_str(&rendered()).expect("valid YAML");
+    // `source template -> route (event N)`
+    let mut passing: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut reduced = BTreeSet::new();
+    for test in config["tests"].as_array().expect("tests list") {
+        let name = test["name"].as_str().expect("a name");
+        let (case, _) = name.split_once(" (event ").expect("an event number");
+        let (source, rest) = case.split_once(' ').expect("a source");
+        let template = rest.split(' ').next().expect("a template");
+        if template.starts_with("windows-security:4624:") || template.starts_with("sysmon:10:") {
+            assert!(
+                reduced.insert(case.to_owned()) || case.ends_with("forward"),
+                "{name}"
+            );
+        } else {
+            *passing.entry(source.to_owned()).or_default() += 1;
+        }
+    }
+    assert!(passing.len() >= 2, "{passing:?}");
+    assert!(passing.values().all(|n| *n == 1), "{passing:?}");
+    assert!(reduced.len() >= 3, "{reduced:?}");
 }
 
 #[test]

@@ -129,7 +129,7 @@ Each was fixed with a regression test named after what it broke.
 | 5 | `sluice-rules` Wazuh decoders | `program_name` with `type="osregex"` or `pcre2` was read as a literal | `^ssh.` as a regex also takes `sshX`, which the keyword bound missed: fail-open | `c3_a_program_name_that_is_a_regex_does_not_bound_its_rules` |
 | 6 | `sluice-vector` `predicate.rs` | A field test compared a float value by its text (`4625.0`), while keyword tests already widened floats | A rule on `EventID: 4625` could miss a record whose value is the float `4625.0`: fail-open | `c3_a_float_value_may_match_any_number_text` |
 | 7 | `sluice-core` `proof.rs` | The roll-back loop of `select_proven` had no bound: mutation testing showed a broken roll-back loops forever | A bug there would hang the control plane instead of failing the cycle | `c5_the_selection_never_needs_more_rounds_than_recipes_plus_one` |
-| 8 | `sluice-vector` `predicate.rs` | The VRL compiler used three variables per test; VRL's type checker is quadratic in the number of variables (measured: 100 tests 3.5 s, 800 tests 271 s in a debug build) | Large rule sets made every cycle's compile slow; 3,000 tests did not finish in 20 minutes | `thousands_of_alternatives_compile_without_overflowing_the_stack` (now 3,000 tests, bounded at 30 s; one variable per nesting level, short-circuiting) |
+| 8 | `sluice-vector` `predicate.rs` | The VRL compiler used three variables per test; VRL's type checker is quadratic in the number of variables (measured: 100 tests 3.5 s, 800 tests 271 s in a debug build) | Large rule sets made every cycle's compile slow; 3,000 tests did not finish in 20 minutes | `thousands_of_alternatives_compile_without_overflowing_the_stack` (now 3,000 tests, bounded at 120 s so a loaded machine passes; one variable per nesting level, short-circuiting) |
 | 9 | `sluice-discover` `shape.rs` | Discovery rendered a `null` discriminator as `null` and a whole float as `4624.0`; VRL's `to_string` gives `""` and `4624` | Events of such templates were never classified in the data plane: always forwarded, no saving (safe, but lost) | `discriminators_render_as_vrl_to_string_does`, `null_and_whole_floats_render_as_discovery_now_renders_them` |
 | 10 | `sluice-vector` `deployed.rs` (used by `sluice prove` and the guard of what runs) | Only programs under the names Sluice expects were proven; a program under another name (left from a one-profile layout, or renamed) or an extra `sluice_` remap that changes events passed as "nothing reduced" | A configuration could run reductions no proof covered: fail-open | `c3_a_program_under_another_name_is_reported_unproven`, `c3_an_extra_remap_that_changes_events_is_reported_unproven`, `c3_a_deployed_program_sluice_cannot_place_switches_savings_off` |
 | 11 | `sluice-ai` `redact.rs` | Redaction before a sample goes to a model missed IPv6 and MAC addresses, JWTs, and base64 secrets with `/`, `+` or `=` (an AWS secret key split into pieces shorter than 20) | Those values reached a cloud model unchanged: a privacy leak | `ipv6_addresses_are_replaced`, `mac_addresses_are_replaced`, `jwts_and_base64_secrets_are_replaced` |
@@ -147,6 +147,8 @@ Each was fixed with a regression test named after what it broke.
 | 23 | `sluice-sentinel` `inventory.rs` | A run of equal file names searched every written path for each suffix (found by mutation testing as a timeout) | Thousands of equal names made the fetch quadratic | `many_colliding_names_each_get_their_own_file` |
 | 24 | `sluice-rules` `wazuh/xml.rs` | quick_xml's `trim_text` trimmed each piece of text between entities, so the spaces next to `&quot;`, `&lt;` or a bare `&` were lost | `<match>user &quot;root&quot; in</match>` was read as `user"root"in`; a literal bound on that text kept out events the rule fires on: fail-open | `entities_are_read_and_bare_ampersands_and_angles_are_text` |
 | 25 | `sluice-rules` `sentinel/lexer.rs` | An unterminated multi-line string (```` ``` ````) kept only its first character | A malformed query's string value was cut short (the query cannot run, so no rule depended on it) | `multi_line_strings_end_at_the_next_fence_or_the_query` |
+| 26 | `sluice-server` `running.rs` | In proposal mode, a deployed configuration Sluice could not read (missing, other permissions, not UTF-8) made the cycle fail instead of switching to the safe configuration, as the module promised | Vector could run a configuration no proof covered, cycle after cycle, with only an error in the log: fail-open | `c5_a_configuration_sluice_cannot_read_is_switched_off` |
+| 27 | `sluice-ai` `prompt.rs` | A template's pattern and field names, which come from log text, were put outside the fence that marks samples as untrusted, and the pattern was not redacted | A crafted log line could address the model as an instruction, and an address in a pattern reached a cloud model (the guardrails and the proof still decide what is saved) | `c2_everything_from_the_logs_is_inside_one_fence` |
 
 Mutation testing (`cargo-mutants` 27.1.0, MIT) on `sluice-core`, 2026-10-14: 246 mutants, 214
 caught, 30 unviable, 0 timeouts, 2 missed. Both are closed:
@@ -169,6 +171,41 @@ a result:
 - `wazuh/decoders.rs`: the guards against an empty decoder or program list. Neither list is ever
   empty; they stay as a fail-closed guard.
 - `wazuh/xml.rs` `lenient`: taking `&;` as an entity; quick_xml gives it back as the same text.
+
+Line coverage (`cargo llvm-cov` 0.9.1, MIT/Apache-2.0, 2026-10-16), first measurement and after
+the tests it led to:
+
+| Crate | First | Now | Target |
+|---|---:|---:|---:|
+| sluice-core | 99.6 % | 99.6 % | 95 % |
+| sluice-rules | 96.8 % | 96.8 % | 90 % |
+| sluice-vector | 96.2 % | 97.3 % | 90 % |
+| sluice-discover | 98.2 % | 98.2 % | 85 % |
+| sluice-autopilot | 97.5 % | 97.5 % | 85 % |
+| sluice-server | 83.7 % | 87.3 % | 85 % |
+| sluice-kql | 53.9 % | 97.1 % | 85 % |
+| sluice-sentinel | 89.4 % | 89.4 % | 85 % |
+| sluice-wazuh | 81.6 % | 93.2 % | 85 % |
+| sluice-archive | 92.0 % | 99.1 % | 70 % |
+| sluice-mcp | 67.4 % | 85.4 % | 70 % |
+| sluice-ai | 78.6 % | 93.3 % | 70 % |
+| sluice-cli | 55.1 % | 72.2 % | 70 % |
+| sluice-synth | 100 % | 100 % | 70 % |
+
+What stays uncovered is mostly process wiring: `sluice-server/src/lib.rs` (the serve loop and
+Vector's process), `sluice-cli/src/live.rs` (`sluice up`), and the network half of `sluice rules
+fetch`; the live smoke scripts cover them. Run it with `cargo llvm-cov --workspace --locked
+--summary-only` (it needs `rustup component add llvm-tools-preview`).
+
+On `sluice-vector`, 2026-10-16 (resumed with `--iterate` after an interrupted run): 319 mutants,
+first 34 missed. The tests they led to: placeholder order in text classifiers, the summary
+sink's name, which Vector unit tests a configuration gets, example endpoints and secret
+backends, profile tags and the `secret` section of live configurations, the variables a
+compiled predicate uses, the five-value threshold for one regex alternation, `balanced` on
+nothing, empty-field drops that keep what lies under or over a field a rule needs, the XML
+lookup of summary keys, and a predicate program's source. Retested: 1 missed, which changes no
+result: `1 * wildcards` for `1 + wildcards` in `source_program` only reorders text templates
+against key-set templates, and no source has both.
 
 Checks rsigma 0.24 already makes when it parses (one operator per field, string modifiers on
 strings only) are tested on Sluice's own functions, in case a parser ever lets such a rule
@@ -193,6 +230,34 @@ Running it:
 Known limits found, not fixed: a workspace function whose name is all lower case looks like a
 KQL built-in to the Sentinel extractor, so a rule calling it is not widened unless the function
 was fetched with `sluice rules fetch sentinel` (which resolves it).
+
+## Real-data runs
+
+`scripts/real-data/` collects real events and runs `sluice analyze` on them; the data stays
+outside the repository (`~/.cache/sluice-realdata`). Collect with `collect-windows.ps1` (System,
+Application and PowerShell Operational of a Windows host), `collect-linux.sh` (auth.log and
+syslog over SSH) and `collect-sentinel.sh` (`SecurityEvent` and `WindowsEvent` from a Log
+Analytics workspace), then run `run.sh`. Rules: SigmaHQ `8a48134` (3,152 rules), the stock Wazuh
+ruleset (4,652 rules, `sluice rules fetch wazuh`) and Azure-Sentinel `55296e6` ("Windows
+Security Events", 21 rules, 18 of them run in the Kusto emulator). All with `--rules-complete`,
+as the earlier runs predate ADR 0021.
+
+| Run, 2026-10-16 | Data | Saved | Alerts (full = forwarded) | Before (ADR 0009, 0015) |
+|---|---|---:|---|---|
+| Windows, SigmaHQ | 42,335 events, 41.0 MB | 25.0 % | 236 = 236 | 23.8 %, 206 = 206 |
+| Windows, SigmaHQ + Wazuh | same | 0.0 % | 236 = 236 | 0 %, 206 = 206 |
+| Linux, SigmaHQ | 166,665 lines, 33.6 MB | 25.7 % (66,258 summarized) | 0 = 0 | 28.6 % |
+| Linux, SigmaHQ + Wazuh | same | 0.0 % | 0 = 0 | 0 % |
+| Sentinel records, solution + SigmaHQ | 590 records, 1.0 MB | 0.0 % | 3 = 3 | 11 % |
+
+The first four reproduce. Two findings:
+- Linux needs `complete: true` on its sources, as the earlier run had: without it, rules for any
+  Linux category apply and nothing is summarized (`run.sh` now declares it).
+- The Sentinel sample saves nothing because no template reaches 100 events in a source of 323
+  (contract rule 4: rare templates are never cut). The recipes still match (4672
+  `special-privileges-eventdata`). Repeating the 11 % needs a sample whose 4672 and 4798
+  templates pass that floor, which the test workspace will hold once the Windows agent has sent
+  more.
 
 ## Done when
 

@@ -28,13 +28,15 @@ bundled `claude-api` skill (cached 2026-10-06).
 
 ## Prompt injection
 
-Log text can be attacker-written. Samples are:
+Log text can be attacker-written: the samples, and also the template's pattern and field names,
+which discovery takes from the logs. All three are:
 
 - **redacted** (`redact.rs`): identity fields, IPv4, IPv6 and MAC addresses, e-mail addresses,
   and long tokens (alphanumeric, base64 with `/+=`, JWTs) are replaced with consistent
   pseudonyms. User and host names in free text are not (only in fields named for them): run a
   local model when that matters;
-- **fenced** in `<untrusted_samples>`, with the fence string itself neutralised inside the samples;
+- **fenced** in one `<untrusted_samples>` block, with the fence string itself neutralised
+  inside it; only the source id, which the operator configures, stands outside;
 - **declared untrusted** in the system prompt.
 
 The structural defence is that the guardrails and the proof never consult the model.
