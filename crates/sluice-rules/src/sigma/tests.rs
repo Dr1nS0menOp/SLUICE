@@ -244,7 +244,8 @@ logsource:
   product: windows
   service: security
 ";
-    let rules = parse(&[BASE, &other, filter]);
+    // The named rule is not the first, so a lookup that ignores the name cannot pass.
+    let rules = parse(&[&other, BASE, filter]);
     assert!(rules.problems().is_empty(), "{:?}", rules.problems());
     let RequiredFields::Known(filtered) = &requirement(&rules, BASE_ID).fields else {
         panic!("known fields expected");
@@ -261,6 +262,43 @@ logsource:
     assert!(
         !untouched.contains(&FieldPath::new("SubjectUserName")),
         "{untouched:?}"
+    );
+}
+
+#[test]
+fn c3_a_keyword_filter_makes_its_rules_read_every_field() {
+    let filter = r"
+title: Not the scanner
+filter:
+  rules:
+    - failed_logon
+  keywords:
+    - nessus
+  condition: not keywords
+logsource:
+  product: windows
+  service: security
+";
+    let plain = parse(&[BASE]);
+    assert!(!requirement(&plain, BASE_ID).matches_raw_text);
+    let rules = parse(&[BASE, filter]);
+    assert!(rules.problems().is_empty(), "{:?}", rules.problems());
+    let base = requirement(&rules, BASE_ID);
+    assert!(base.matches_raw_text);
+    assert_eq!(base.fields, RequiredFields::Unknown);
+}
+
+#[test]
+fn c3_a_fieldref_reads_the_field_it_compares_against() {
+    let rule = BASE.replace("EventID: 4625", "TargetUserName|fieldref: SubjectUserName");
+    let rules = parse(&[&rule]);
+    let RequiredFields::Known(fields) = &requirement(&rules, BASE_ID).fields else {
+        panic!("known fields expected");
+    };
+    assert!(
+        fields.contains(&FieldPath::new("TargetUserName"))
+            && fields.contains(&FieldPath::new("SubjectUserName")),
+        "{fields:?}"
     );
 }
 

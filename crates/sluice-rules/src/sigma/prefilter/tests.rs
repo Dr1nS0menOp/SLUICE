@@ -1,7 +1,11 @@
+use rsigma_parser::ast::Modifier;
 use rsigma_parser::parse_sigma_yaml;
+use rsigma_parser::value::{SigmaString, SigmaValue};
 use sluice_core::predicate::{FieldTest, KeywordTest, MatchOp, Predicate};
 
-use super::{glob_match, rule_prefilter};
+use super::{
+    Base, base, glob_match, present_unless_null, rule_prefilter, value_test, wildcard_superset,
+};
 
 fn prefilter(detection: &str) -> Predicate {
     let yaml = format!("title: t\nlogsource:\n    product: x\ndetection:\n{detection}");
@@ -212,6 +216,45 @@ fn c3_each_inexpressible_modifier_widens_to_a_present_field() {
         let p = item(&format!("X|{modifier}: {value}"));
         assert_eq!(p, present("X"), "{modifier}");
     }
+}
+
+#[test]
+fn explicit_edge_modifiers_anchor_one_end() {
+    assert_eq!(
+        item("X|startswith: 'pre'"),
+        test("X", MatchOp::StartsWith, "pre", false)
+    );
+    assert_eq!(
+        item("X|endswith: 'post'"),
+        test("X", MatchOp::EndsWith, "post", false)
+    );
+}
+
+#[test]
+fn c3_what_rsigma_refuses_still_widens_here() {
+    // rsigma 0.24 refuses these rules when it parses them (one operator per field, string
+    // modifiers on strings only); should a parser ever accept them, they widen.
+    assert_eq!(base(&[Modifier::Contains, Modifier::StartsWith]), None);
+    assert_eq!(
+        value_test("EventID", Base::Contains, false, &SigmaValue::Integer(46)),
+        present("EventID")
+    );
+    assert!(present_unless_null("X", &[SigmaValue::Null]).is_always());
+    assert!(present_unless_null("X", &[]).is_always());
+    let wild = SigmaString::new("abc*def");
+    assert!(wildcard_superset("X", Base::Regex, true, &wild).is_always());
+    assert!(wildcard_superset("X", Base::Exists, true, &wild).is_always());
+}
+
+#[test]
+fn a_field_less_mapping_without_modifiers_is_keywords() {
+    assert_eq!(
+        prefilter("    keywords:\n        '':\n            - 'evil'\n    condition: keywords\n"),
+        Predicate::Keywords(KeywordTest {
+            values: vec!["evil".into()],
+            case_sensitive: false,
+        })
+    );
 }
 
 #[test]

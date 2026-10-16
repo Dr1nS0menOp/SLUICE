@@ -388,8 +388,8 @@ fn first_wheres(after: &[Token], lists: &Lists) -> Predicate {
             let end = clause_end(after, operator + 1);
             conditions.push(condition(&after[operator + 1..end], lists));
             i = end;
-        } else if let Some(start) = keeps_rows(after, operator) {
-            i = clause_end(after, start);
+        } else if keeps_rows(after, operator) {
+            i = clause_end(after, operator);
         } else {
             break;
         }
@@ -397,20 +397,15 @@ fn first_wheres(after: &[Token], lists: &Lists) -> Predicate {
     Predicate::all(conditions)
 }
 
-/// If the operator at `at` keeps every row and every filtered column as it is, where its
-/// arguments start.
-fn keeps_rows(tokens: &[Token], at: usize) -> Option<usize> {
+/// Whether the operator at `at` keeps every row and every filtered column as it is.
+/// `project-away`, `project-keep` and `project-reorder` lex as `project` and are projections
+/// without `=`; the `=` of `project-rename` makes it one that may rename into a filtered name.
+fn keeps_rows(tokens: &[Token], at: usize) -> bool {
     let projection = is_ident(tokens.get(at), "project");
-    let start = if projection && is_symbol(tokens.get(at + 1), "-") {
-        let kind = tokens.get(at + 2);
-        (is_ident(kind, "away") || is_ident(kind, "keep") || is_ident(kind, "reorder"))
-            .then_some(at + 3)?
-    } else if projection || is_ident(tokens.get(at), "extend") {
-        at + 1
-    } else {
-        return None;
-    };
-    let clause = &tokens[start..clause_end(tokens, start)];
+    if !projection && !is_ident(tokens.get(at), "extend") {
+        return false;
+    }
+    let clause = &tokens[at..clause_end(tokens, at)];
     let assigns_filtered = clause.windows(2).any(|w| {
         matches!(w, [Token::Ident(name), Token::Symbol(eq)]
             if eq == "=" && (name == "EventID" || TEXT_COLUMNS.contains(&name.as_str())))
@@ -419,12 +414,11 @@ fn keeps_rows(tokens: &[Token], at: usize) -> Option<usize> {
         .iter()
         .any(|t| matches!(t, Token::Symbol(s) if s == "="));
     // A projection that computes columns may also rename one into a filtered name.
-    let safe = if projection {
+    if projection {
         !assigns
     } else {
         !assigns_filtered
-    };
-    safe.then_some(start)
+    }
 }
 
 /// The end of a clause: the next `|` or `;` at depth 0, or a closing parenthesis below it.
@@ -613,7 +607,8 @@ fn event_id(token: Option<&Token>) -> Option<String> {
         Token::Str(s) => s.trim(),
         _ => return None,
     };
-    if text.is_empty() || !text.chars().all(|c| c.is_ascii_digit()) {
+    // `parse` alone would take `+4624`; it refuses an empty string.
+    if !text.chars().all(|c| c.is_ascii_digit()) {
         return None;
     }
     text.parse::<u64>().ok().map(|n| n.to_string())

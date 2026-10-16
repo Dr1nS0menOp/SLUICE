@@ -178,6 +178,7 @@ explains the terms.
   - Rule directories with symbolic link loops are read once.
   - Rule files with upper-case extensions are no longer skipped.
   - Single sign-on refuses an `email` the provider marks as not verified.
+  - Wazuh rule text keeps the spaces next to an entity or a bare `&` (`user &quot;root&quot;`).
 - `oidc.enabled` (default `true`) switches single sign-on off without removing its settings.
 
 ### Interfaces and packaging

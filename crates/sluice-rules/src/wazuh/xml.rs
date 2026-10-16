@@ -43,8 +43,9 @@ pub(crate) fn decoders(xml: &str) -> Result<Vec<RawElement>, RulesError> {
 /// Parses every `element` and its direct children.
 fn elements(xml: &str, element: &str) -> Result<Vec<RawElement>, RulesError> {
     let xml = lenient(xml);
+    // Not `trim_text`: it trims each piece of text between entities, so `a &amp; b` would lose
+    // its spaces. Only the ends of a child's whole text are layout.
     let mut reader = Reader::from_str(&xml);
-    reader.config_mut().trim_text(true);
     let mut rules = Vec::new();
     let mut rule: Option<RawElement> = None;
     let mut child: Option<RawChild> = None;
@@ -100,7 +101,11 @@ fn elements(xml: &str, element: &str) -> Result<Vec<RawElement>, RulesError> {
                 tag if tag == element => rules.extend(rule.take()),
                 tag if child.as_ref().is_some_and(|c| c.tag == tag) => {
                     if let (Some(rule), Some(child)) = (rule.as_mut(), child.take()) {
-                        rule.children.push(child);
+                        rule.children.push(RawChild {
+                            text: child.text.trim().to_owned(),
+                            tag: child.tag,
+                            attributes: child.attributes,
+                        });
                     }
                 }
                 _ => {}
@@ -114,7 +119,7 @@ fn elements(xml: &str, element: &str) -> Result<Vec<RawElement>, RulesError> {
 
 /// Escapes `<` that does not open markup (`<name`, `</name`, `<!`, `<?`) and `&` that does not
 /// open an entity (`&name;`, `&#…;`), the way Wazuh's reader treats them: as text.
-fn lenient(xml: &str) -> std::borrow::Cow<'_, str> {
+fn lenient(xml: &str) -> String {
     let bytes = xml.as_bytes();
     let is_name_start = |b: u8| b.is_ascii_alphabetic() || b == b'_';
     let markup = |i: usize| match bytes.get(i + 1) {
@@ -136,13 +141,6 @@ fn lenient(xml: &str) -> std::borrow::Cow<'_, str> {
             body.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'#')
         })
     };
-    let needs = bytes
-        .iter()
-        .enumerate()
-        .any(|(i, b)| (*b == b'<' && !markup(i)) || (*b == b'&' && !entity(i)));
-    if !needs {
-        return std::borrow::Cow::Borrowed(xml);
-    }
     let mut out = String::with_capacity(xml.len() + 64);
     for (i, c) in xml.char_indices() {
         match c {
@@ -151,7 +149,7 @@ fn lenient(xml: &str) -> std::borrow::Cow<'_, str> {
             other => out.push(other),
         }
     }
-    std::borrow::Cow::Owned(out)
+    out
 }
 
 fn name(start: &BytesStart<'_>) -> String {
@@ -187,6 +185,68 @@ fn push_reference(text: &mut String, reference: &BytesRef<'_>) {
             text.push('&');
             text.push_str(other);
             text.push(';');
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The text of each child of the single rule in `xml`.
+    fn texts(xml: &str) -> Vec<(String, String)> {
+        let rules = rules(xml).expect("parses");
+        assert_eq!(rules.len(), 1, "{rules:?}");
+        rules[0]
+            .children
+            .iter()
+            .map(|c| (c.tag.clone(), c.text.clone()))
+            .collect()
+    }
+
+    fn one(tag: &str, text: &str) -> Vec<(String, String)> {
+        vec![(tag.to_owned(), text.to_owned())]
+    }
+
+    #[test]
+    fn self_closing_rules_count_and_other_empty_elements_do_not() {
+        let rules = rules("<group><x/><rule id=\"1\"/><rule id=\"2\"><if_sid/></rule></group>")
+            .expect("parses");
+        let ids: Vec<_> = rules.iter().map(|r| r.attributes["id"].as_str()).collect();
+        assert_eq!(ids, ["1", "2"]);
+        assert_eq!(rules[1].children[0].tag, "if_sid");
+    }
+
+    #[test]
+    fn elements_nested_in_a_child_are_part_of_its_text() {
+        assert_eq!(
+            texts("<rule id=\"1\"><regex>a<br/>b<i>x</i>c</regex></rule>"),
+            one("regex", "abxc")
+        );
+    }
+
+    #[test]
+    fn cdata_is_text() {
+        assert_eq!(
+            texts("<rule id=\"1\"><regex><![CDATA[a<b]]></regex></rule>"),
+            one("regex", "a<b")
+        );
+    }
+
+    #[test]
+    fn entities_are_read_and_bare_ampersands_and_angles_are_text() {
+        for (body, text) in [
+            ("x&lt;y", "x<y"),
+            ("&#60;&#x3e;", "<>"),
+            ("a && b", "a && b"),
+            ("user &quot;root&quot; in", "user \"root\" in"),
+            ("\n  padded  \n", "padded"),
+            ("a &; b", "a &; b"),
+            ("a & b;", "a & b;"),
+            ("</\\/\\w+\\>", "</\\/\\w+\\>"),
+        ] {
+            let xml = format!("<rule id=\"1\"><regex>{body}</regex></rule>");
+            assert_eq!(texts(&xml), one("regex", text), "{body}");
         }
     }
 }

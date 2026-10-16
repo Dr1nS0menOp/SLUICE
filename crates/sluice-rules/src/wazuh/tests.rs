@@ -241,6 +241,108 @@ fn categories_are_bounded_by_the_decoders_of_that_type() {
 }
 
 #[test]
+fn a_category_alone_bounds_its_rule_by_its_decoders() {
+    let decoders = r#"
+        <decoder name="ossec"><prematch>^ossec: </prematch><type>ossec</type></decoder>
+        <decoder name="weird"><prematch>^\d+ x</prematch><type>odd</type></decoder>
+    "#;
+    let rules = WazuhRules::parse_with_decoders(
+        [r#"<rule id="1" level="0"><category>ossec</category></rule>
+            <rule id="2" level="0"><category>odd</category></rule>
+            <rule id="3" level="0"><category>none</category></rule>"#],
+        [decoders],
+    )
+    .unwrap();
+    let ossec = rule_of(&rules, "1");
+    assert_eq!(ossec.prefilter, keywords(&["ossec:"]));
+    assert!(ossec.text_lines_only);
+    for id in ["2", "3"] {
+        let rule = rule_of(&rules, id);
+        assert_eq!(rule.prefilter, Predicate::Always, "{id}");
+        assert!(!rule.text_lines_only, "{id}: `^\\d` may take a JSON line");
+    }
+}
+
+#[test]
+fn decoder_parents_are_followed_eight_levels_deep() {
+    // d0 → d1 → … → d9; only d9 tests the program name. a and b are each other's parent.
+    let chain = (0..9)
+        .map(|i| {
+            format!(
+                r#"<decoder name="d{i}"><parent>d{}</parent></decoder>"#,
+                i + 1
+            )
+        })
+        .collect::<Vec<_>>()
+        .concat();
+    let decoders = format!(
+        r#"<decoder name="d9"><program_name>^sshd</program_name></decoder>{chain}
+           <decoder name="a"><parent>b</parent></decoder>
+           <decoder name="b"><parent>a</parent></decoder>"#
+    );
+    let rules = WazuhRules::parse_with_decoders(
+        [r#"<rule id="0" level="3"><decoded_as>d0</decoded_as></rule>
+            <rule id="1" level="3"><decoded_as>d1</decoded_as></rule>
+            <rule id="2" level="3"><decoded_as>a</decoded_as></rule>"#],
+        [decoders.as_str()],
+    )
+    .unwrap();
+    let within = rule_of(&rules, "1");
+    assert_eq!(within.prefilter, keywords(&["sshd"]));
+    assert!(within.text_lines_only);
+    for id in ["0", "2"] {
+        let rule = rule_of(&rules, id);
+        assert_eq!(rule.prefilter, Predicate::Always, "{id}");
+        assert!(!rule.text_lines_only, "{id}");
+    }
+}
+
+#[test]
+fn only_an_osregex_prematch_gives_literals_and_rules_out_json() {
+    let decoders = r#"
+        <decoder name="plain"><prematch type="osregex">^ossec: </prematch></decoder>
+        <decoder name="pcre"><prematch type="pcre2">^ab?c</prematch></decoder>
+        <decoder name="escaped"><program_name>^sshd\d</program_name></decoder>
+    "#;
+    let rules = WazuhRules::parse_with_decoders(
+        [
+            r#"<rule id="1" level="3"><decoded_as>plain</decoded_as></rule>
+            <rule id="2" level="3"><decoded_as>pcre</decoded_as></rule>
+            <rule id="3" level="3"><decoded_as>escaped</decoded_as></rule>"#,
+        ],
+        [decoders],
+    )
+    .unwrap();
+    assert_eq!(rule_of(&rules, "1").prefilter, keywords(&["ossec:"]));
+    assert!(rule_of(&rules, "1").text_lines_only);
+    assert_eq!(rule_of(&rules, "2").prefilter, Predicate::Always);
+    assert!(!rule_of(&rules, "2").text_lines_only);
+    assert_eq!(
+        rule_of(&rules, "3").prefilter,
+        Predicate::Always,
+        "`\\d` is not part of a literal program name"
+    );
+}
+
+#[test]
+fn a_child_is_stateful_if_a_parent_is_and_text_only_if_every_parent_is() {
+    let rules = WazuhRules::parse_with_decoders(
+        [
+            r#"<rule id="1" level="3"><decoded_as>sshd</decoded_as></rule>
+            <rule id="2" level="3" frequency="5" timeframe="60"><match>x</match></rule>
+            <rule id="3" level="3"><if_sid>1, 2</if_sid></rule>
+            <rule id="4" level="3"><if_sid>1</if_sid></rule>"#,
+        ],
+        [r#"<decoder name="sshd"><program_name>^sshd</program_name></decoder>"#],
+    )
+    .unwrap();
+    let both = rule_of(&rules, "3");
+    assert!(both.stateful && !both.text_lines_only);
+    let one = rule_of(&rules, "4");
+    assert!(!one.stateful && one.text_lines_only);
+}
+
+#[test]
 fn decoders_bound_only_when_every_definition_does() {
     // The stock `su` decoder has two definitions; the second selects by a two-letter prematch.
     let decoders = r#"

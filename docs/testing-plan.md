@@ -145,6 +145,8 @@ Each was fixed with a regression test named after what it broke.
 | 21 | `sluice-kql` `syntax.rs` | A field or column name with a newline, tab or other control character was put into `['…']` unescaped | A JSON key from a log line could make the generated KQL fail to parse (the KQL is advisory, so no data was lost, but the check broke) | `names_escape_what_a_literal_escapes_and_refuse_the_rest`, `a_field_or_column_name_kql_cannot_quote_widens_to_true` |
 | 22 | `sluice-server` `oidc` | Sign-in by `email` did not look at `email_verified` | With a provider where users choose their own address, someone could register an operator's address and sign in as them | `c1_an_address_the_provider_has_not_verified_names_nobody` |
 | 23 | `sluice-sentinel` `inventory.rs` | A run of equal file names searched every written path for each suffix (found by mutation testing as a timeout) | Thousands of equal names made the fetch quadratic | `many_colliding_names_each_get_their_own_file` |
+| 24 | `sluice-rules` `wazuh/xml.rs` | quick_xml's `trim_text` trimmed each piece of text between entities, so the spaces next to `&quot;`, `&lt;` or a bare `&` were lost | `<match>user &quot;root&quot; in</match>` was read as `user"root"in`; a literal bound on that text kept out events the rule fires on: fail-open | `entities_are_read_and_bare_ampersands_and_angles_are_text` |
+| 25 | `sluice-rules` `sentinel/lexer.rs` | An unterminated multi-line string (```` ``` ````) kept only its first character | A malformed query's string value was cut short (the query cannot run, so no rule depended on it) | `multi_line_strings_end_at_the_next_fence_or_the_query` |
 
 Mutation testing (`cargo-mutants` 27.1.0, MIT) on `sluice-core`, 2026-10-14: 246 mutants, 214
 caught, 30 unviable, 0 timeouts, 2 missed. Both are closed:
@@ -154,6 +156,23 @@ caught, 30 unviable, 0 timeouts, 2 missed. Both are closed:
 
 A first run, with a shared target directory, reported 0 missed: its results were noise (see
 below).
+
+On `sluice-rules`, 2026-10-16: the first run left 156 missed, mostly in the KQL lexer and
+condition parser (no test compared whole token lists or nested brackets), Wazuh's XML reader
+(no tests of its own; it found bug 24) and the Sigma engine's reserved log source fields. After
+the new tests: 805 mutants, 709 caught, 81 unviable, 9 timeouts, 6 missed. None of the 6 changes
+a result:
+- `sentinel/extract.rs` `reads` and `first_wheres`: `i * 1` starts the slice at the operator's
+  own name, which both functions skip.
+- `sentinel/extract.rs` `event_id_test`: ending an `in (…)` list at any symbol leaves the parser
+  short of the clause's end, so the clause reads as `true` either way.
+- `wazuh/decoders.rs`: the guards against an empty decoder or program list. Neither list is ever
+  empty; they stay as a fail-closed guard.
+- `wazuh/xml.rs` `lenient`: taking `&;` as an entity; quick_xml gives it back as the same text.
+
+Checks rsigma 0.24 already makes when it parses (one operator per field, string modifiers on
+strings only) are tested on Sluice's own functions, in case a parser ever lets such a rule
+through.
 
 Running it:
 - `unset CARGO_TARGET_DIR` first. `scripts/wsl.ps1` points every build at

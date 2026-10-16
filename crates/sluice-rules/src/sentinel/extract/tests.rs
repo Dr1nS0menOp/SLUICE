@@ -2,7 +2,7 @@
 //! either hides a read (fail-open) or reads more than the query does (lost savings).
 
 use sluice_core::field::FieldPath;
-use sluice_core::predicate::Predicate;
+use sluice_core::predicate::{FieldTest, MatchOp, Predicate};
 
 use super::super::lexer::tokens;
 use super::*;
@@ -209,4 +209,61 @@ fn union_wildcard_looks_only_at_its_own_clause() {
     assert!(!wild("[1 * 2]"));
     assert!(!wild("{1 * 2}"));
     assert!(!wild(") * 2"), "the union's own group ended");
+    assert!(!wild("] * 2"), "the union's own group ended");
+    assert!(!wild("} * 2"), "the union's own group ended");
+    assert!(wild("(A) *"), "back at the union's level");
+    assert!(wild("[A] *"), "back at the union's level");
+    assert!(wild("{A} *"), "back at the union's level");
+}
+
+#[test]
+fn only_let_binds_a_list() {
+    assert!(id_lists(&tokens("extend x = 4624; let y == 4625")).is_empty());
+    assert_eq!(
+        of("SecurityEvent | extend x = 4624 | where EventID == x").prefilter,
+        Predicate::Always
+    );
+    assert_eq!(literal_ids(&tokens("pack_array([1])")), None);
+}
+
+#[test]
+fn a_table_parameter_is_a_name_followed_by_a_colon() {
+    let t = tokens(
+        "let f = (SecurityEvent: (A: int)) { SecurityEvent | take 1 }; (SecurityEvent) { x }",
+    );
+    assert_eq!(parameter_scopes(&t), vec![("SecurityEvent", 12..18)]);
+}
+
+fn event_id_4624() -> Predicate {
+    Predicate::Field(FieldTest {
+        field: FieldPath::new("EventID"),
+        op: MatchOp::Equals,
+        values: vec!["4624".into()],
+        case_sensitive: true,
+    })
+}
+
+#[test]
+fn an_unread_part_of_a_condition_ends_at_its_own_and_or_or() {
+    for query in [
+        "SecurityEvent | where isnotempty(Account) and EventID == 4624",
+        "SecurityEvent | where f(g(a), [b]) and EventID == 4624",
+        "SecurityEvent | where d['k'] has 'x' and EventID == 4624",
+        "SecurityEvent | where f(a and b, c or d) and EventID == 4624",
+        "SecurityEvent | where (x > 1) and EventID == 4624",
+    ] {
+        assert_eq!(of(query).prefilter, event_id_4624(), "{query}");
+    }
+}
+
+#[test]
+fn only_equality_and_in_lists_bound_event_ids_and_text_columns() {
+    for query in [
+        "SecurityEvent | where EventID != (4624)",
+        "SecurityEvent | where EventID > (4000)",
+        "SecurityEvent | where EventSourceName != 'AD FS'",
+        "SecurityEvent | where EventSourceName !~ 'AD FS'",
+    ] {
+        assert_eq!(of(query).prefilter, Predicate::Always, "{query}");
+    }
 }
