@@ -332,8 +332,8 @@ fn wildcard_superset(field: &str, base: Base, case_sensitive: bool, s: &SigmaStr
             case_sensitive,
         ));
     }
+    // A value with a wildcard has at least two pieces, so the last is not the first.
     if let Some(last) = pieces.last().filter(|p| !p.is_empty())
-        && pieces.len() > 1
         && matches!(base, Base::Equals | Base::EndsWith)
     {
         tests.push(test(

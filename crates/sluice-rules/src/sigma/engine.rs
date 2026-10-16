@@ -156,3 +156,42 @@ impl SigmaEvent for Scoped<'_> {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn text(value: Option<EventValue<'_>>) -> Option<Cow<'_, str>> {
+        match value {
+            Some(EventValue::Str(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn the_log_source_is_reported_under_reserved_names_only() {
+        let logsource = LogSource {
+            product: Some("windows".into()),
+            service: Some("security".into()),
+            category: None,
+            complete: true,
+        };
+        let scoped = Scoped {
+            inner: JsonEvent::owned(json!({"a": "x"})),
+            logsource: &logsource,
+        };
+        assert_eq!(text(scoped.get_field(PRODUCT)).as_deref(), Some("windows"));
+        assert_eq!(text(scoped.get_field(SERVICE)).as_deref(), Some("security"));
+        assert_eq!(text(scoped.get_field(CATEGORY)).as_deref(), Some(ABSENT));
+        assert_eq!(text(scoped.get_field("a")).as_deref(), Some("x"));
+
+        // Keyword search and serialization see only the real event.
+        assert!(scoped.any_string_value(&|s| s == "x"));
+        assert!(!scoped.any_string_value(&|s| s == "windows" || s == ABSENT));
+        assert_eq!(scoped.all_string_values(), [Cow::Borrowed("x")]);
+        assert_eq!(scoped.field_keys(), [Cow::Borrowed("a")]);
+        assert_eq!(scoped.to_json(), json!({"a": "x"}));
+    }
+}

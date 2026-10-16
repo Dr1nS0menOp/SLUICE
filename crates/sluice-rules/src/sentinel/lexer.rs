@@ -18,6 +18,9 @@ pub(super) enum Token {
 /// Two-character operators, longest first.
 const OPERATORS: [&str; 7] = ["==", "!=", "=~", "!~", "<=", ">=", "=>"];
 
+/// Opens and closes a multi-line string literal.
+const FENCE: [char; 3] = ['`'; 3];
+
 pub(super) fn tokens(query: &str) -> Vec<Token> {
     let chars: Vec<char> = query.chars().collect();
     let mut out = Vec::new();
@@ -30,18 +33,14 @@ pub(super) fn tokens(query: &str) -> Vec<Token> {
             while i < chars.len() && chars[i] != '\n' {
                 i += 1;
             }
-        } else if c == '`' && chars.get(i + 1) == Some(&'`') && chars.get(i + 2) == Some(&'`') {
-            let start = i + 3;
-            let mut end = start;
-            while end + 2 < chars.len()
-                && !(chars[end] == '`' && chars[end + 1] == '`' && chars[end + 2] == '`')
-            {
-                end += 1;
-            }
-            out.push(Token::Str(
-                chars[start..end.min(chars.len())].iter().collect(),
-            ));
-            i = (end + 3).min(chars.len());
+        } else if chars[i..].starts_with(&FENCE) {
+            // A multi-line string; an unterminated one runs to the end of the query.
+            let start = i + FENCE.len();
+            let end = (start..chars.len())
+                .find(|&j| chars[j..].starts_with(&FENCE))
+                .unwrap_or(chars.len());
+            out.push(Token::Str(chars[start..end].iter().collect()));
+            i = (end + FENCE.len()).min(chars.len());
         } else if (c == '@' || c == 'h' || c == 'H') && matches!(chars.get(i + 1), Some('\'' | '"'))
         {
             // Verbatim (`@'…'`, quotes doubled) or obfuscated (`h'…'`) string.
@@ -126,6 +125,85 @@ mod tests {
         assert!(
             !t.iter().any(|t| *t == Token::Ident("logons".into())),
             "comments are skipped"
+        );
+    }
+
+    fn ident(s: &str) -> Token {
+        Token::Ident(s.into())
+    }
+
+    fn symbol(s: &str) -> Token {
+        Token::Symbol(s.into())
+    }
+
+    fn string(s: &str) -> Token {
+        Token::Str(s.into())
+    }
+
+    #[test]
+    fn a_comment_needs_two_slashes_and_runs_to_the_end_of_its_line() {
+        assert_eq!(
+            tokens("x/2 // c\nT"),
+            [
+                ident("x"),
+                symbol("/"),
+                Token::Number("2".into()),
+                ident("T")
+            ]
+        );
+        assert_eq!(tokens("T // no newline"), [ident("T")]);
+    }
+
+    #[test]
+    fn multi_line_strings_end_at_the_next_fence_or_the_query() {
+        assert_eq!(
+            tokens("pr ```a`b``c``` x"),
+            [ident("pr"), string("a`b``c"), ident("x")]
+        );
+        assert_eq!(tokens("```abc"), [string("abc")], "unterminated");
+        assert_eq!(
+            tokens("`a` ``"),
+            [
+                symbol("`"),
+                ident("a"),
+                symbol("`"),
+                symbol("`"),
+                symbol("`")
+            ],
+            "fewer than three backticks are symbols"
+        );
+    }
+
+    #[test]
+    fn strings_read_escapes_except_verbatim_ones() {
+        assert_eq!(
+            tokens(r#"@'a\b''c' h"x" H'y' 'p\'q' "r\"s" hx"#),
+            [
+                string(r"a\b'c"),
+                string("x"),
+                string("y"),
+                string("p'q"),
+                string("r\"s"),
+                ident("hx"),
+            ]
+        );
+    }
+
+    #[test]
+    fn names_numbers_and_operators_are_whole_tokens() {
+        assert_eq!(
+            tokens("_a$1 1.5d a<=b c<d =>"),
+            [
+                ident("_a$1"),
+                Token::Number("1.5d".into()),
+                ident("a"),
+                symbol("<="),
+                ident("b"),
+                ident("c"),
+                symbol("<"),
+                ident("d"),
+                symbol("=>"),
+            ]
         );
     }
 

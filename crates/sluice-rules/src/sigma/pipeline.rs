@@ -110,6 +110,7 @@ mod tests {
     fn the_ecs_pipeline_ships_with_rsigma() {
         let ecs = SigmaPipeline::builtin(Schema::Ecs, "ecs_windows").expect("built in");
         assert_eq!(ecs.schema(), Schema::Ecs);
+        assert_eq!(ecs.name(), "ecs_windows");
         assert!(SigmaPipeline::builtin(Schema::Ecs, "nope").is_err());
     }
 
