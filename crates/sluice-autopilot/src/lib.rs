@@ -12,6 +12,7 @@ mod basis;
 mod error;
 mod lifecycle;
 mod live;
+mod plan;
 mod recipes;
 mod report;
 mod spot;
@@ -23,6 +24,9 @@ pub use crate::basis::RulesBasis;
 pub use crate::error::AutopilotError;
 pub use crate::lifecycle::{Evidence, Lifecycle, Policy, Stage, Transition};
 pub use crate::live::{Cycle, cycle};
+pub use crate::plan::{
+    CountInstead, PLAN_FORMAT, Placement, PlanProof, SavingsPlan, SourcePlan, TemplatePlan,
+};
 pub use crate::recipes::{RecipeBook, Resolution};
 pub use crate::report::{EMPTY_PROOF, Report, RuleRow, RuleStatus, TemplateRow, render_html};
 pub use crate::spot::SpotCheck;

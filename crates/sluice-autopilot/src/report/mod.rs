@@ -2,7 +2,7 @@
 
 mod html;
 mod rules;
-mod text;
+pub(crate) mod text;
 
 use std::collections::BTreeMap;
 

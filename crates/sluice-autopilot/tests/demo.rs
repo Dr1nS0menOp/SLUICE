@@ -2,7 +2,10 @@
 
 use std::sync::OnceLock;
 
-use sluice_autopilot::{Analysis, Helpers, Input, RecipeBook, Settings, analyze};
+use sluice_autopilot::{
+    Analysis, Helpers, Input, PLAN_FORMAT, Placement, RecipeBook, Report, SavingsPlan, Settings,
+    TemplatePlan, analyze,
+};
 use sluice_core::guard::{ContractRule, Route};
 use sluice_core::proof::prove;
 use sluice_core::reduce::{Outcome, Reducer};
@@ -62,6 +65,95 @@ fn recipe_of(prefix: &str) -> &'static sluice_core::guard::EffectiveRecipe {
         .position(|t| t.id.as_str().starts_with(prefix))
         .expect("template exists");
     &demo.analysis.selection.recipes[index]
+}
+
+fn plan() -> SavingsPlan {
+    let demo = demo();
+    let input = Input {
+        sources: &demo.sample.sources,
+        events: &demo.sample.events,
+        sigma: &demo.rules,
+        wazuh: None,
+        sentinel: None,
+    };
+    let report = Report::new(&demo.analysis, input);
+    SavingsPlan::new(&demo.analysis, &report, &demo.sample.sources)
+}
+
+fn planned(plan: &SavingsPlan, prefix: &str) -> TemplatePlan {
+    plan.sources
+        .iter()
+        .flat_map(|s| &s.templates)
+        .find(|t| t.id.starts_with(prefix))
+        .expect("template in the plan")
+        .clone()
+}
+
+#[test]
+fn the_plan_lists_every_source_and_kind_of_event_with_the_proof() {
+    let plan = plan();
+    assert_eq!(plan.format, PLAN_FORMAT);
+    assert!(plan.proof.holds);
+    assert_eq!(plan.proof.alerts_full, plan.proof.alerts_forwarded);
+    assert!(plan.proof.alerts_full > 0 && plan.proof.note.is_none());
+    assert_eq!(plan.total, demo().analysis.selection.proof.total);
+    let ids: Vec<&str> = plan.sources.iter().map(|s| s.id.as_str()).collect();
+    let expected: Vec<&str> = demo()
+        .sample
+        .sources
+        .iter()
+        .map(|s| s.id.as_str())
+        .collect();
+    assert_eq!(ids, expected, "every source, in the configured order");
+    let templates: usize = plan.sources.iter().map(|s| s.templates.len()).sum();
+    assert_eq!(templates, demo().analysis.discovery.templates.len());
+    for source in &plan.sources {
+        let sizes: Vec<u64> = source.templates.iter().map(|t| t.volume.bytes_in).collect();
+        assert!(
+            sizes.windows(2).all(|w| w[0] >= w[1]),
+            "largest first in {}",
+            source.id
+        );
+    }
+}
+
+#[test]
+fn counting_runs_only_in_a_pipeline_and_removing_fields_also_in_the_siem() {
+    let plan = plan();
+    let counted = planned(&plan, "sysmon:10:");
+    assert!(counted.count_instead.is_some());
+    assert_eq!(counted.runs_in, [Placement::Pipeline]);
+
+    let removed = plan
+        .sources
+        .iter()
+        .flat_map(|s| &s.templates)
+        .find(|t| t.count_instead.is_none() && !t.remove_fields.is_empty())
+        .expect("a template that only removes fields");
+    assert_eq!(
+        removed.runs_in,
+        [Placement::Pipeline, Placement::SiemIngest]
+    );
+
+    let rare = planned(&plan, "windows-security:4720:");
+    assert!(rare.runs_in.is_empty(), "sent unchanged");
+    assert!(
+        rare.reasons.iter().any(|r| r.contains("rare")),
+        "{:?}",
+        rare.reasons
+    );
+}
+
+#[test]
+fn the_plan_is_json_a_tool_can_read() {
+    let json: serde_json::Value =
+        serde_json::from_str(&plan().to_json().expect("serializes")).expect("valid JSON");
+    assert_eq!(json["format"], PLAN_FORMAT);
+    assert_eq!(json["proof"]["rules_basis"], "self_contained");
+    let template = &json["sources"][0]["templates"][0];
+    for key in ["id", "shape", "volume", "runs_in"] {
+        assert!(template.get(key).is_some(), "{key}: {template}");
+    }
 }
 
 #[test]

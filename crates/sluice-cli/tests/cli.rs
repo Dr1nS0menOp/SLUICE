@@ -34,6 +34,10 @@ fn demo_then_analyze_agree() {
     // Demo sources leave the category unknown, so category rules apply: Sluice says so.
     assert!(summary.contains("add `complete: true`"), "{summary}");
     assert!(read(&demo.join("report.html")).contains("Sluice report"));
+    let plan: serde_json::Value =
+        serde_json::from_str(&read(&demo.join("plan.json"))).expect("the plan is JSON");
+    assert_eq!(plan["format"], "sluice.plan/1");
+    assert_eq!(plan["proof"]["holds"], true);
 
     let rules = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/rules/sigma");
     sluice(&[

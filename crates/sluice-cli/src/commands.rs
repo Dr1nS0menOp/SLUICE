@@ -4,8 +4,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use sluice_autopilot::{
-    Helpers, Input, RecipeBook, Report, RulesBasis, Sentinel, Settings, analyze as run_autopilot,
-    render_html,
+    Helpers, Input, RecipeBook, Report, RulesBasis, SavingsPlan, Sentinel, Settings,
+    analyze as run_autopilot, render_html,
 };
 use sluice_core::advice::Advisor;
 use sluice_core::alert::{EventRules, RuleEngine};
@@ -261,6 +261,8 @@ fn run(
         events,
         &paths,
     )?;
+    let plan = SavingsPlan::new(&analysis, &report, sources);
+    output::write(&out.join("plan.json"), &plan.to_json()?)?;
     output::write(&out.join("vector.yaml"), &config)?;
     output::write(&out.join("report.html"), &render_html(&report))?;
     output::write(
@@ -270,7 +272,8 @@ fn run(
 
     output::summary(&report, analysis.discovery.templates.len(), sources.len());
     println!(
-        "  wrote   {} and {}",
+        "  wrote   {} (the savings plan), {} and {}",
+        out.join("plan.json").display(),
         out.join("vector.yaml").display(),
         out.join("report.html").display()
     );

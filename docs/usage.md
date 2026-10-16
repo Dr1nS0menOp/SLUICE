@@ -85,7 +85,9 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
 4. **Read the report.** `report.html` shows the saving per source and template, the proof, and
    for every template that was not cut the reason (a rule reads that field, the template is rare,
    no recipe matches). `sluice analyze` also prints hints when a vague source description keeps
-   rules in scope.
+   rules in scope. The same decisions are in `plan.json`, for tools: per kind of event what may be
+   removed or counted, which events keep every field, and whether the saving can run in the
+   SIEM's own ingestion or needs a pipeline tool (ADR 0023).
 
 If you run Wazuh, `--wazuh-api https://manager:55000` additionally checks single events with the
 manager's own `logtest`, the exact engine your detections run on.

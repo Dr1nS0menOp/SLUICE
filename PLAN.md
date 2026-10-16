@@ -640,6 +640,11 @@ planned when it starts; it includes at least:
 
   Order: the plan and the Sentinel DCR generator first (Sentinel is the first audience), then
   Elastic and Splunk.
+
+  Status 2026-10-16 (ADR 0023): step 1 done for `sluice analyze` and `sluice demo`: `plan.json`
+  (`sluice.plan/1`) with the proof, and per source and kind of event its shape, removals,
+  keep-whole condition, counting, reasons and `runs_in` (step 4's "where it can run" is in the
+  plan; the report shows it next). The report still renders from its own model.
 - Requirements extractors and, where an engine can run offline, proofs for each SIEM's own rule
   language, in this order (decided 2026-10-14): Elastic first (KQL, EQL, ES|QL, detection
   rules; OpenSearch and the SIEMs built on it follow), then Splunk SPL (correlation searches),

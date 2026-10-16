@@ -193,6 +193,10 @@ explains the terms.
 - `sluice recipes schema|export` and a JSON Schema for recipes; `sluice rules requirements`.
 - Static musl binaries, a Docker image on Vector's distroless image, a compose example (ADR 0007),
   and a Helm chart.
+- `plan.json` (`sluice.plan/1`, ADR 0023), written by `sluice analyze` and `sluice demo`: the
+  savings plan for any tool, per source and kind of event what may be removed or counted, which
+  events keep every field, where each saving can run (a pipeline tool, or also the SIEM's own
+  ingestion), and the proof.
 - `scripts/real-data/`: collects real Windows, Linux and Sentinel events (kept outside the
   repository), sends Windows events through `sluice up` to a Sentinel workspace, and runs
   `sluice analyze` on them with SigmaHQ, the stock Wazuh ruleset and Microsoft's rules in the

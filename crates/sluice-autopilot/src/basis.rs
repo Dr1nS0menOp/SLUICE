@@ -3,7 +3,8 @@
 /// Why the rules of an analysis are, or are not, taken to be complete. Only complete rules let
 /// the guardrails summarize events: a rule Sluice was not given could match any event it would
 /// not forward.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RulesBasis {
     /// Nothing says the rules are complete: only savings that keep every event are made.
     #[default]
