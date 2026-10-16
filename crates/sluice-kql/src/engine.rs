@@ -86,6 +86,19 @@ impl Table {
         self.own_columns().chain(HIDDEN_COLUMNS.iter().copied())
     }
 
+    /// The table's columns as the tables API lists them: what a data flow into the table
+    /// carries when it has no stream of its own.
+    #[must_use]
+    pub fn column_names(self) -> Vec<&'static str> {
+        self.own_columns().map(|(name, _)| name).collect()
+    }
+
+    /// [`Table::column_names`] with their types.
+    #[must_use]
+    pub fn column_types(self) -> Vec<(&'static str, &'static str)> {
+        self.own_columns().collect()
+    }
+
     /// The columns the tables API lists, with their types.
     pub(crate) fn own_columns(self) -> impl Iterator<Item = (&'static str, &'static str)> {
         let own = match self {
@@ -273,7 +286,7 @@ fn first_line(message: &str) -> String {
 
 /// The record a table receives for an event: its columns, plus `Type`, which Log Analytics
 /// sets from the table. Fields that are not columns are left out, as the workspace drops them.
-pub(crate) fn record(table: Table, event: &Event) -> Value {
+fn record(table: Table, event: &Event) -> Value {
     let mut out = Map::new();
     for (column, _) in table.columns() {
         if let Some(value) = event.fields.get(column) {

@@ -137,6 +137,31 @@ fn counting_runs_only_in_a_pipeline_and_removing_fields_also_in_the_siem() {
 
     let rare = planned(&plan, "windows-security:4720:");
     assert!(rare.runs_in.is_empty(), "sent unchanged");
+
+    // The report says the same, in words.
+    let demo = demo();
+    let input = Input {
+        sources: &demo.sample.sources,
+        events: &demo.sample.events,
+        sigma: &demo.rules,
+        wazuh: None,
+        sentinel: None,
+    };
+    let report = Report::new(&demo.analysis, input);
+    let row = |id: &str| report.templates.iter().find(|t| t.id == id).expect("a row");
+    assert!(
+        row(&counted.id)
+            .runs_in
+            .as_deref()
+            .is_some_and(|r| r.contains("pipeline tool such as Vector"))
+    );
+    assert!(
+        row(&removed.id)
+            .runs_in
+            .as_deref()
+            .is_some_and(|r| r.contains("SIEM's own ingestion"))
+    );
+    assert_eq!(row(&rare.id).runs_in, None);
     assert!(
         rare.reasons.iter().any(|r| r.contains("rare")),
         "{:?}",

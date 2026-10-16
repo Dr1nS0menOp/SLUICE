@@ -94,6 +94,16 @@ pub(crate) fn adjustment(adjustment: &Adjustment) -> String {
     format!("{what} (contract rule {})", adjustment.contract.number())
 }
 
+/// Where a saving can run, in plain words; `None` when there is no saving.
+pub(crate) fn placements(placements: &[crate::plan::Placement]) -> Option<String> {
+    use crate::plan::Placement;
+    match placements {
+        [] => None,
+        [Placement::Pipeline] => Some("needs a pipeline tool such as Vector (counting)".to_owned()),
+        _ => Some("a pipeline tool, or the SIEM's own ingestion".to_owned()),
+    }
+}
+
 pub(crate) fn provenance(provenance: &Provenance) -> String {
     match provenance {
         Provenance::Community { recipe } => format!("community recipe {recipe}"),

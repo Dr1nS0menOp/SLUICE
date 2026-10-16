@@ -14,19 +14,22 @@ fn test(field: &str, op: MatchOp, values: &[&str], case_sensitive: bool) -> Pred
 #[test]
 fn field_tests_need_a_value_and_widen_on_structures() {
     let kql = compile(&test("EventID", MatchOp::Equals, &["4624"], false), &[]);
-    assert!(kql.starts_with("(isnotnull(['EventID']) and "), "{kql}");
+    assert!(
+        kql.starts_with(r#"(isnotnull(columnifexists("EventID", dynamic(null))) and "#),
+        "{kql}"
+    );
     assert!(
         kql.contains(
-            r#"gettype(['EventID']) in ("array", "dictionary", "real", "bool", "datetime""#
+            r#"gettype(columnifexists("EventID", dynamic(null))) in ("array", "dictionary", "real", "bool", "datetime""#
         )
     );
-    assert!(kql.contains(r#"tostring(['EventID']) =~ "4624""#));
+    assert!(kql.contains(r#"tostring(columnifexists("EventID", dynamic(null))) =~ "4624""#));
     // Case-insensitive tests widen on non-ASCII text, where case folding may differ.
     assert!(kql.contains("matches regex"));
 
     let exact = compile(&test("a.b", MatchOp::Contains, &["X"], true), &[]);
     assert!(
-        exact.contains(r#"tostring(['a']['b']) contains_cs "X""#),
+        exact.contains(r#"tostring(columnifexists("a", dynamic(null))['b']) contains_cs "X""#),
         "{exact}"
     );
     assert!(
@@ -62,7 +65,7 @@ fn keywords_scan_every_column() {
     });
     let kql = compile(&keywords, &["Message", "CommandLine"]);
     assert!(kql.contains(
-        r#"strcat_delim("\n", tostring(['Message']), tostring(['CommandLine'])) contains "mimikatz""#
+        r#"strcat_delim("\n", tostring(columnifexists("Message", dynamic(null))), tostring(columnifexists("CommandLine", dynamic(null)))) contains "mimikatz""#
     ));
     assert_eq!(compile(&keywords, &[]), "true", "no columns known");
     let none = Predicate::Keywords(KeywordTest {
@@ -107,7 +110,10 @@ fn a_field_or_column_name_kql_cannot_quote_widens_to_true() {
     });
     assert_eq!(compile(&keywords, &["Message", "bad\u{1}"]), "true");
     let newline = compile(&test("a\nb", MatchOp::Equals, &["x"], true), &[]);
-    assert!(newline.contains(r"['a\nb']"), "{newline}");
+    assert!(
+        newline.contains(r#"columnifexists("a\nb", dynamic(null))"#),
+        "{newline}"
+    );
 }
 
 #[test]
@@ -121,7 +127,9 @@ fn many_columns_nest_their_concatenation() {
     let kql = compile(&keywords, &names);
     for name in &names {
         assert!(
-            kql.contains(&format!("tostring(['{name}'])")),
+            kql.contains(&format!(
+                "tostring(columnifexists(\"{name}\", dynamic(null)))"
+            )),
             "{name} missing"
         );
     }
@@ -145,7 +153,10 @@ fn many_columns_nest_their_concatenation() {
 #[test]
 fn case_sensitive_non_ascii_values_are_compared_not_widened() {
     let kql = compile(&test("x", MatchOp::Equals, &["straße"], true), &[]);
-    assert!(kql.contains(r#"tostring(['x']) == "straße""#), "{kql}");
+    assert!(
+        kql.contains(r#"tostring(columnifexists("x", dynamic(null))) == "straße""#),
+        "{kql}"
+    );
 }
 
 #[test]

@@ -123,7 +123,11 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
         args.kusto
             .as_deref()
             .filter(|_| args.sentinel_native)
-            .map(|url| (url, args.sentinel_table.as_slice())),
+            .map(|url| Native {
+                url,
+                specs: &args.sentinel_table,
+                dcr: args.sentinel_dcr.as_deref(),
+            }),
     )
 }
 
@@ -235,6 +239,13 @@ fn recipe_book(extra: Option<&Path>) -> Result<RecipeBook> {
     )?)
 }
 
+/// What `--sentinel-native` asks for.
+struct Native<'a> {
+    url: &'a str,
+    specs: &'a [String],
+    dcr: Option<&'a Path>,
+}
+
 fn run(
     input: Input<'_>,
     book: &RecipeBook,
@@ -242,7 +253,7 @@ fn run(
     out: &Path,
     rules: RulesBasis,
     inventory_notes: Vec<String>,
-    native: Option<(&str, &[String])>,
+    native: Option<Native<'_>>,
 ) -> Result<()> {
     let Input {
         sources, events, ..
@@ -283,8 +294,8 @@ fn run(
         out.join("vector.yaml").display(),
         out.join("report.html").display()
     );
-    if let Some((url, specs)) = native {
-        crate::native::sentinel(&analysis, input, url, specs, out)?;
+    if let Some(native) = native {
+        crate::native::sentinel(&analysis, input, native.url, native.specs, native.dcr, out)?;
     }
     Ok(())
 }

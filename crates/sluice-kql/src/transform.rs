@@ -27,7 +27,7 @@ use sluice_core::predicate::Predicate;
 use sluice_core::template::{Template, TemplateShape};
 
 use crate::engine::Table;
-use crate::predicate::compile;
+use crate::predicate::compile_known;
 use crate::syntax;
 
 /// Columns Azure Monitor sets on the record itself, which a DCR transformation may not see.
@@ -45,9 +45,10 @@ pub const SERVICE_COLUMNS: [&str; 9] = [
 
 /// Functions a generated transformation calls, typed null literals included: all on the list
 /// DCR transformations accept (docs/notes/sentinel-dcr.md).
-pub const ALLOWED_FUNCTIONS: [&str; 17] = [
+pub const ALLOWED_FUNCTIONS: [&str; 18] = [
     "bool",
     "case",
+    "columnifexists",
     "datetime",
     "dynamic",
     "gettype",
@@ -67,6 +68,10 @@ pub const ALLOWED_FUNCTIONS: [&str; 17] = [
 
 /// Most arguments one `strcat` call is given.
 const STRCAT_MAX: usize = 60;
+
+/// The longest `transformKql` a data collection rule takes: Azure refuses a longer one with
+/// `InvalidTransform` (checked 2026-10-17).
+pub const MAX_TRANSFORM_KQL: usize = 15_360;
 
 /// One template and the recipe enforced on it.
 #[derive(Debug, Clone, Copy)]
@@ -108,12 +113,19 @@ type Recognition = (BTreeMap<String, String>, Vec<BTreeSet<String>>);
 /// Groups by signature, then by discriminator values.
 type Groups = BTreeMap<String, BTreeMap<Vec<(String, String)>, Group>>;
 
-/// The transformation for records of `table` carrying out `plans`' field removals.
+/// The transformation for records of `table` carrying out `plans`' field removals. `stream`
+/// is every column the transformation sees (the data flow's stream); naming any other is an
+/// error in a DCR, and a column outside it is always empty. Without a stream of its own, a data
+/// flow into a standard table carries the table's columns: [`Table::column_names`].
 #[must_use]
-pub fn transformation(table: Table, plans: &[TransformPlan<'_>]) -> Transformation {
+pub fn transformation(
+    table: Table,
+    stream: &[&str],
+    plans: &[TransformPlan<'_>],
+) -> Transformation {
     let columns: Vec<(&str, &str)> = table
         .own_columns()
-        .filter(|(name, _)| !SERVICE_COLUMNS.contains(name))
+        .filter(|(name, _)| !SERVICE_COLUMNS.contains(name) && stream.contains(name))
         .collect();
     let types: BTreeMap<&str, &str> = columns.iter().copied().collect();
     let mut left_out = Vec::new();
@@ -167,8 +179,30 @@ pub fn transformation(table: Table, plans: &[TransformPlan<'_>]) -> Transformati
             group.keep_whole.extend(plan.recipe.keep_whole_when.clone());
         }
     }
-    // Under one signature, groups must test the same discriminator fields with different
-    // values; otherwise one record could fit two of them.
+    let kept = separable(groups, &mut left_out);
+    let rest: Vec<(&str, &str)> = columns
+        .iter()
+        .copied()
+        .filter(|(name, _)| !used.contains(name))
+        .collect();
+    let mut transformation = render(&signed, &rest, stream, &kept, left_out);
+    if transformation.kql.len() > MAX_TRANSFORM_KQL {
+        transformation.left_out.push(format!(
+            "the transformation would be {} characters, more than the {MAX_TRANSFORM_KQL} a data \
+             collection rule takes, so nothing is removed",
+            transformation.kql.len()
+        ));
+        "source".clone_into(&mut transformation.kql);
+        transformation.templates.clear();
+        transformation.columns.clear();
+    }
+    transformation
+}
+
+/// The groups a record can be placed in without doubt that remove something. Under one
+/// signature, groups must test the same discriminator fields with different values; otherwise
+/// one record could fit two of them, and none of them is used.
+fn separable(mut groups: Groups, left_out: &mut Vec<String>) -> Vec<(String, Group)> {
     for by_values in groups.values_mut() {
         let fields: BTreeSet<Vec<&String>> = by_values
             .values()
@@ -199,12 +233,7 @@ pub fn transformation(table: Table, plans: &[TransformPlan<'_>]) -> Transformati
             }
         }
     }
-    let rest: Vec<(&str, &str)> = columns
-        .iter()
-        .copied()
-        .filter(|(name, _)| !used.contains(name))
-        .collect();
-    render(&signed, &rest, &columns, &kept, left_out)
+    kept
 }
 
 /// The columns a plan removes that the transformation can empty: whole columns of the table,
@@ -304,11 +333,11 @@ fn empty(column: &str, kind: &str) -> String {
 }
 
 /// `signed` are the columns of the signature, `rest` the columns that must be empty, and
-/// `columns` every column (keyword tests scan them all).
+/// `stream` every column (keyword tests scan them all).
 fn render(
     signed: &[(&str, &str)],
     rest: &[(&str, &str)],
-    columns: &[(&str, &str)],
+    stream: &[&str],
     groups: &[(String, Group)],
     left_out: Vec<String>,
 ) -> Transformation {
@@ -321,11 +350,10 @@ fn render(
     if groups.is_empty() {
         return transformation;
     }
-    let names: Vec<&str> = columns.iter().map(|(name, _)| *name).collect();
-    let types: BTreeMap<&str, &str> = columns.iter().copied().collect();
+    let types: BTreeMap<&str, &str> = signed.iter().chain(rest).copied().collect();
     let bits: Vec<String> = signed
         .iter()
-        .map(|(name, kind)| format!(r#"iff({}, "0", "1")"#, empty(&column(name), kind)))
+        .map(|(name, kind)| format!(r#"iff({}, "0", "1")"#, empty(&read(name), kind)))
         .collect();
     // A dynamic `{}` counts as text here, so a record holding one keeps every column.
     let rest_empty = if rest.is_empty() {
@@ -333,7 +361,7 @@ fn render(
     } else {
         let texts: Vec<String> = rest
             .iter()
-            .map(|(name, _)| format!("tostring({})", column(name)))
+            .map(|(name, _)| format!("tostring({})", read(name)))
             .collect();
         format!("isempty({})", strcat(&texts))
     };
@@ -347,7 +375,7 @@ fn render(
             .map(|(name, value)| {
                 let literal = syntax::string(value)
                     .expect("recognition kept only values a literal can carry");
-                format!("tostring({}) == {literal}", column(name))
+                format!("tostring({}) == {literal}", read(name))
             })
             .collect();
         tests.push(format!("__sluice_s == \"{signature}\" and __sluice_r"));
@@ -355,7 +383,7 @@ fn render(
         let keep = if group.keep_whole.is_empty() {
             "false".to_owned()
         } else {
-            compile(&Predicate::any(group.keep_whole.clone()), &names)
+            compile_known(&Predicate::any(group.keep_whole.clone()), stream)
         };
         let condition = format!("(__sluice_t == \"{label}\" and not({keep}))");
         for name in group.removes.iter().flatten() {
@@ -379,9 +407,10 @@ fn render(
     for (name, conditions) in &removed {
         let quoted = column(name);
         lines.push(format!(
-            "| extend {quoted} = iff({}, {}, {quoted})",
+            "| extend {quoted} = iff({}, {}, {})",
             conditions.join(" or "),
-            empty_value(types.get(name.as_str()).copied().unwrap_or("string"))
+            empty_value(types.get(name.as_str()).copied().unwrap_or("string")),
+            read(name)
         ));
         transformation.columns.insert(name.clone());
     }
@@ -390,8 +419,14 @@ fn render(
     transformation
 }
 
+/// A column as the target of `extend`.
 fn column(name: &str) -> String {
     syntax::quoted_name(name).expect("table schema names hold no control characters")
+}
+
+/// A column read; every column read is one the stream has.
+fn read(name: &str) -> String {
+    column(name)
 }
 
 /// `parts` concatenated, nesting `strcat` where one call would take too many arguments.
@@ -414,35 +449,48 @@ fn empty_value(kind: &str) -> String {
 }
 
 /// Runs a transformation's `kql` on `events` in the Kusto emulator at `url`, as a DCR runs it on
-/// records of `table`. Returns each event's record afterwards, in the order of `events`, with
-/// its non-empty columns only (an empty column and a missing one are the same to the table).
+/// a stream with `columns` (name and type, as a stream declaration gives them). Returns each
+/// event's record afterwards, in the order of `events`, with its non-empty columns only (an
+/// empty column and a missing one are the same to the table).
 ///
 /// # Errors
 ///
 /// Returns [`crate::KustoError`] if the emulator cannot be used or rejects the transformation.
 pub fn run_transformation(
     url: &str,
-    table: Table,
+    columns: &[(&str, &str)],
     kql: &str,
     events: &[&sluice_core::event::Event],
 ) -> Result<Vec<serde_json::Map<String, serde_json::Value>>, crate::KustoError> {
-    use serde_json::{Value, json};
+    use serde_json::{Map, Value, json};
 
     const ROW: &str = "__sluice_n";
     let client = crate::engine::Client::new(url);
     let database = crate::engine::Database::create(&client)?;
-    let mut columns: Vec<(&str, &str)> = table.own_columns().collect();
-    columns.push((ROW, "long"));
+    // Stream declarations say `boolean`; Kusto calls it `bool`.
+    let mut declared: Vec<(&str, &str)> = columns
+        .iter()
+        .map(|(name, kind)| (*name, if *kind == "boolean" { "bool" } else { *kind }))
+        .collect();
+    declared.push((ROW, "long"));
     let records: Vec<Value> = events
         .iter()
         .enumerate()
         .map(|(n, event)| {
-            let mut record = crate::engine::record(table, event);
-            record[ROW] = json!(n);
-            record
+            let mut record: Map<String, Value> = columns
+                .iter()
+                .filter_map(|(name, _)| {
+                    event
+                        .fields
+                        .get(*name)
+                        .map(|v| ((*name).to_owned(), v.clone()))
+                })
+                .collect();
+            record.insert(ROW.to_owned(), json!(n));
+            Value::Object(record)
         })
         .collect();
-    database.load_table("SluiceInput", &columns, &records)?;
+    database.load_table("SluiceInput", &declared, &records)?;
     let query = format!(
         "{}\n| order by {ROW} asc",
         kql.replacen("source", "SluiceInput", 1)
@@ -470,7 +518,6 @@ pub fn run_transformation(
         })
         .collect()
 }
-
 /// The functions `kql` calls (an identifier right before `(`, outside string literals) that are
 /// not in [`ALLOWED_FUNCTIONS`]. Empty for every transformation Sluice generates.
 #[must_use]

@@ -15,25 +15,100 @@ use serde_json::{Map, Value};
 use sluice_autopilot::{Analysis, Input};
 use sluice_core::event::Event;
 use sluice_core::reduce::{Outcome, Reducer};
-use sluice_kql::{Table, TransformPlan, disallowed_functions, run_transformation, transformation};
+use sluice_kql::{
+    MAX_TRANSFORM_KQL, Table, TransformPlan, disallowed_functions, run_transformation,
+    transformation,
+};
 
-/// Writes and proves a transformation for each `SOURCE=TABLE` in `specs`.
+/// Writes and proves a transformation for each `SOURCE=TABLE` in `specs`. `dcr` is the data
+/// collection rule the records go through, if it has a stream of its own.
 pub(crate) fn sentinel(
     analysis: &Analysis,
     input: Input<'_>,
     url: &str,
     specs: &[String],
+    dcr: Option<&Path>,
     out: &Path,
 ) -> Result<()> {
+    let dcr: Option<Value> = dcr
+        .map(|path| -> Result<Value> {
+            let text = std::fs::read_to_string(path)
+                .with_context(|| format!("reading {}", path.display()))?;
+            serde_json::from_str(&text).with_context(|| format!("{}: not JSON", path.display()))
+        })
+        .transpose()?;
     for spec in specs {
         let (source, table) = spec
             .split_once('=')
             .with_context(|| format!("--sentinel-table {spec}: expected SOURCE=TABLE"))?;
         let table = Table::from_name(table.trim())
             .with_context(|| format!("--sentinel-table {spec}: unknown table"))?;
-        one(analysis, input, url, source.trim(), table, out)?;
+        let flow = Flow::of(dcr.as_ref(), table)?;
+        one(analysis, input, url, source.trim(), table, &flow, out)?;
     }
     Ok(())
+}
+
+/// What a data flow into `table` gives the transformation: the stream's columns, and the
+/// transformation the flow already has, which Sluice's runs after.
+struct Flow {
+    /// Name and type of each column, as the stream declares it.
+    stream: Vec<(String, String)>,
+    before: String,
+}
+
+impl Flow {
+    fn of(dcr: Option<&Value>, table: Table) -> Result<Self> {
+        let Some(dcr) = dcr else {
+            return Ok(Self {
+                stream: table
+                    .column_types()
+                    .into_iter()
+                    .map(|(name, kind)| (name.to_owned(), kind.to_owned()))
+                    .collect(),
+                before: "source".to_owned(),
+            });
+        };
+        let output = format!("Microsoft-{}", table.name());
+        let properties = &dcr["properties"];
+        let flow = properties["dataFlows"]
+            .as_array()
+            .and_then(|flows| flows.iter().find(|f| f["outputStream"] == output.as_str()))
+            .with_context(|| format!("the data collection rule has no data flow into {output}"))?;
+        let stream = flow["streams"][0]
+            .as_str()
+            .context("the data flow names no stream")?;
+        let stream: Vec<(String, String)> = properties["streamDeclarations"][stream]["columns"]
+            .as_array()
+            .with_context(|| format!("the data collection rule does not declare {stream}"))?
+            .iter()
+            .filter_map(|c| {
+                Some((
+                    c["name"].as_str()?.to_owned(),
+                    c["type"].as_str()?.to_owned(),
+                ))
+            })
+            .collect();
+        let before = flow["transformKql"]
+            .as_str()
+            .unwrap_or("source")
+            .trim()
+            .to_owned();
+        if !before.starts_with("source") {
+            bail!(
+                "the data flow into {output} has a transformation that does not start with `source`"
+            );
+        }
+        Ok(Self { stream, before })
+    }
+
+    /// The flow's transformation followed by `kql` (which starts with `source`).
+    fn then(&self, kql: &str) -> String {
+        if kql == "source" {
+            return self.before.clone();
+        }
+        format!("{}{}", self.before, &kql["source".len()..])
+    }
 }
 
 fn one(
@@ -42,6 +117,7 @@ fn one(
     url: &str,
     source: &str,
     table: Table,
+    flow: &Flow,
     out: &Path,
 ) -> Result<()> {
     let events: Vec<&Event> = input
@@ -67,15 +143,30 @@ fn one(
         .filter(|(template, _)| template.source.as_str() == source)
         .map(|(template, recipe)| TransformPlan { template, recipe })
         .collect();
-    let generated = transformation(table, &plans);
+    let stream: Vec<&str> = flow.stream.iter().map(|(name, _)| name.as_str()).collect();
+    let declared: Vec<(&str, &str)> = flow
+        .stream
+        .iter()
+        .map(|(name, kind)| (name.as_str(), kind.as_str()))
+        .collect();
+    let generated = transformation(table, &stream, &plans);
     let unsupported = disallowed_functions(&generated.kql);
     if !unsupported.is_empty() {
         bail!(
             "{source}: the transformation calls {unsupported:?}, which DCRs refuse (a Sluice bug)"
         );
     }
+    let kql = flow.then(&generated.kql);
+    if kql.len() > MAX_TRANSFORM_KQL {
+        println!(
+            "  native  {source}: not written: with the data flow's own transformation it would be \
+             {} characters, more than the {MAX_TRANSFORM_KQL} a data collection rule takes",
+            kql.len()
+        );
+        return Ok(());
+    }
 
-    let after = run_transformation(url, table, &generated.kql, &events)
+    let after = run_transformation(url, &declared, &kql, &events)
         .with_context(|| format!("{source}: running the transformation in the emulator"))?;
     let violations = beyond_vector(analysis, &events, &after, &generated.columns)?;
     if let Some(first) = violations.first() {
@@ -85,39 +176,12 @@ fn one(
             violations.len()
         );
     }
-    let transformed: Vec<Event> = events
-        .iter()
-        .zip(&after)
-        .map(|(event, record)| Event {
-            fields: record.clone(),
-            ..(*event).clone()
-        })
-        .collect();
-    let alerts = match input.sentinel.and_then(|s| s.engine) {
-        Some(engine) => {
-            let full = engine
-                .alerts_refs(&events)
-                .context("rules on the full records")?;
-            let changed = engine
-                .alerts(&transformed)
-                .context("rules on the transformed records")?;
-            if full != changed {
-                bail!(
-                    "{source}: the transformation changes detections ({} alerts on full records, \
-                     {} on transformed ones); nothing was written",
-                    full.len(),
-                    changed.len()
-                );
-            }
-            Some(full.len())
-        }
-        None => None,
-    };
+    let alerts = same_alerts(input, source, &events, &after)?;
 
     let path = out.join("sentinel").join(format!("{source}.transform.kql"));
-    crate::output::write(&path, &(generated.kql.clone() + "\n"))?;
+    crate::output::write(&path, &(kql.clone() + "\n"))?;
     // Both sides as the engine holds them: typed values, table columns only.
-    let untouched = run_transformation(url, table, "source", &events)
+    let untouched = run_transformation(url, &declared, &flow.before, &events)
         .with_context(|| format!("{source}: reading the records in the emulator"))?;
     let before: usize = untouched.iter().map(size).sum();
     let kept: usize = after.iter().map(size).sum();
@@ -146,6 +210,42 @@ fn one(
         println!("          … and {} more", generated.left_out.len() - 5);
     }
     Ok(())
+}
+
+/// The alerts Microsoft's rules raise on the full records, if they raise the same on the
+/// transformed ones; `None` without Sentinel rules to run.
+fn same_alerts(
+    input: Input<'_>,
+    source: &str,
+    events: &[&Event],
+    after: &[Map<String, Value>],
+) -> Result<Option<usize>> {
+    let Some(engine) = input.sentinel.and_then(|s| s.engine) else {
+        return Ok(None);
+    };
+    let transformed: Vec<Event> = events
+        .iter()
+        .zip(after)
+        .map(|(event, record)| Event {
+            fields: record.clone(),
+            ..(*event).clone()
+        })
+        .collect();
+    let full = engine
+        .alerts_refs(events)
+        .context("rules on the full records")?;
+    let changed = engine
+        .alerts(&transformed)
+        .context("rules on the transformed records")?;
+    if full != changed {
+        bail!(
+            "{source}: the transformation changes detections ({} alerts on full records, {} on \
+             transformed ones); nothing was written",
+            full.len(),
+            changed.len()
+        );
+    }
+    Ok(Some(full.len()))
 }
 
 /// Columns the transformation emptied on a record that the data plane keeps on it.

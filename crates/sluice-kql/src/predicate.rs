@@ -30,9 +30,22 @@ const STRCAT_MAX: usize = 60;
 const NON_ASCII: &str = r#""[^\\x00-\\x7f]""#;
 
 /// Compiles `predicate` to a KQL expression over the columns of the column model. `columns` is
-/// every top-level field of the source, which keyword tests scan.
+/// every top-level field of the source, which keyword tests scan. A column the record may lack
+/// is read with `columnifexists`.
 #[must_use]
 pub fn compile(predicate: &Predicate, columns: &[&str]) -> String {
+    compile_in(predicate, columns, None)
+}
+
+/// As [`compile`] for records whose every possible column is in `columns` (a DCR stream): those
+/// are read by name, and a field outside them is missing.
+#[must_use]
+pub(crate) fn compile_known(predicate: &Predicate, columns: &[&str]) -> String {
+    let known: syntax::Columns = columns.iter().map(|c| (*c).to_owned()).collect();
+    compile_in(predicate, columns, Some(&known))
+}
+
+fn compile_in(predicate: &Predicate, columns: &[&str], known: Option<&syntax::Columns>) -> String {
     match predicate {
         Predicate::Always => "true".to_owned(),
         Predicate::Any(parts) if parts.is_empty() => "false".to_owned(),
@@ -40,27 +53,27 @@ pub fn compile(predicate: &Predicate, columns: &[&str]) -> String {
         Predicate::Any(parts) => balanced(
             &parts
                 .iter()
-                .map(|p| compile(p, columns))
+                .map(|p| compile_in(p, columns, known))
                 .collect::<Vec<_>>(),
             " or ",
         ),
         Predicate::All(parts) => balanced(
             &parts
                 .iter()
-                .map(|p| compile(p, columns))
+                .map(|p| compile_in(p, columns, known))
                 .collect::<Vec<_>>(),
             " and ",
         ),
-        Predicate::Field(test) => field(test),
-        Predicate::Keywords(test) => keywords(test, columns),
+        Predicate::Field(test) => field(test, known),
+        Predicate::Keywords(test) => keywords(test, columns, known),
     }
 }
 
-fn field(test: &FieldTest) -> String {
+fn field(test: &FieldTest, known: Option<&syntax::Columns>) -> String {
     if test.op == MatchOp::Exists || test.values.is_empty() {
         return "true".to_owned();
     }
-    let Some(value) = syntax::path(&test.field) else {
+    let Some(value) = syntax::path_in(&test.field, known) else {
         return "true".to_owned();
     };
     let rendered = format!("tostring({value})");
@@ -83,7 +96,7 @@ fn field(test: &FieldTest) -> String {
     )
 }
 
-fn keywords(test: &KeywordTest, columns: &[&str]) -> String {
+fn keywords(test: &KeywordTest, columns: &[&str], known: Option<&syntax::Columns>) -> String {
     if test.values.is_empty() {
         return "false".to_owned();
     }
@@ -92,7 +105,13 @@ fn keywords(test: &KeywordTest, columns: &[&str]) -> String {
     }
     let Some(names) = columns
         .iter()
-        .map(|c| syntax::quoted_name(c))
+        .map(|c| {
+            if known.is_some() {
+                syntax::quoted_name(c)
+            } else {
+                syntax::column(c)
+            }
+        })
         .collect::<Option<Vec<String>>>()
     else {
         return "true".to_owned();

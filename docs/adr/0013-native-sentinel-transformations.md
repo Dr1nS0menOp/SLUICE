@@ -1,6 +1,6 @@
 # ADR 0013: Native Sentinel transformations, proven like VRL
 
-- Status: Accepted (steps 1, 2 and the proof of 4 done; 3 open)
+- Status: Accepted (steps 1, 2 and 4 done; 3 open)
 - Date: 2026-10-10
 
 ## Context
@@ -80,7 +80,13 @@ The constraints (docs/notes/sentinel-dcr.md) shape everything:
    done 2026-10-17**: `--sentinel-native` runs the transformation on the sample in the emulator,
    checks that every column it empties on a record the proven data plane removes from it too,
    and that Microsoft's rules raise the same alerts on the transformed records; only then is
-   `sentinel/SOURCE.transform.kql` written. On the 40,590 records of the test workspace (Windows
+   `sentinel/SOURCE.transform.kql` written. The transformation names only columns of the data
+   flow's stream (from `--sentinel-dcr RULE.json`, else the table's), runs after the flow's own
+   transformation, and is refused above the 15,360 characters a rule takes
+   (docs/notes/sentinel-dcr.md). On the 40,590 records of the test workspace (Windows
    Security Events solution): `SecurityEvent` 33.5 → 32.1 MB (4.1 %, `EventData` of 4672 and
    4798), `WindowsEvent` unchanged, 9.7 KB of KQL. The emulator test in `transform/tests.rs`
-   (run by `scripts/kql-check.sh`) checks recognition on records built for each edge.
+   (run by `scripts/kql-check.sh`) checks recognition on records built for each edge. **In a
+   real rule 2026-10-17**: Azure accepted the transformation and, on 150 real records, emptied
+   exactly the columns the emulator did (docs/notes/sentinel-dcr.md;
+   `scripts/real-data/try-dcr-native.sh`).

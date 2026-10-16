@@ -42,6 +42,7 @@ fn hostile() -> Report {
             actions: vec![HOSTILE.into()],
             adjustments: vec![HOSTILE.into()],
             provenance: Some(HOSTILE.into()),
+            runs_in: Some(HOSTILE.into()),
         }],
         coverage_gaps: vec![HOSTILE.into()],
         problems: vec![HOSTILE.into()],

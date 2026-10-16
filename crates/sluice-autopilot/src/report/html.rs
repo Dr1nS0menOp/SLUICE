@@ -177,11 +177,17 @@ fn templates(rows: &[TemplateRow]) -> String {
 fn template_row(row: &TemplateRow) -> String {
     let v = &row.volume;
     let saved = percent(v.bytes_in - v.bytes_out.min(v.bytes_in), v.bytes_in);
-    let actions = if row.actions.is_empty() {
+    let mut actions = if row.actions.is_empty() {
         "<span class=\"muted\">forwarded unchanged</span>".to_owned()
     } else {
         list(&row.actions)
     };
+    if let Some(runs_in) = &row.runs_in {
+        actions = format!(
+            "{actions}<div class=\"muted\">runs in: {}</div>",
+            escape(runs_in)
+        );
+    }
     let mut why = list(&row.adjustments);
     if let Some(provenance) = &row.provenance {
         why = format!("<div class=\"muted\">{}</div>{why}", escape(provenance));

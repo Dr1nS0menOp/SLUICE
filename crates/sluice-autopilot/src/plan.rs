@@ -179,6 +179,17 @@ impl SavingsPlan {
     }
 }
 
+/// Where `recipe`'s saving can run; none when it changes nothing.
+pub(crate) fn placements(recipe: &EffectiveRecipe) -> Vec<Placement> {
+    if recipe.is_passthrough() {
+        Vec::new()
+    } else if recipe.route == Route::ForwardAll {
+        vec![Placement::Pipeline, Placement::SiemIngest]
+    } else {
+        vec![Placement::Pipeline]
+    }
+}
+
 fn template_plan(
     analysis: &Analysis,
     template: &Template,
@@ -194,13 +205,7 @@ fn template_plan(
             keys: summary_keys.clone(),
         }),
     };
-    let runs_in = if recipe.is_passthrough() {
-        Vec::new()
-    } else if count_instead.is_some() {
-        vec![Placement::Pipeline]
-    } else {
-        vec![Placement::Pipeline, Placement::SiemIngest]
-    };
+    let runs_in = placements(recipe);
     TemplatePlan {
         id: template.id.to_string(),
         pattern: template.pattern.clone(),

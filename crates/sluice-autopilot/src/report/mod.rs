@@ -72,6 +72,8 @@ pub struct TemplateRow {
     pub adjustments: Vec<String>,
     /// Where the proposal came from, if there was one.
     pub provenance: Option<String>,
+    /// Where the saving can run, in plain words; `None` when the template is sent unchanged.
+    pub runs_in: Option<String>,
 }
 
 impl Report {
@@ -172,6 +174,7 @@ fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> Te
             .proposals
             .get(&template.id)
             .map(|p| text::provenance(p.provenance())),
+        runs_in: text::placements(&crate::plan::placements(recipe)),
     }
 }
 

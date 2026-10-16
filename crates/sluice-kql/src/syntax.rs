@@ -9,10 +9,30 @@ pub(crate) fn string(value: &str) -> Option<String> {
 }
 
 /// The value at `path` in the column model: the first segment is a column, the rest index into
-/// it as a dynamic object (`['process']['name']`). Every name is quoted, so any field name is a
-/// valid identifier; `None` if a segment holds a control character [`string`] refuses.
-pub(crate) fn path(path: &FieldPath) -> Option<String> {
-    path.segments().map(quoted_name).collect()
+/// it as a dynamic object (`columnifexists("process", dynamic(null))['name']`). Every name is
+/// quoted, so any field name is a valid identifier; `None` if a segment holds a control
+/// character [`string`] refuses. With `known` (every column the record can have), a column in
+/// it is read by name (shorter), and one outside it is `dynamic(null)`, as missing as it can be.
+pub(crate) fn path_in(path: &FieldPath, known: Option<&Columns>) -> Option<String> {
+    let mut segments = path.segments();
+    let name = segments.next()?;
+    let first = match known {
+        None => column(name)?,
+        Some(known) if known.contains(name) => quoted_name(name)?,
+        Some(_) => return Some("dynamic(null)".to_owned()),
+    };
+    let rest: Option<Vec<String>> = segments.map(quoted_name).collect();
+    rest.map(|rest| first + &rest.concat())
+}
+
+/// The columns a record can have, when they are known.
+pub(crate) type Columns = std::collections::BTreeSet<String>;
+
+/// A column read that is null where the record has no such column. A DCR transformation sees
+/// only the columns of its stream, and naming any other is an error (checked 2026-10-17), so
+/// every column is read this way: where it exists, it is the column itself.
+pub(crate) fn column(name: &str) -> Option<String> {
+    string(name).map(|name| format!("columnifexists({name}, dynamic(null))"))
 }
 
 /// A bracket-quoted name: `['a b']`, or `None` as for [`string`].
@@ -53,12 +73,19 @@ mod tests {
     }
 
     #[test]
-    fn paths_quote_every_segment() {
+    fn paths_read_their_column_if_it_exists_and_quote_every_segment() {
         assert_eq!(
-            path(&"process.name".into()).as_deref(),
-            Some("['process']['name']")
+            path_in(&"process.name".into(), None).as_deref(),
+            Some(r#"columnifexists("process", dynamic(null))['name']"#)
         );
-        assert_eq!(path(&"it's".into()).as_deref(), Some(r"['it\'s']"));
+        assert_eq!(
+            path_in(&"it's.a\"b".into(), None).as_deref(),
+            Some(r#"columnifexists("it's", dynamic(null))['a"b']"#)
+        );
+        assert_eq!(
+            column("x\"y").as_deref(),
+            Some(r#"columnifexists("x\"y", dynamic(null))"#)
+        );
     }
 
     #[test]
@@ -69,7 +96,7 @@ mod tests {
             Some(r#"['say "hi"']"#)
         );
         assert_eq!(quoted_name("a\u{7}b"), None);
-        assert_eq!(path(&"ok.a\u{1b}b".into()), None);
+        assert_eq!(path_in(&"ok.a\u{1b}b".into(), None), None);
     }
 
     #[test]

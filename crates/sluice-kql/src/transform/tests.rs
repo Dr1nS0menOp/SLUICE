@@ -71,7 +71,11 @@ fn of(plans: &[(&Template, &EffectiveRecipe)]) -> Transformation {
         .iter()
         .map(|(template, recipe)| TransformPlan { template, recipe })
         .collect();
-    transformation(Table::SecurityEvent, &plans)
+    transformation(
+        Table::SecurityEvent,
+        &Table::SecurityEvent.column_names(),
+        &plans,
+    )
 }
 
 #[test]
@@ -376,4 +380,72 @@ fn c1_in_the_kql_engine_only_records_of_the_template_lose_the_column() {
     .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
     .collect();
     assert_eq!(seen, expected, "{}", out.kql);
+}
+
+#[test]
+fn only_columns_of_the_stream_are_named_and_a_template_needing_another_is_left_alone() {
+    let t = privileges();
+    let recipe = removing(
+        t.id.as_str(),
+        &["EventData"],
+        Some(eq("SubjectUserName", "x")),
+    );
+    let plans = [TransformPlan {
+        template: &t,
+        recipe: &recipe,
+    }];
+    let without = |left: &str| -> Vec<&str> {
+        Table::SecurityEvent
+            .column_names()
+            .into_iter()
+            .filter(|c| *c != left)
+            .collect()
+    };
+    let out = transformation(Table::SecurityEvent, &without("SubjectUserName"), &plans);
+    assert_ne!(out.kql, "source");
+    assert!(
+        !out.kql.contains("['SubjectUserName']"),
+        "a column the stream lacks: {}",
+        out.kql
+    );
+    assert!(
+        !out.kql.contains("columnifexists"),
+        "every column read is in the stream"
+    );
+
+    let out = transformation(Table::SecurityEvent, &without("PrivilegeList"), &plans);
+    assert_eq!(out.kql, "source", "its records cannot arrive whole");
+    assert!(
+        out.left_out.iter().any(|r| r.contains("PrivilegeList")),
+        "{:?}",
+        out.left_out
+    );
+}
+
+#[test]
+fn a_transformation_longer_than_a_rule_takes_removes_nothing() {
+    let templates: Vec<Template> = (0..400)
+        .map(|n| {
+            template(
+                &format!("SecurityEvent:{n}:a"),
+                &[("EventID", &n.to_string())],
+                &[&["EventID", "Computer", "EventData"]],
+            )
+        })
+        .collect();
+    let recipes: Vec<EffectiveRecipe> = templates
+        .iter()
+        .map(|t| removing(t.id.as_str(), &["EventData"], None))
+        .collect();
+    let plans: Vec<(&Template, &EffectiveRecipe)> = templates.iter().zip(&recipes).collect();
+    let out = of(&plans);
+    assert_eq!(out.kql, "source");
+    assert!(out.columns.is_empty() && out.templates.is_empty());
+    assert!(
+        out.left_out
+            .iter()
+            .any(|r| r.contains(&MAX_TRANSFORM_KQL.to_string())),
+        "{:?}",
+        out.left_out.last()
+    );
 }

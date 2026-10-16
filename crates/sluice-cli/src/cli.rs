@@ -414,6 +414,12 @@ pub(crate) struct AnalyzeArgs {
     /// table, where empty and missing columns are the same.
     #[arg(long, requires = "sentinel_table")]
     pub(crate) sentinel_native: bool,
+    /// The data collection rule (JSON, as Azure or `sluice agent windows --dcr` gives it) the
+    /// records go through, for `--sentinel-native`: its stream's columns are what the
+    /// transformation sees, and it runs after the data flow's own transformation. Without it,
+    /// the table's columns.
+    #[arg(long, value_name = "FILE", requires = "sentinel_native")]
+    pub(crate) sentinel_dcr: Option<PathBuf>,
     /// Wazuh manager API (for example `https://wazuh:55000`) to spot-check reductions with its
     /// real decoders and rules through `logtest`. The password is read from
     /// `WAZUH_API_PASSWORD`.

@@ -22,6 +22,29 @@ Kusto emulator (`mcr.microsoft.com/azuredataexplorer/kustainer-linux:latest`, di
 - Type and conditional functions: `gettype`, `isnull`, `isnotnull`, `isempty`, `isnotempty`,
   `iif`/`iff`, `case`, conversion (`tostring`, `toint`, `tolong`, …).
 
+## Limits found while deploying a transformation (2026-10-17)
+
+- **`transformKql` takes at most 15,360 characters.** A longer one is refused when the rule is
+  saved: `InvalidTransform: 'TransformKql' length should be 15360 characters or less`.
+- **A transformation sees only its stream's columns.** Naming a column the stream does not
+  declare is an error (the emulator answers 400). The stream of `sluice agent windows --dcr` has
+  218 of `SecurityEvent`'s 232 columns. `columnifexists("X", default)` reads a column that may be
+  missing; the default's type need not match the column's.
+- A rule's own transformation runs on the stream's types: `toguid()` takes the `string` GUID
+  columns the stream declares, and refuses a `guid`.
+- Records sent with a value of the wrong type for a stream column (a number for a `string`
+  column) arrive with that column empty.
+- A 9,630-character transformation from `sluice analyze --sentinel-native --sentinel-dcr` was
+  accepted by Azure in the `sluice-windows` rule of the test workspace. On 150 real Security
+  records sent through it (`scripts/real-data/try-dcr-native.sh`), Azure and the emulator
+  agreed on every record: `EventData` emptied on 7 of 50 4672 and 16 of 50 4798 records (the
+  others have another key set or a rule that may match keeps them whole), none of 50 4624.
+  Average `_BilledSize`: 4672 1,076 bytes and 4798 786, where the full records of the same
+  workspace average 1,168 and 1,029.
+- A marker for test records must not touch a column the transformation recognises records by:
+  an `EventRecordId` changed for that broke recognition, and nothing was emptied. Azure's own
+  `TimeGenerated` works.
+
 ## KQL semantics checked in the emulator
 
 | Expression | Result | Consequence |

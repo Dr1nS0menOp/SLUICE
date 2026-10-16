@@ -200,7 +200,10 @@ explains the terms.
 - `sluice analyze --sentinel-native`: per `--sentinel-table` source, a data collection rule
   `transformKql` that makes the plan's field removals in Sentinel's own ingestion, without
   Vector, written only after the Kusto emulator shows it empties nothing the proven data plane
-  keeps and changes no alert of Microsoft's rules (ADR 0013).
+  keeps and changes no alert of Microsoft's rules (ADR 0013). `--sentinel-dcr RULE.json`
+  gives the data flow's stream and its own transformation; the result stays within the 15,360
+  characters a rule takes. Tried in a real rule: Azure emptied exactly what the emulator did.
+- The report says per kind of event where its saving can run.
 - `scripts/real-data/`: collects real Windows, Linux and Sentinel events (kept outside the
   repository), sends Windows events through `sluice up` to a Sentinel workspace, and runs
   `sluice analyze` on them with SigmaHQ, the stock Wazuh ruleset and Microsoft's rules in the
