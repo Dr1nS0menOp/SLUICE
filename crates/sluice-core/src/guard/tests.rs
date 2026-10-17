@@ -206,6 +206,32 @@ fn c3_raw_text_rule_keeps_text_fields() {
 }
 
 #[test]
+fn c3_a_raw_text_rule_reads_every_field_of_a_json_record() {
+    // Splunk's `_raw` of a JSON event is the whole object: a bare term such as `mimikatz` may
+    // match a short value the text-field heuristic does not mark, such as an image path.
+    let mut splunk = rule("splunk:kw", &["EventID"], Predicate::Always);
+    splunk.matches_raw_text = true;
+    let everything = recipe(vec![drop(&["LogonType"]), Reduction::DropEmptyFields]);
+    let effective = guard(&template(), Some(&everything), ctx(&[splunk.clone()]));
+    assert!(
+        effective.drop_fields.is_empty(),
+        "{:?}",
+        effective.drop_fields
+    );
+    assert_eq!(effective.drop_empty_except, None);
+
+    // Bounded by its terms, it keeps the events they may match whole and lets the rest go.
+    splunk.prefilter = Predicate::Keywords(KeywordTest {
+        values: vec!["mimikatz".into()],
+        case_sensitive: false,
+    });
+    let one = recipe(vec![drop(&["LogonType"])]);
+    let effective = guard(&template(), Some(&one), ctx(&[splunk.clone()]));
+    assert_eq!(effective.drop_fields, BTreeSet::from(["LogonType".into()]));
+    assert_eq!(effective.keep_whole_when, Some(splunk.prefilter));
+}
+
+#[test]
 fn c3_a_rule_for_another_event_id_protects_nothing_here() {
     // Zerologon-style: an EventID selection and keywords. It cannot fire on 4625 events.
     let mut other = rule("other", &[], eq("EventID", "5805"));

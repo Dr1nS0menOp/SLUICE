@@ -1,7 +1,8 @@
 //! Which fields applicable rules need, and on which events.
 //!
-//! A rule protects the fields it may read (all of them for a rule whose fields are unknown,
-//! the text fields for a raw-text rule). The protection holds on every event the rule's
+//! A rule protects the fields it may read: all of them for a rule whose fields are unknown or
+//! that matches the raw text of a JSON record, the text fields for a raw-text rule on a text
+//! line. The protection holds on every event the rule's
 //! pre-filter matches. On any other event the rule cannot fire, before or after a field is
 //! removed: pre-filters widen `not`, `null` and `exists: false` to "every event", so their
 //! remaining tests only get harder to pass when fields go. A protected field may therefore be
@@ -68,7 +69,14 @@ impl<'a> Protection<'a> {
                 RequiredFields::Unknown => claims.push(claim(None)),
             }
             if rule.matches_raw_text {
-                claims.extend(template.text_fields.iter().map(|f| claim(Some(f.clone()))));
+                match &template.shape {
+                    // A JSON record's raw text is every field serialized (Splunk's `_raw`,
+                    // Wazuh's full log): a term may match any value, however short.
+                    TemplateShape::Keyset { .. } => claims.push(claim(None)),
+                    TemplateShape::Text { .. } => {
+                        claims.extend(template.text_fields.iter().map(|f| claim(Some(f.clone()))));
+                    }
+                }
             }
         }
         Self { claims }

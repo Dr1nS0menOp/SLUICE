@@ -82,15 +82,30 @@ fn c3_a_rule_with_unknown_fields_claims_every_field() {
 }
 
 #[test]
-fn c3_a_raw_text_rule_claims_the_templates_text_fields() {
+fn c3_a_raw_text_rule_claims_every_field_of_a_json_record_and_the_text_fields_of_a_line() {
     let mut reader = everywhere("r", &[]);
     reader.matches_raw_text = true;
     let protection = Protection::of(&template(), &[&reader], true);
     let (allowed, _, _) = drops(&protection, &["Message", "Keywords"]);
     assert_eq!(
         allowed,
+        fields(&[]),
+        "a JSON record's raw text is every field"
+    );
+
+    let mut line = template();
+    line.shape = TemplateShape::Text {
+        field: "Message".into(),
+        header: LineHeader::None,
+        tokens: Vec::new(),
+    };
+    // A line has no fixed values to decide the pre-filter by, so the claim is unconditional here.
+    let protection = Protection::of(&line, &[&reader], false);
+    let (allowed, _, _) = drops(&protection, &["Message", "Keywords"]);
+    assert_eq!(
+        allowed,
         fields(&["Keywords"]),
-        "Message is the template's text field"
+        "Message is the line's text field"
     );
 }
 
