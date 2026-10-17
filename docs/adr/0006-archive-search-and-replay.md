@@ -1,6 +1,6 @@
 # ADR 0006: Archive search and replay without a query engine
 
-- Status: Accepted
+- Status: Superseded by ADR 0030 (advice only); the code is in `archive/`
 - Date: 2026-10-09
 
 ## Context

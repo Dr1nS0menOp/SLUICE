@@ -31,8 +31,9 @@ threads.
 
 ## Load test of a generated configuration, 2026-10-14
 
-`scripts/load-test.sh` (ADR 0022) on the demo's own `vector.yaml` at scale 300: every source
-through its transforms in that file, Vector 0.59.0, same machine, all threads.
+`scripts/load-test.sh` (ADR 0022; archived since [ADR 0030](../adr/0030-advice-only.md)) on the
+demo's own `vector.yaml` at scale 300: every source through its transforms in that file, Vector
+0.59.0, same machine, all threads.
 
 | Source | Events | MB | Time | Events/s | MB/s |
 |--------|-------:|---:|-----:|---------:|-----:|
@@ -46,6 +47,8 @@ through its transforms in that file, Vector 0.59.0, same machine, all threads.
 The same configuration saves 73.8 % of 362.8 MB with 43 = 43 alerts (`sluice prove`).
 
 ## Soak run, 2026-10-10/11: 19 hours live
+
+`sluice up` is archived ([ADR 0030](../adr/0030-advice-only.md)); this run is kept as a record.
 
 `sluice up --config examples/up/sluice-dual.yaml --demo-traffic` (six demo sources, two rule
 profiles, 30-second cycles, demo promotion settings: 60 s shadow, 2 proofs), WSL2, Vector 0.59.0:

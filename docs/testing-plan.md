@@ -17,10 +17,13 @@ first, how, what "done" means, and where the gaps are today (counted 2026-10-14)
 - **Mutation testing** (`cargo-mutants`, after checking its license and maintenance) on
   `sluice-core` first: a mutant that survives is a missing test.
 - **Every bug found** gets a regression test named after what it broke, then the fix.
-- Integration and differential tests (Vector, Kusto emulator, live smoke) stay as they are; this
-  phase adds below them, it does not replace them.
+- Integration and differential tests (Vector, Kusto emulator) stay as they are; this phase adds
+  below them, it does not replace them.
 
 ## Where we stand
+
+Since 2026-10-17, `sluice-server`, `sluice-archive` and `sluice-mcp` are archived
+([ADR 0030](adr/0030-advice-only.md)); their rows, bugs and coverage below stay as a record.
 
 | Crate | Lines | Unit tests | Integration tests | Risk | Modules without tests of their own |
 |---|---:|---:|---:|---|---|
@@ -249,10 +252,10 @@ outside the repository (`~/.cache/sluice-realdata`). Collect with `collect-windo
 Application and PowerShell Operational of a Windows host; `-Format agent -Security` in an
 elevated shell for the Security channel), `collect-linux.sh` (auth.log and syslog over SSH) and
 `collect-sentinel.sh` (`SecurityEvent` and `WindowsEvent` from a Log Analytics workspace, which
-`send-sentinel.sh` fills through `sluice up`), then run `run.sh`. Rules: SigmaHQ `8a48134` (3,152 rules), the stock Wazuh
-ruleset (4,652 rules, `sluice rules fetch wazuh`) and Azure-Sentinel `55296e6` ("Windows
-Security Events", 21 rules, 18 of them run in the Kusto emulator). All with `--rules-complete`,
-as the earlier runs predate ADR 0021.
+`send-sentinel.sh` filled through `sluice up`; both archived since ADR 0030), then run `run.sh`.
+Rules: SigmaHQ `8a48134` (3,152 rules), the stock Wazuh ruleset (4,652 rules, `sluice rules
+fetch wazuh`) and Azure-Sentinel `55296e6` ("Windows Security Events", 21 rules, 18 of them run
+in the Kusto emulator). All with `--rules-complete`, as the earlier runs predate ADR 0021.
 
 Run again on 2026-10-17 after the Splunk, custom-table and agent work (`next/m12`, `1a5b3ca`):
 every number below came out the same.

@@ -1,6 +1,6 @@
 # ADR 0029: Summaries in a table of their own
 
-- Status: Accepted
+- Status: Accepted; superseded in part by ADR 0030 (advice only), which names the part
 - Date: 2026-10-17
 
 ## Context

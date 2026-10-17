@@ -1,6 +1,6 @@
 # ADR 0014: Vector as the Windows agent, shaping events as Sentinel stores them
 
-- Status: Accepted
+- Status: Accepted; superseded in part by ADR 0030 (advice only), which names the part
 - Date: 2026-10-11
 
 ## Context

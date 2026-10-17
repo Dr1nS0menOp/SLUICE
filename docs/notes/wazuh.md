@@ -151,7 +151,8 @@ user:
   (summarized); every sampled original was a level-0 match, so Wazuh agrees no alert is lost.
   The `sshd` templates are forwarded unchanged and need no check. `sluice analyze` reports the
   number of checked events that fired a rule, so an all-quiet check is visible as such.
-- **Delivery** (verified end to end the same day): `sluice connect wazuh` emits two file
+- **Delivery** (verified end to end the same day; `sluice connect wazuh` and `sluice up` are
+  archived since [ADR 0030](../adr/0030-advice-only.md)): `sluice connect wazuh` emits two file
   destinations. `sluice_formats: [json]` takes JSON sources and all summary records; the
   `_lines` one takes text sources with Vector's `text` codec, which writes the `message` field,
   so the file holds the original syslog lines. Read them with `log_format: json` and

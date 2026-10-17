@@ -1,6 +1,6 @@
 # ADR 0016: Operator actions in the console and the API
 
-- Status: Accepted
+- Status: Superseded by ADR 0030 (advice only); the code is in `archive/`
 - Date: 2026-10-11
 
 ## Context

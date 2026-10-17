@@ -1,6 +1,6 @@
 # ADR 0007: Packaging as static binaries and one image with Vector
 
-- Status: Accepted
+- Status: Accepted; superseded in part by ADR 0030 (advice only), which names the part
 - Date: 2026-10-09
 
 ## Context

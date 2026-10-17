@@ -1,6 +1,6 @@
 # ADR 0011: A read-only web console served by the control plane
 
-- Status: Accepted (amends ADR 0010: the console's static files need no token)
+- Status: Superseded by ADR 0030 (advice only); the code is in `archive/`
 - Date: 2026-10-10
 
 ## Context

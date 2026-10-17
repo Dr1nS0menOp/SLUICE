@@ -8,8 +8,8 @@ Sluice proves its reductions by running the same VRL that Vector runs. That only
 | 0.1.0 (unreleased) | 0.36.0 | 0.59.0 | `vrl = "0.36.0"` confirmed in Vector v0.59.0's `Cargo.toml` (2026-10-09) |
 
 When bumping `vrl`, look up which Vector release pins that version (its `Cargo.toml`, workspace
-`vrl` entry) and update this table, `scripts/install-vector.sh`, the `Dockerfile` base image (tag
-and digest) and `Cargo.toml` in the same change.
+`vrl` entry) and update this table, `scripts/install-vector.sh` and `Cargo.toml` in the same
+change.
 
 Code generated for a SIEM's own ingestion is proven in that SIEM's engine:
 

@@ -620,8 +620,19 @@ between M11 and M12. In order:
    numbers.
 
 **M12 — Community, ecosystem and every SIEM.** After the test phase, M12 grows much larger: the
-goal is to make Sluice work with as many SIEMs as possible, natively and proven. Its scope is
-planned when it starts; it includes at least:
+goal is to make Sluice work with as many SIEMs as possible, natively and proven.
+
+**Status 2026-10-17: advice only ([ADR 0030](docs/adr/0030-advice-only.md)).** Sluice looks,
+advises and writes the configurations; it no longer runs in the data path. `sluice up` and
+everything around it moved to `archive/`, so these items are archived, not planned: live polling
+of the rule inventory (`sluice up --reload-rules`, built and archived) and replaying a new rule's
+lookback from the archive; signed recipe releases that `sluice up` follows; the operator flows
+(console, actions, single sign-on, MCP); and destinations and table shapes for `sluice up`
+(`sluice connect` keeps only the Sentinel tables and rules). Counting (L2, L3) still needs a
+pipeline tool, which the user runs with Sluice's `vector.yaml`. The rest of M12 stands: rule
+languages, generators, the plan, recipes and parser packs.
+
+Its scope is planned when it starts; it includes at least:
 
 - **Advice first, configs for every tool (decided 2026-10-14).** Today the only thing that
   carries out a saving is `vector.yaml`; a Sentinel user without Vector gets a report and
@@ -716,6 +727,50 @@ running or steering a fleet of pipeline nodes (Vector and the user's own deploym
 that; ADR 0017);
 agent-side cuts without a full copy; any reduction the proof cannot run with the platform's
 own semantics.
+
+## Review 2026-10-17: open findings
+
+A read-only review of the whole workspace after the advice-only cut (ADR 0030). Fixed the same
+day: rule files named like `*inventory.json` were skipped; Elastic and Splunk inventory notes
+missed the report; `rules requirements` lacked `--sigma-pipeline`; KQL panicked on a column name
+with a control character and wrote `boolean(null)`; `prove --profile` was dead. Open, safety
+first. Each fix starts with a failing test named after the contract rule:
+
+1. **Generators fall through (fail open).** In Lua, Painless and OTTL, a discriminator the
+   engine cannot render (a number 0, a fraction, one of 1e15 or more) makes the test false. The
+   record then goes to a later template with the same key set, which may remove fields Vector
+   keeps for it. KQL has the same hole for templates `recognition()` refuses, and Elastic for
+   templates with metadata-named fields. Plan:
+   - in core, `TemplateShape::may_overlap` and `claims(order, acts, recognisable)`;
+   - per engine, an "undecided" branch right after each template that stops the chain;
+   - one test per generator: `c1_a_record_an_earlier_template_cannot_decide_is_claimed_by_no_later_one`.
+2. **Sentinel custom tables.** `search`, `union *`, `table()` and unknown functions turn a
+   named `_CL` table's `Always` into the shaped-table markers (`sentinel/mod.rs`). A resolved
+   function over `X_CL` only is dropped (`functions.rs`). Plan: `reads_every_table`; always
+   merge callees; build the table list in one place.
+3. **Values matched by meaning.** A CIDR value (`10.0.0.0/8`) in Elastic KQL and in SPL becomes
+   a text test. It must widen to `exists`, as Sigma's `|cidr` already does.
+4. **Wazuh decoded fields on text lines.** Field tests on decoder outputs (`srcip`, `user`) are
+   compared with text templates as if the fields existed. Plan: `Predicate::on_text_line()`
+   (field tests become `Always`) for rules that may see text lines.
+5. **The Sentinel native proof** pairs records by position (a flow's own `where` shifts them),
+   and checks only the columns the transformation names. Plan: index records by `__sluice_n`,
+   and compare every leaf, as the other three proofs do.
+6. **Wazuh `<rule>` attributes** `maxsize` (depends on the event's size) and `ignore` (stateful)
+   are not read. Send them to "reads anything" or "stateful".
+7. **Leftovers of the live design.** `connect --standard-table` and the shaping VRL (`syslog`,
+   `common_security_log`, `asim_*`, `windows`) were for `sluice up` sources: archive them, or
+   document how to shape records without Sluice.
+
+Refactors proposed, in order of value:
+
+- one `Plan<'a>` in core instead of five copies;
+- `float_may_match`, `balanced`, case folding and `Any` alternatives shared from core;
+- the CLI's native proofs sharing `beyond_vector` and `leaf_values`;
+- one `RuleSets` argument struct (the rule flags are declared three times);
+- one `--native sentinel,elastic,fluent-bit,otel` flag;
+- a small `sluice-http` crate for the eight ureq clients, with one body limit and one error excerpt;
+- `RuleId::of(Engine, …)` and typed problems instead of `format!` ids and strings.
 
 ## Project layout (Rust Cargo workspace)
 

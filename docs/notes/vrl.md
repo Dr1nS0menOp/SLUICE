@@ -75,7 +75,9 @@ These were verified against 0.36.0 while building `sluice-vector`, on 2026-10-09
 
 ## Vector runtime facts for `sluice up`
 
-These were found in the live smoke test against Vector 0.59.0 on 2026-10-09.
+These were found in the live smoke test against Vector 0.59.0 on 2026-10-09. `sluice up`,
+`sluice search` and the smoke test are archived ([ADR 0030](../adr/0030-advice-only.md)); the
+facts about Vector still hold.
 
 - **The `sample` transform adds a `sample_rate` field** by default. The tapped events then have
   a different key set than the pipeline's, so no classifier matched and everything passed
@@ -102,9 +104,11 @@ These were found in the live smoke test against Vector 0.59.0 on 2026-10-09.
 
 ## Destination sinks (`sluice connect`)
 
-Checked with `vector validate` against Vector 0.59.0 on 2026-10-09 (`scripts/vector-check.sh`
-validates all of them on every run). `vector generate --format yaml '//<sink>'` prints a sink's
-full default configuration, which is the quickest way to see its real field names.
+Checked with `vector validate` against Vector 0.59.0 on 2026-10-09, for the destinations
+`sluice connect` printed until [ADR 0030](../adr/0030-advice-only.md) archived them. The facts
+hold for any Vector configuration that sends to these SIEMs. `vector generate --format yaml
+'//<sink>'` prints a sink's full default configuration, which is the quickest way to see its
+real field names.
 
 - `splunk_hec_logs`: `endpoint`, `default_token`, `encoding`.
 - `elasticsearch`: `endpoints` (a list), `mode: bulk`, `bulk.index`, `auth.strategy: basic`.

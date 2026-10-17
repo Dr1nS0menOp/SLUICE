@@ -1,7 +1,9 @@
 # Sluice
 
-**Sluice writes Vector configurations that send less data to your SIEM, and proves on your own
-traffic and rules that no detection changes. You decide what runs.**
+**Sluice looks at the rules your SIEM runs and a sample of your data, finds where you can send
+less without changing a detection, and writes the configurations that do it: for Vector,
+Microsoft Sentinel, Elasticsearch, Fluent Bit and the OpenTelemetry Collector. It proves every
+saving on your own data and rules. Sluice itself changes nothing: you decide what runs.**
 
 > Status: early development. Nothing here is ready for production yet.
 
@@ -13,18 +15,17 @@ boilerplate, empty fields, duplicates, and high-volume events no rule will ever 
 Pipeline tools can remove it, but a person still has to decide what to remove, build the
 pipeline and maintain it. Sluice does the deciding and the proving, and hands you the result:
 
-1. **Discovers** the kinds of events in your traffic.
-2. **Proposes savings**: format padding it can drop without losing anything, events no rule
+1. **Reads your rules** from the SIEM, read-only.
+2. **Discovers** the kinds of events in a sample of your traffic.
+3. **Proposes savings**: format padding it can drop without losing anything, events no rule
    could match that it can count instead of sending (rule-guided), and, with AI, more.
-3. **Proves** on your traffic that your rules raise exactly the same alerts on what would still
+4. **Proves** on your sample that your rules raise exactly the same alerts on what would still
    be sent as on everything.
-4. **Writes** the [Vector](https://vector.dev) configuration and the proof. You review it and
-   deploy it, through Git and CI if you like (`sluice prove`).
-5. **Keeps checking** what runs. If a check ever fails, Sluice switches Vector to the safe
-   configuration, which sends everything unchanged, until you deploy a new proposal. That is
-   the only thing it does without asking: it can switch savings off, never on.
+5. **Writes** the savings plan, a report, and the configurations that carry the plan out. You
+   review them and deploy them with your own tooling, through Git and CI if you like
+   (`sluice prove`).
 
-Every event is archived at full fidelity first, so any slice can be replayed into any SIEM.
+Sluice never sits in your data path ([ADR 0030](docs/adr/0030-advice-only.md)).
 
 ## Safety contract
 
@@ -34,7 +35,8 @@ These rules are enforced in code, and AI output can never override them:
 2. Everything is archived at full fidelity before any saving.
 3. Anything a rule could match is sent in full.
 4. Rare events are never saved on.
-5. Every saving is proven before it is proposed, and what runs is re-checked continuously.
+5. Every saving is proven before it is proposed, and `sluice prove` proves a configuration again
+   when it changes.
 6. AI proposes; the guardrails decide.
 
 ## Which rules it protects
@@ -45,9 +47,13 @@ Sluice protects the rules your SIEM actually runs, read in their own language:
   from the workspace with `sluice rules fetch sentinel` and run in the Kusto emulator for the
   proof.
 - **Wazuh**: the rule and decoder files the manager loads, read with `sluice rules fetch wazuh`.
-- **Sigma** rules stand in for SIEMs whose query language Sluice cannot read yet (Elastic and
-  Splunk are next). For those, you declare with `--rules-complete` that the rules you give are
-  all of them; Sluice cannot check that, and says so in every report.
+- **Elastic Security**: the detection rules of a Kibana space (KQL, EQL, ES|QL), read with
+  `sluice rules fetch elastic` and run in Elasticsearch for the proof.
+- **Splunk**: scheduled and correlation searches with their macros, read with `sluice rules
+  fetch splunk`. No engine runs them in the proof yet; what they read still limits every saving.
+- **Sigma** rules stand in for SIEMs whose query language Sluice cannot read yet. For those, you
+  declare with `--rules-complete` that the rules you give are all of them; Sluice cannot check
+  that, and says so in every report.
 
 Sluice only counts events instead of sending them when it knows it has every rule: a rule it was
 not given could match what it would not send. Without that, it makes only savings that keep every
@@ -74,10 +80,11 @@ example Sigma rules:
   proof   41 alerts on full data, 41 on forwarded data  ✓ no detection changed
 ```
 
-It writes `out/report.html` (what is saved, why, the proof, and every rule) and
-`out/vector.yaml`. Run that configuration with [Vector](https://vector.dev) 0.59
-(`scripts/install-vector.sh`), and Vector archives all 80,536 events, sends exactly the 35,974
-the proof sent, and turns the other 44,562 into 460 summary records.
+It writes `out/report.html` (what is saved, why, the proof, and every rule), `out/plan.json` (the
+same decisions, for tools) and `out/vector.yaml`. Run that configuration with
+[Vector](https://vector.dev) 0.59 (`scripts/install-vector.sh`), and Vector archives all 80,536
+events, sends exactly the 35,974 the proof sent, and turns the other 44,562 into 460 summary
+records.
 
 On your own data:
 
@@ -110,56 +117,34 @@ On this project's development machine (Windows System, Application and PowerShel
 events) with all 3,152 SigmaHQ rules declared complete, that gives 24.2 % less ingest with
 206 = 206 alerts; on a Linux server's auth.log and syslog (177,008 lines), 28.6 % less.
 
-## Run it in front of your SIEM
+## Put the savings to work
 
-`sluice up` runs Vector and a control plane next to it. Vector archives every event and sends a
-sample to Sluice. Sluice proves its proposals on that sample, keeps each in shadow until it has
-held long enough, and writes the configuration as a proposal (`vector.yaml` with
-`proposal.json` and the savings plan, `plan-<profile>.json`) under `data_dir/proposals`. You review it and deploy it by copying it over
-`vector_config`; every cycle Sluice proves what runs and switches to the safe configuration if
-the proof fails.
+Sluice proves each configuration in the engine it is for before it writes it:
 
-```sh
-scripts/install-vector.sh
-sluice up --config examples/up/sluice-up.yaml --rules examples/rules/sigma --demo-traffic
-sluice status        # in another shell: mode, what runs, lifecycle per template
-```
+| Where the saving runs | What `sluice analyze` writes | Proven in |
+|---|---|---|
+| [Vector](https://vector.dev) | `vector.yaml`, always: every saving, counting included | the `vrl` crate Vector embeds; its tests let `vector test` check Vector itself |
+| Microsoft Sentinel's ingestion | with `--sentinel-native --sentinel-dcr RULE.json`: that data collection rule with a `transformKql` per table and an untransformed flow into an archive table | the Kusto emulator |
+| Elasticsearch's ingestion | with `--elastic-native`: an ingest pipeline per source | Elasticsearch |
+| Fluent Bit | with `--fluent-bit-native`: a Lua filter per source | Fluent Bit |
+| OpenTelemetry Collector | with `--otel-native`: `transform` statements per source | the collector |
 
-The example sets `auto_apply: true`, so the demo applies its own proposals; leave it out for
-real data. Open `http://127.0.0.1:8686/` for the web console: whether the proof holds, what each
-source and template saves, why each field was kept, each recipe's lifecycle, and a search over
-the archive (ADR 0011; with `SLUICE_CONTROL_TOKEN` set it asks for the token). Every operator
-action is audited and none can weaken the safety contract (ADR 0016).
+Outside Vector only field removals run, because counting needs state across events, which only a
+pipeline tool keeps. `plan.json` says per kind of event where its saving can run.
 
-In CI, `sluice prove` proves the configuration in a pull request as it is, and fails when it
-would change a detection or when the sample raises no alert at all (`action.yml` runs it on
-GitHub; ADR 0022).
+`vector.yaml` reads files and writes files. Point its sources and sinks at your own, and roll it
+out with the tooling you already use (Git, CI, Ansible, Kubernetes). In CI, `sluice prove` proves
+the configuration in a pull request as it is, and fails when it would change a detection or when
+the sample raises no alert at all (`action.yml` runs it on GitHub; ADR 0022).
 
-With your own sources, list them in the config (any Vector source that emits JSON objects) and
-point the destinations at your SIEM: `sluice connect splunk` (or `elastic`, `sentinel`,
-`chronicle`, `wazuh`, `http`) prints a destination to add; credentials stay in secret files,
-never in the configuration. To reach the control plane from other hosts, set
-`SLUICE_CONTROL_TOKEN`. `scripts/live-smoke.sh` runs this end to end and checks the result.
+For Microsoft Sentinel, `sluice connect sentinel` writes the tables and data collection rules: a
+custom table derived from a sample (`--sample`), the rule of a standard table
+(`--standard-table`), and a table for summaries with a function that counts them in
+(`--summary-table`).
 
-Every event is in the archive as it arrived, so whatever was not sent can always be found and
-sent on:
-
-```sh
-sluice search --archive out/up/archive --source windows-security --where EventID=4624 --from 2026-10-09
-sluice replay --archive out/up/archive --source sysmon --where Image~powershell --url http://siem-ingest:9000
-```
-## Ask your assistant
-
-`sluice mcp` is an MCP server, so an AI assistant can answer "what does Sluice save, and does it
-still hold?" from the live status and look up original events in the archive:
-
-```sh
-claude mcp add sluice -- sluice mcp --archive /var/lib/sluice/archive
-```
-
-Replay is only offered with `--replay-to URL`, and only to the endpoints given there: log text can carry instructions to the assistant. For a remote assistant, `sluice mcp --http
-127.0.0.1:8687` serves MCP over HTTP; every request needs `Authorization: Bearer
-$SLUICE_MCP_TOKEN` (at least 32 characters).
+Until 2026-10-17, Sluice could also run Vector itself (`sluice up`), with a live control plane,
+archive search and replay, and an MCP server. That code is in [`archive/`](archive/), outside the
+build ([ADR 0030](docs/adr/0030-advice-only.md)).
 
 ## Platform
 
@@ -168,12 +153,11 @@ those systems, run Sluice in WSL2, a VM or a container.
 
 ## Installing
 
-Release binaries are static (musl) and run on any Linux distribution, on x86_64 and aarch64. A
-container image bundles Sluice with the Vector release it is verified against:
+Release binaries are static (musl) and run on any Linux distribution, on x86_64 and aarch64. To
+build from source instead:
 
 ```sh
-docker compose -f examples/docker/compose.yaml up --build    # Sluice + Vector with demo traffic
-helm install sluice deploy/helm/sluice --set controlToken.secretName=sluice-token
+cargo install --path crates/sluice-cli
 ```
 
 ## Building
@@ -188,11 +172,11 @@ scripts/install-zig.sh && scripts/build-release.sh   # static binaries for both 
 
 ## Documentation
 
-- [Using Sluice](docs/usage.md): step by step, from a first look to running it in front of your
-  SIEM, including Microsoft Sentinel
-- [User guide](docs/guide.md): concepts, source descriptions, every command and setting
-- [Architecture and technologies](docs/architecture.md): diagrams of the data and decision paths,
-  one event followed step by step, the parts, and what each is built on
+- [Using Sluice](docs/usage.md): step by step, from a first look to the configurations for your
+  SIEM and your tools, including Microsoft Sentinel
+- [User guide](docs/guide.md): concepts, source descriptions, every command and what it writes
+- [Architecture and technologies](docs/architecture.md): diagrams of the analysis and of what
+  each configuration does, one event followed step by step, the parts, and what each is built on
 - [Glossary](docs/glossary.md): the terms Sluice uses
 - [Architecture decisions](docs/adr/)
 - [Compatibility](docs/compatibility.md)

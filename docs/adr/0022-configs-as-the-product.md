@@ -1,6 +1,6 @@
 # ADR 0022: Configurations as the product: proposals, `sluice prove` and a CI action
 
-- Status: Accepted
+- Status: Accepted; superseded in part by ADR 0030 (advice only), which names the part
 - Date: 2026-10-14
 
 ## Context

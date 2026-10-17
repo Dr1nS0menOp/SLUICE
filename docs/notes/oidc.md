@@ -3,6 +3,9 @@
 Facts for `sluice up`'s single sign-on (ADR 0016), verified 2026-10-11 against Keycloak 26.0.7
 (`quay.io/keycloak/keycloak:26.0.7`, `start-dev`, a test realm with a public client).
 
+`sluice up` is archived ([ADR 0030](../adr/0030-advice-only.md)); its code, single sign-on
+included, is in `archive/crates/sluice-server`.
+
 - **Flow:** authorization code with PKCE (`S256`), `state` and `nonce`. A public client needs no
   secret; `client_secret_file` covers providers that require a confidential client.
 - **Signatures:** Keycloak signs ID tokens with RS256 by default. Sluice verifies RS256 and ES256

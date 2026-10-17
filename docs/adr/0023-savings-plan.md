@@ -1,6 +1,6 @@
 # ADR 0023: The savings plan as the product
 
-- Status: Accepted
+- Status: Accepted; superseded in part by ADR 0030 (advice only), which names the part
 - Date: 2026-10-16
 
 ## Context

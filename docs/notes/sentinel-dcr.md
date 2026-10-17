@@ -5,6 +5,9 @@ Learn page "Supported KQL features in Azure Monitor transformations" (updated 20
 Kusto emulator (`mcr.microsoft.com/azuredataexplorer/kustainer-linux:latest`, digest
 `sha256:e176ca3e…`, 4.5 GB).
 
+Some end-to-end checks below ran through `sluice up` and `sluice agent windows`, which are
+archived since [ADR 0030](../adr/0030-advice-only.md); what they found about Azure still holds.
+
 ## What a transformation can do
 
 - It runs per record: only operators that take one row and return at most one are allowed.

@@ -2,6 +2,9 @@
 
 Verified against `rmcp` 3.5.1 (pinned `=3.5.1`) on 2026-10-09, from the crate's source and tests.
 
+`sluice mcp` is archived ([ADR 0030](../adr/0030-advice-only.md)); its code is in
+`archive/crates/sluice-mcp`. The facts below stay for whoever builds on rmcp again.
+
 ## Server shape
 
 - Tools are methods in an `impl` marked `#[tool_router]`, each with `#[tool(description = …)]`.

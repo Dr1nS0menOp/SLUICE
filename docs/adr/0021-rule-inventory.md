@@ -1,6 +1,6 @@
 # ADR 0021: The rule inventory comes from the SIEM, and only a complete one allows L2 and L3
 
-- Status: Accepted
+- Status: Accepted; superseded in part by ADR 0030 (advice only), which names the part
 - Date: 2026-10-13
 
 ## Context
