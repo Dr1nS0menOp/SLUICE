@@ -7,10 +7,13 @@
 //! variable at each step, quadratic in the number of tests: 400 tests took seconds to compile,
 //! where now they take milliseconds.
 //!
-//! Every place where VRL cannot express a test exactly *widens* it to `true`:
+//! An array matches when one of its members does, as in Sigma engines. Every place where VRL
+//! cannot express a test exactly *widens* it to `true`:
 //!
-//! - an array or object value (a Sigma engine may match its members);
-//! - a float value (its decimal text differs between engines: `4625.0` may equal `4625`);
+//! - an object value, or an array member that is itself an object or array;
+//! - a float value, when a tested value could be part of a number's text (`4625`, `1e21`,
+//!   `nan`): its decimal text differs between engines, so `4625.0` may equal `4625`, but no
+//!   engine writes a number as `cmd.exe`;
 //! - a regex that VRL's engine (Rust `regex`) cannot compile, or cannot quote.
 //!
 //! Missing and null fields make a test false, as they do in Sigma.
@@ -90,22 +93,43 @@ impl Compiler<'_> {
 
     /// A scan over every leaf value of the event for any of the keywords.
     ///
-    /// `flatten` makes nested objects leaves; an array leaf may hold a matching member, and a
-    /// float's decimal text may differ between engines, so both widen to true. Integers are
-    /// compared as their decimal text and strings directly, as Sigma engines do. Booleans and
-    /// nulls never match.
+    /// `flatten` makes nested objects leaves. Integers are compared as their decimal text and
+    /// strings directly, as Sigma engines do, and so are the members of an array; a member that
+    /// is itself an object or array widens to true. A float's decimal text may differ between
+    /// engines, so it widens too, unless no keyword could be part of a number's text at all.
+    /// Booleans and nulls never match.
     fn keywords(&self, test: &KeywordTest, target: &str) -> Vec<String> {
         if test.values.is_empty() {
             return vec![format!("{target} = false")];
         }
         let value = self.scratch("kv");
+        let member = self.scratch("km");
         let rendered = self.scratch("ks");
         let checks = keyword_checks(&rendered, test);
+        let floats = float_may_match(&test.values);
+        let member_float = if floats {
+            format!(" || is_float({member})")
+        } else {
+            String::new()
+        };
+        let float_branch = if floats {
+            format!(" else if is_float({value}) {{ {target} = true }}")
+        } else {
+            String::new()
+        };
         vec![
             format!("{target} = false"),
             format!(
                 "for_each(values(flatten(.))) -> |_index, {value}| {{\n  \
-                   if is_array({value}) || is_float({value}) {{ {target} = true }} \
+                   if is_array({value}) {{\n    \
+                     for_each(array!({value})) -> |_member, {member}| {{\n      \
+                       if is_array({member}) || is_object({member}){member_float} {{ {target} = true }} \
+                       else if is_string({member}) || is_integer({member}) {{\n        \
+                         {rendered} = to_string!({member})\n        \
+                         if {checks} {{ {target} = true }}\n      \
+                       }}\n    \
+                     }}\n  \
+                   }}{float_branch} \
                    else if is_string({value}) || is_integer({value}) {{\n    \
                      {rendered} = to_string!({value})\n    \
                      if {checks} {{ {target} = true }}\n  \
@@ -135,15 +159,46 @@ impl Compiler<'_> {
                 None => return vec![format!("{target} = true")],
             }
         };
+        // A float's text may differ between engines (`4625.0` may be `4625`): it widens unless no
+        // value could be part of a number's text. A regex may match anything.
+        let floats = test.op == MatchOp::Regex || float_may_match(&test.values);
+        let float = |v: &str| {
+            if floats {
+                format!(" || is_float({v})")
+            } else {
+                String::new()
+            }
+        };
+        let member = self.scratch("m");
+        let member_float = float(&member);
+        let value_float = float(&value);
         vec![
             format!("{target} = false"),
             format!("{value} = {path}"),
+            // An array matches when a member does, as in Sigma engines.
             format!(
-                "if is_array({value}) || is_object({value}) || is_float({value}) {{ {target} = true }} \
-                 else if !is_null({value}) {{ {rendered} = to_string!({value}); {target} = {matches} }}"
+                "if is_array({value}) {{\n  \
+                   for_each(array!({value})) -> |_member, {member}| {{\n    \
+                     if is_array({member}) || is_object({member}){member_float} {{ {target} = true }} \
+                     else if !is_null({member}) && !is_float({member}) {{ {rendered} = to_string!({member}); if {matches} {{ {target} = true }} }}\n  \
+                   }}\n\
+                 }} else if is_object({value}){value_float} {{ {target} = true }} \
+                 else if !is_null({value}) && !is_float({value}) {{ {rendered} = to_string!({value}); {target} = {matches} }}"
             ),
         ]
     }
+}
+
+/// Whether one of `values` could be part of how an engine writes a float (`4625.0`, `1e21`,
+/// `-inf`, `NaN`): only then may a float value match a test for them.
+fn float_may_match(values: &[String]) -> bool {
+    values.iter().any(|value| {
+        let value = value.to_ascii_lowercase();
+        value.chars().all(|c| "0123456789.-+e".contains(c))
+            || ["-infinity", "+infinity", "nan"]
+                .iter()
+                .any(|word| word.contains(value.as_str()))
+    })
 }
 
 fn indent(statements: &[String]) -> String {

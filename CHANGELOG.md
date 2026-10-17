@@ -230,6 +230,9 @@ explains the terms.
 - Elasticsearch pipelines share keep-whole conditions across a source's templates and test
   `exists` exactly, so they fit Elasticsearch's script limit with large rule sets and save
   about what Vector saves.
+- Pre-filters search an array's members instead of taking any array as a match, and take a
+  float as a match only for a value a number could be written as: ECS documents, which always
+  have arrays, are no longer kept whole by every keyword rule.
 - Empty-field removal keeps a field a rule names on every event instead of keeping every event
   the rule may match whole (ADR 0009, decision 6).
 - `sluice up` proposals carry the savings plan too: `plan-<profile>.json` per rule profile,

@@ -32,13 +32,15 @@ pub(crate) fn list<'a>(items: impl IntoIterator<Item = &'a str>) -> String {
 ///   for a float that is not a whole number below 10^15, whose text may differ, so it matches
 ///   no recorded value and the document is not recognised.
 /// - `sluiceAscii(s)`: whether `s` is ASCII, where Java and Rust fold case alike.
-/// - `sluiceTest(v, op, cs, values)`: a field test, true on an array, object or float (as in
-///   VRL), false on null; otherwise the value's text against the values (`op`: 0 equals, 1
-///   contains, 2 starts with, 3 ends with). Case-insensitive tests on non-ASCII text are true.
-///   Case-insensitive values come lowercased.
-/// - `sluiceWords(v, cs, values)`: Sigma keywords over every leaf value below `v`: arrays and
-///   floats are true, strings and integers are searched, booleans and nulls never match.
-///   `sluiceDocWords(ctx, cs, values)` does so for the document, metadata left out.
+/// - `sluiceTest(v, op, cs, floats, values)`: a field test, as in VRL: true on an object, on a
+///   float when `floats` (a value could be a number's text), false on null; an array when a
+///   member is (a nested object or array is true); otherwise the value's text against the
+///   values (`op`: 0 equals, 1 contains, 2 starts with, 3 ends with). Case-insensitive tests on
+///   non-ASCII text are true. Case-insensitive values come lowercased.
+/// - `sluiceWords(v, cs, floats, values)`: Sigma keywords over every leaf value below `v`:
+///   strings and integers are searched, an array's members too (a nested object or array is
+///   true), floats when `floats`, booleans and nulls never match. `sluiceDocWords(ctx, cs,
+///   floats, values)` does so for the document, metadata left out.
 /// - `sluiceKeys(ctx)`: the document's leaf paths, metadata left out.
 /// - `sluiceRemove(root, segments)` and `sluiceRemoveEmpty(root, segments)`: VRL's `del`, and
 ///   `del` of a null or empty-string value.
@@ -97,25 +99,48 @@ boolean sluiceMatch(String s, int op, boolean cs, List values) {
   }
   return false;
 }
-boolean sluiceTest(def v, int op, boolean cs, List values) {
+boolean sluiceTest(def v, int op, boolean cs, boolean floats, List values) {
   if (v == null) { return false; }
-  if (v instanceof Map || v instanceof List || v instanceof Double || v instanceof Float) { return true; }
-  return sluiceMatch(String.valueOf(v), op, cs, values);
-}
-boolean sluiceWords(def v, boolean cs, List values) {
-  if (v instanceof Map) {
-    for (def e : ((Map) v).entrySet()) {
-      if (sluiceWords(e.getValue(), cs, values)) { return true; }
+  if (v instanceof Map) { return true; }
+  if (v instanceof Double || v instanceof Float) { return floats; }
+  if (v instanceof List) {
+    for (def m : (List) v) {
+      if (m == null) { continue; }
+      if (m instanceof Map || m instanceof List) { return true; }
+      if (m instanceof Double || m instanceof Float) {
+        if (floats) { return true; }
+        continue;
+      }
+      if (sluiceMatch(String.valueOf(m), op, cs, values)) { return true; }
     }
     return false;
   }
-  if (v instanceof List || v instanceof Double || v instanceof Float) { return true; }
+  return sluiceMatch(String.valueOf(v), op, cs, values);
+}
+boolean sluiceWord(def v, boolean cs, boolean floats, List values) {
+  if (v instanceof Double || v instanceof Float) { return floats; }
   if (v instanceof String || v instanceof Integer || v instanceof Long) { return sluiceMatch(String.valueOf(v), 1, cs, values); }
   return false;
 }
-boolean sluiceDocWords(Map doc, boolean cs, List values) {
+boolean sluiceWords(def v, boolean cs, boolean floats, List values) {
+  if (v instanceof Map) {
+    for (def e : ((Map) v).entrySet()) {
+      if (sluiceWords(e.getValue(), cs, floats, values)) { return true; }
+    }
+    return false;
+  }
+  if (v instanceof List) {
+    for (def m : (List) v) {
+      if (m instanceof Map || m instanceof List) { return true; }
+      if (sluiceWord(m, cs, floats, values)) { return true; }
+    }
+    return false;
+  }
+  return sluiceWord(v, cs, floats, values);
+}
+boolean sluiceDocWords(Map doc, boolean cs, boolean floats, List values) {
   for (def e : doc.entrySet()) {
-    if (!sluiceMeta(e.getKey()) && sluiceWords(e.getValue(), cs, values)) { return true; }
+    if (!sluiceMeta(e.getKey()) && sluiceWords(e.getValue(), cs, floats, values)) { return true; }
   }
   return false;
 }

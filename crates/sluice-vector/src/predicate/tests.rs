@@ -74,10 +74,39 @@ fn missing_and_null_fields_never_match() {
 }
 
 #[test]
-fn arrays_and_objects_widen_to_true() {
+fn an_array_matches_when_a_member_does_and_objects_widen() {
     let p = test("X", MatchOp::Equals, &["a"], false);
-    assert!(matches(&p, json!({"X": ["b", "c"]})));
+    assert!(!matches(&p, json!({"X": ["b", "c"]})));
+    assert!(matches(&p, json!({"X": ["b", "A"]})));
+    assert!(
+        matches(&p, json!({"X": ["b", {"y": 1}]})),
+        "a nested object widens"
+    );
+    assert!(matches(&p, json!({"X": [["a"]]})), "a nested array widens");
+    // `a` could be part of `nan`; `cmd` is in no number's text.
+    assert!(matches(&p, json!({"X": [null, 1.5]})));
+    let cmd = test("X", MatchOp::Equals, &["cmd"], false);
+    assert!(!matches(&cmd, json!({"X": [null, 1.5]})));
     assert!(matches(&p, json!({"X": {"y": 1}})));
+}
+
+#[test]
+fn c3_a_float_widens_only_for_values_a_number_could_be_written_as() {
+    for (values, widens) in [
+        (&["cmd.exe"][..], false),
+        (&["4625"][..], true),
+        (&["1e21"][..], true),
+        (&["nan"][..], true),
+        (&["admin", "-1.5"][..], true),
+    ] {
+        let p = test("X", MatchOp::Equals, values, false);
+        assert_eq!(matches(&p, json!({"X": 2.5})), widens, "{values:?}");
+    }
+    let regex = test("X", MatchOp::Regex, &["^c"], true);
+    assert!(
+        matches(&regex, json!({"X": 2.5})),
+        "a regex may match anything"
+    );
 }
 
 #[test]
@@ -145,8 +174,11 @@ fn keywords_scan_every_string_and_integer_value() {
         &p,
         json!({"message": "Accepted publickey", "ok": true, "n": null})
     ));
-    // Arrays and floats widen.
-    assert!(matches(&p, json!({"list": ["x"]})));
+    // An array's members are searched; a nested one widens. `4625` could be a float's text.
+    assert!(!matches(&p, json!({"list": ["x", 1, true]})));
+    assert!(matches(&p, json!({"list": ["x", "an invalid user"]})));
+    assert!(matches(&p, json!({"list": [4625]})));
+    assert!(matches(&p, json!({"list": [["x"]]})));
     assert!(matches(&p, json!({"ratio": 0.5})));
 }
 
@@ -322,14 +354,25 @@ fn two_predicates_with_different_prefixes_share_one_program() {
 }
 
 #[test]
-fn keywords_ignore_keys_booleans_and_nulls_but_widen_on_floats() {
+fn keywords_ignore_keys_booleans_and_nulls_and_floats_no_number_could_hold() {
     let p = Predicate::Keywords(KeywordTest {
         values: vec!["admin".into()],
         case_sensitive: false,
     });
     assert!(!matches(&p, json!({"admin": "x"})), "keys are not values");
     assert!(!matches(&p, json!({"A": true, "B": null})));
-    assert!(matches(&p, json!({"A": 1.5})), "floats widen");
+    assert!(
+        !matches(&p, json!({"A": 1.5, "B": [2.5]})),
+        "no number reads `admin`"
+    );
+    let digits = Predicate::Keywords(KeywordTest {
+        values: vec!["1.5".into()],
+        case_sensitive: false,
+    });
+    assert!(
+        matches(&digits, json!({"A": 1.25})),
+        "a float may be written so"
+    );
     assert!(
         matches(&p, json!({"A": {"B": "the ADMIN user"}})),
         "nested values count"
@@ -378,10 +421,11 @@ fn every_variable_carries_the_prefix_so_predicates_can_share_a_program() {
         test("B", MatchOp::Contains, &["y"], false),
     ]);
     let compiled = super::compile(&p, "q7");
-    let expected: std::collections::BTreeSet<String> =
-        ["q70", "q71", "q7_v", "q7_s", "q7_kv", "q7_ks"]
-            .map(str::to_owned)
-            .into();
+    let expected: std::collections::BTreeSet<String> = [
+        "q70", "q71", "q7_v", "q7_m", "q7_s", "q7_kv", "q7_km", "q7_ks",
+    ]
+    .map(str::to_owned)
+    .into();
     assert_eq!(variables(&compiled, "q7"), expected, "{compiled:?}");
     assert_eq!(compiled.expression, "q70");
     assert!(variables(&super::compile(&p, "r"), "q7").is_empty());

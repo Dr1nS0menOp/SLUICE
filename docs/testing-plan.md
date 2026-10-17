@@ -274,8 +274,15 @@ for the proof):
 | Elastic rules | Saved | Alerts (full = forwarded) |
 |---|---:|---|
 | none | 18.9 % | 196 = 196 |
-| 2,035: no machine learning, none over alert indices | 18.9 % | 42,531 = 42,531 |
+| 2,035: no machine learning, none over alert indices | 18.9 %; 29.3 % since arrays are searched | 42,531 = 42,531 |
 | 2,059: no machine learning | 0.6 % | 42,531 = 42,531 |
+
+PowerShell saved nothing there at first: SigmaHQ's "Mimikatz Use" searches every value, and a
+keyword test took any array (ECS's `event.category: ["process"]`) and any float
+(`powershell.file.script_block_entropy_bits`) as a match, so every ECS PowerShell document was
+kept whole. An array now matches when a member does, and a float only for a value a number
+could be written as (`4625`, not `lsadump::`): script blocks −48.7 % in Vector and −48.6 % in
+Elasticsearch.
 
 The last row keeps `message` everywhere because "LLM-Based Compromised User Triage by User"
 reads it from alerts, which carry it from any event (ADR 0025). Getting there found: a fail-open

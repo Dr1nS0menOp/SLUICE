@@ -1,9 +1,10 @@
 //! Superset pre-filters as one Painless boolean expression over `ctx`.
 //!
 //! The VRL compilation (`sluice-vector`) defines what a predicate means; this module matches at
-//! least as much. A field test is `true` on an array, object or float value and `false` on a
-//! missing or null field, as in VRL, and otherwise compares the value's text (`String.valueOf`
-//! renders strings, integers and booleans as VRL's `to_string` does). These widen to `true`:
+//! least as much. As in VRL, a field test is `true` on an object, on a float when a value could
+//! be a number's text, and `false` on a missing or null field; an array matches when a member
+//! does; otherwise it compares the value's text (`String.valueOf` renders strings, integers and
+//! booleans as VRL's `to_string` does). These widen to `true`:
 //!
 //! - a test without values (VRL takes that as `true` too);
 //! - regular expressions: Java's engine is not Rust's, and Painless limits regexes;
@@ -44,9 +45,10 @@ fn field(test: &FieldTest) -> String {
         return "true".to_owned();
     };
     format!(
-        "sluiceTest(sluiceGet(ctx, {}), {op}, {}, {values})",
+        "sluiceTest(sluiceGet(ctx, {}), {op}, {}, {}, {values})",
         painless::segments(&test.field),
-        test.case_sensitive
+        test.case_sensitive,
+        float_may_match(&test.values)
     )
 }
 
@@ -57,7 +59,24 @@ fn keywords(test: &KeywordTest) -> String {
     let Some(values) = values(&test.values, test.case_sensitive) else {
         return "true".to_owned();
     };
-    format!("sluiceDocWords(ctx, {}, {values})", test.case_sensitive)
+    format!(
+        "sluiceDocWords(ctx, {}, {}, {values})",
+        test.case_sensitive,
+        float_may_match(&test.values)
+    )
+}
+
+/// Whether one of `values` could be part of how an engine writes a float (`4625.0`, `1e21`,
+/// `-inf`, `NaN`), which is when VRL lets a float value match. The same test as the VRL
+/// compilation's, so a float matches here wherever it does there.
+fn float_may_match(values: &[String]) -> bool {
+    values.iter().any(|value| {
+        let value = value.to_ascii_lowercase();
+        value.chars().all(|c| "0123456789.-+e".contains(c))
+            || ["-infinity", "+infinity", "nan"]
+                .iter()
+                .any(|word| word.contains(value.as_str()))
+    })
 }
 
 /// The values as a list literal, lowercased for a case-insensitive test; `None` where the test
@@ -123,11 +142,11 @@ mod tests {
                 &["CMD.exe"],
                 false
             )),
-            "sluiceTest(sluiceGet(ctx, ['process', 'name']), 3, false, ['cmd.exe'])"
+            "sluiceTest(sluiceGet(ctx, ['process', 'name']), 3, false, false, ['cmd.exe'])"
         );
         assert_eq!(
             compile(&test("User", MatchOp::Equals, &["Bob"], true)),
-            "sluiceTest(sluiceGet(ctx, ['User']), 0, true, ['Bob'])"
+            "sluiceTest(sluiceGet(ctx, ['User']), 0, true, false, ['Bob'])"
         );
     }
 
@@ -146,7 +165,7 @@ mod tests {
         }
         assert_eq!(
             compile(&test("a", MatchOp::Equals, &["Straße"], true)),
-            "sluiceTest(sluiceGet(ctx, ['a']), 0, true, ['Straße'])",
+            "sluiceTest(sluiceGet(ctx, ['a']), 0, true, false, ['Straße'])",
             "case-sensitive non-ASCII compares exactly"
         );
     }
@@ -182,7 +201,7 @@ mod tests {
                 values: vec!["Mimikatz".into()],
                 case_sensitive: false,
             })),
-            "sluiceDocWords(ctx, false, ['mimikatz'])"
+            "sluiceDocWords(ctx, false, false, ['mimikatz'])"
         );
         assert_eq!(
             compile(&Predicate::Keywords(KeywordTest {
@@ -202,7 +221,7 @@ mod tests {
                 &["x'); ctx.clear(); ('", "back\\slash"],
                 true
             )),
-            r"sluiceTest(sluiceGet(ctx, ['a\'b']), 0, true, ['x\'); ctx.clear(); (\'', 'back\\slash'])"
+            r"sluiceTest(sluiceGet(ctx, ['a\'b']), 0, true, false, ['x\'); ctx.clear(); (\'', 'back\\slash'])"
         );
     }
 
