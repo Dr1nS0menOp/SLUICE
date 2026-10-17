@@ -289,6 +289,17 @@ pub(crate) enum RecipesCommand {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Copy recipes an AI advisor proposed and the proof kept (`sluice analyze --llm` writes
+    /// them to `OUT/ai-recipes`) into a recipe repository, checked against the recipe book, for
+    /// a pull request. Review each one first: its pattern and rationale come from your logs.
+    Contribute {
+        /// The recipes, such as `out/ai-recipes`.
+        #[arg(long)]
+        from: PathBuf,
+        /// The recipe directory of a clone of the recipe repository.
+        #[arg(long)]
+        into: PathBuf,
+    },
 }
 
 #[derive(Debug, Args)]

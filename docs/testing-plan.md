@@ -244,6 +244,9 @@ ruleset (4,652 rules, `sluice rules fetch wazuh`) and Azure-Sentinel `55296e6` (
 Security Events", 21 rules, 18 of them run in the Kusto emulator). All with `--rules-complete`,
 as the earlier runs predate ADR 0021.
 
+Run again on 2026-10-17 after the Splunk, custom-table and agent work (`next/m12`, `1a5b3ca`):
+every number below came out the same.
+
 | Run, 2026-10-16 | Data | Saved | Alerts (full = forwarded) | Before (ADR 0009, 0015) |
 |---|---|---:|---|---|
 | Windows, SigmaHQ | 42,335 events, 41.0 MB | 25.0 % | 236 = 236 | 23.8 %, 206 = 206 |

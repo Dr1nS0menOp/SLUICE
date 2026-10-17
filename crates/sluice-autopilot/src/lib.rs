@@ -9,6 +9,7 @@
 
 mod analyze;
 mod basis;
+mod contribute;
 mod error;
 mod lifecycle;
 mod live;
@@ -21,6 +22,7 @@ pub use crate::analyze::{
     Analysis, Elastic, Helpers, Input, Sentinel, Settings, analyze, analyze_proposals,
 };
 pub use crate::basis::RulesBasis;
+pub use crate::contribute::{Contribution, ai_recipes};
 pub use crate::error::AutopilotError;
 pub use crate::lifecycle::{Evidence, Lifecycle, Policy, Stage, Transition};
 pub use crate::live::{Cycle, cycle};

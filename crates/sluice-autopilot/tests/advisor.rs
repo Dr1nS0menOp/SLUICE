@@ -153,3 +153,74 @@ fn a_failing_advisor_is_reported_not_fatal() {
     assert!(analysis.problems.iter().any(|p| p.contains("unreachable")));
     assert!(analysis.selection.proof.holds());
 }
+
+/// Proposes to drop the shipper's bookkeeping fields, which no detection reads.
+struct Modest;
+
+impl Advisor for Modest {
+    fn propose(&self, template: &Template, _: &[&Event]) -> Result<Option<Recipe>, AdviceError> {
+        let fields: BTreeSet<_> = template
+            .fields
+            .iter()
+            .filter(|f| {
+                let name = f.as_str();
+                name.starts_with("agent.") || name.starts_with("ecs.") || name == "log.offset"
+            })
+            .cloned()
+            .collect();
+        if fields.is_empty() {
+            return Ok(None);
+        }
+        let recipe = Recipe::new(
+            template.id.clone(),
+            vec![Reduction::DropFields { fields }],
+            Provenance::Ai {
+                model: "modest".into(),
+            },
+            "The shipper's own bookkeeping.",
+        );
+        Ok(Some(recipe.expect("a drop")))
+    }
+}
+
+#[test]
+fn advice_the_proof_kept_becomes_recipes_to_contribute() {
+    let sample = generate(&SynthConfig {
+        scale_percent: 10,
+        ..SynthConfig::default()
+    });
+    let rules = SigmaRules::parse(SIGMA).expect("rules parse");
+    let input = Input {
+        sources: &sample.sources,
+        events: &sample.events,
+        sigma: &rules,
+        wazuh: None,
+        sentinel: None,
+        elastic: None,
+        splunk: None,
+    };
+    // No built-in recipes: every frequent template is asked.
+    let book = RecipeBook::parse(std::iter::empty()).expect("an empty book");
+    let analysis = analyze(
+        input,
+        &book,
+        &Settings::with_complete_rules(),
+        Helpers {
+            advisor: Some(&Modest),
+            ..Helpers::default()
+        },
+    )
+    .expect("analysis");
+    let contributions = sluice_autopilot::ai_recipes(&analysis);
+    assert!(!contributions.is_empty(), "some advice was kept");
+    RecipeBook::embedded_with(
+        contributions
+            .iter()
+            .map(|c| (c.path.as_str(), c.yaml.as_str())),
+    )
+    .expect("the recipe book takes them next to the built-in ones");
+    for c in &contributions {
+        assert!(c.path.starts_with("contrib/"), "{}", c.path);
+        assert!(c.yaml.contains("Proposed by modest"), "{}", c.yaml);
+    }
+}

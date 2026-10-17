@@ -210,6 +210,7 @@ pub(crate) fn recipes(args: &RecipesArgs) -> Result<()> {
             }
         }
         Some(RecipesCommand::Schema) => print!("{}", RecipeBook::json_schema()),
+        Some(RecipesCommand::Contribute { from, into }) => contribute(from, into)?,
         Some(RecipesCommand::Export { out }) => {
             if out.read_dir().is_ok_and(|mut d| d.next().is_some()) {
                 bail!(
@@ -278,6 +279,38 @@ pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
         eprintln!("warning: {problem}");
     }
     println!("{}", serde_json::to_string_pretty(&requirements)?);
+    Ok(())
+}
+
+/// Copies the recipes in `from` into `into`, after checking that the recipe book takes them
+/// next to the built-in ones (no duplicate id, valid reductions). An existing file is never
+/// replaced.
+fn contribute(from: &Path, into: &Path) -> Result<()> {
+    let files = input::files(from, &["yml", "yaml"])?;
+    if files.is_empty() {
+        bail!("{} holds no recipes", from.display());
+    }
+    RecipeBook::embedded_with(
+        files
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str())),
+    )
+    .context("the recipes do not fit the recipe book")?;
+    for (path, text) in &files {
+        let relative = Path::new(path)
+            .strip_prefix(from)
+            .unwrap_or(Path::new(path));
+        let target = into.join(relative);
+        if target.exists() {
+            bail!("{} exists; nothing was copied after it", target.display());
+        }
+        output::write(&target, text)?;
+        println!("  wrote {}", target.display());
+    }
+    println!(
+        "Review each recipe (its pattern and rationale come from your logs), then commit them \
+         and open a pull request."
+    );
     Ok(())
 }
 
@@ -358,7 +391,23 @@ fn run(
         &(serde_json::to_string_pretty(&report.rule_rows)? + "\n"),
     )?;
 
+    let contributions = sluice_autopilot::ai_recipes(&analysis);
+    for contribution in &contributions {
+        output::write(
+            &out.join("ai-recipes").join(&contribution.path),
+            &contribution.yaml,
+        )?;
+    }
+
     output::summary(&report, analysis.discovery.templates.len(), sources.len());
+    if !contributions.is_empty() {
+        println!(
+            "  wrote   {} recipe(s) the AI proposed and the proof kept in {}: share them with \
+             `sluice recipes contribute`",
+            contributions.len(),
+            out.join("ai-recipes").display()
+        );
+    }
     println!(
         "  wrote   {} (the savings plan), {} and {}",
         out.join("plan.json").display(),

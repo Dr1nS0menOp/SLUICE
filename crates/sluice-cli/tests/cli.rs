@@ -575,3 +575,54 @@ fn up_check_validates_without_starting() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("refusing to start"));
 }
+
+#[test]
+fn contributed_recipes_are_checked_and_never_replace_a_file() {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli-contribute");
+    let _ = std::fs::remove_dir_all(&root);
+    let from = root.join("ai-recipes");
+    let into = root.join("hub");
+    let recipe = "id: contrib/nginx/health\ndescription: Health checks\nmatch:\n  logsource: \
+                  { product: nginx }\n  pattern: GET /health\nreductions:\n  - op: summarize\n    \
+                  summary_keys: [host.name]\nrationale: Load balancer probes.\n";
+    std::fs::create_dir_all(from.join("contrib/nginx")).unwrap();
+    std::fs::write(from.join("contrib/nginx/health.yaml"), recipe).unwrap();
+    let args = [
+        "recipes",
+        "contribute",
+        "--from",
+        from.to_str().unwrap(),
+        "--into",
+        into.to_str().unwrap(),
+    ];
+    sluice(&args);
+    assert_eq!(read(&into.join("contrib/nginx/health.yaml")), recipe);
+    let again = Command::new(env!("CARGO_BIN_EXE_sluice"))
+        .args(args)
+        .output()
+        .expect("sluice runs");
+    assert!(
+        !again.status.success(),
+        "an existing recipe is not replaced"
+    );
+
+    // A recipe the book refuses is not copied.
+    std::fs::write(
+        from.join("contrib/nginx/health.yaml"),
+        recipe.replace("pattern: GET /health\n", ""),
+    )
+    .unwrap();
+    let refused = Command::new(env!("CARGO_BIN_EXE_sluice"))
+        .args([
+            "recipes",
+            "contribute",
+            "--from",
+            from.to_str().unwrap(),
+            "--into",
+        ])
+        .arg(root.join("other"))
+        .output()
+        .expect("sluice runs");
+    assert!(!refused.status.success());
+    assert!(!root.join("other").exists());
+}

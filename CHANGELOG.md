@@ -234,6 +234,10 @@ explains the terms.
 - `sluice rules fetch splunk --api URL`: the saved searches, macros, props and transforms of
   every app, through Splunk's REST API, as a complete inventory for `--splunk-rules` (ADR 0021,
   ADR 0026).
+- `sluice analyze --llm` writes the recipes the AI proposed and the proof kept to
+  `OUT/ai-recipes`, as community recipes (matched by log source, schema and discriminators or
+  pattern; no sample values), and `sluice recipes contribute --from DIR --into REPO` copies them
+  into a recipe repository after checking them against the recipe book, never replacing a file.
 - `runs_in` in `plan.json` and the report names the collection agent (`agent`: Fluent Bit, the
   OpenTelemetry Collector) next to the pipeline tool and the SIEM's ingestion, and no longer
   claims a text template's saving can run outside a pipeline tool (ADR 0023).

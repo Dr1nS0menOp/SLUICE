@@ -696,7 +696,9 @@ planned when it starts; it includes at least:
 
   - A recipe hub repository with CI that runs every recipe against its samples and SigmaHQ.
   - `sluice recipes contribute`: export a locally proven, AI-written recipe (values stripped) as
-    a pull request.
+    a pull request. (2026-10-17: `analyze --llm` writes `ai-recipes/`, and `recipes contribute`
+    copies them, checked, into a clone of the recipe repository; the pull request itself and the
+    hub repository are still to come.)
   - Signed recipe releases that `sluice up` can follow, with the same shadow and proof before
     anything enforces.
   - Dependency hygiene: `unsafe-libyaml` (via `serde_yaml_ng`) is unmaintained
