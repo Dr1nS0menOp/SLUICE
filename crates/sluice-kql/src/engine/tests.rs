@@ -376,3 +376,52 @@ fn custom_tables_are_created_in_every_database() {
             .any(|(_, _, c)| c.starts_with(".ingest inline into table MyApp_CL"))
     );
 }
+
+/// In the Kusto emulator (`SLUICE_KUSTO_URL`): the `SluiceCounts` function reads the summary
+/// table as `sluice connect sentinel --summary-table` defines it.
+#[test]
+fn the_counts_function_reads_the_summary_table() {
+    use sluice_vector::summary_table::{SUMMARY_COUNTS, SUMMARY_TABLE, summary_table};
+    let Ok(url) = std::env::var("SLUICE_KUSTO_URL") else {
+        return;
+    };
+    let table = summary_table();
+    let columns: Vec<(String, String)> = table["properties"]["schema"]["columns"]
+        .as_array()
+        .expect("columns")
+        .iter()
+        .map(|c| {
+            (
+                c["name"].as_str().expect("a name").to_owned(),
+                c["type"].as_str().expect("a type").to_owned(),
+            )
+        })
+        .collect();
+    let columns: Vec<(&str, &str)> = columns
+        .iter()
+        .map(|(n, t)| (n.as_str(), t.as_str()))
+        .collect();
+    let rows = [
+        json!({"TimeGenerated": "2026-10-17T10:00:00Z", "sluice_source": "win",
+               "sluice_template": "win:5156:a", "sluice_keys": {"Application": "svchost.exe"},
+               "sluice_count": 40}),
+        json!({"TimeGenerated": "2026-10-17T10:01:00Z", "sluice_source": "win",
+               "sluice_template": "win:5156:a", "sluice_keys": {"Application": "svchost.exe"},
+               "sluice_count": 2}),
+    ];
+    let client = Client::new(&url);
+    let database = Database::create(&client, &[]).expect("a database");
+    database
+        .load_table(SUMMARY_TABLE, &columns, &rows)
+        .expect("loads");
+    let query = format!(
+        "{SUMMARY_COUNTS}| summarize Count = sum(Count) by Source, Template, App = \
+         tostring(Keys.Application)"
+    );
+    let result = database.query(&query).expect("the function runs");
+    assert_eq!(result.len(), 1, "{result:?}");
+    assert!(
+        result[0].contains("svchost.exe") && result[0].contains("42"),
+        "{result:?}"
+    );
+}

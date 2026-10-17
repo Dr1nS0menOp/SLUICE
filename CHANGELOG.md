@@ -234,6 +234,11 @@ explains the terms.
 - `sluice rules fetch splunk --api URL`: the saved searches, macros, props and transforms of
   every app, through Splunk's REST API, as a complete inventory for `--splunk-rules` (ADR 0021,
   ADR 0026).
+- Summaries in Sentinel get a table of their own (ADR 0029): `sluice connect sentinel
+  --summary-table` writes `SluiceSummary_CL`, its rule, a destination for summaries and the
+  `SluiceCounts` function, and a destination takes only the records it names
+  (`sluice_records: [events]` or `[summaries]`). Before, summary records went to the events'
+  table, whose rule dropped every field of them: the counts were lost.
 - `sluice analyze --llm` writes the recipes the AI proposed and the proof kept to
   `OUT/ai-recipes`, as community recipes (matched by log source, schema and discriminators or
   pattern; no sample values), and `sluice recipes contribute --from DIR --into REPO` copies them

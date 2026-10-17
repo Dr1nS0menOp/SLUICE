@@ -20,6 +20,7 @@ mod predicate;
 mod program;
 mod runtime;
 mod summary;
+pub mod summary_table;
 mod syntax;
 pub mod syslog;
 pub mod windows;
@@ -34,7 +35,7 @@ pub use crate::custom_table::{Column, ColumnKind, CustomTable};
 pub use crate::deployed::{Deployed, deployed};
 pub use crate::error::VectorError;
 pub use crate::live::{
-    FORMATS_KEY, LiveProfile, LiveSettings, LiveSource, RULES_KEY, SOURCES_KEY,
+    FORMATS_KEY, LiveProfile, LiveSettings, LiveSource, RECORDS_KEY, RULES_KEY, SOURCES_KEY,
     destination_profile, live_config,
 };
 pub use crate::program::{

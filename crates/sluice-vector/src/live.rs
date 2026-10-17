@@ -205,6 +205,52 @@ pub const FORMATS_KEY: &str = "sluice_formats";
 /// Sentinel's `SecurityEvent` and `WindowsEvent` need one destination each.
 pub const SOURCES_KEY: &str = "sluice_sources";
 
+/// Destination key, removed before Vector sees the sink, that limits a destination to some kinds
+/// of record: `[events]` or `[summaries]` (both when absent). A table that takes one shape of
+/// record cannot hold Sluice's summary records: they go to a table of their own (`sluice connect
+/// sentinel --summary-table`).
+pub const RECORDS_KEY: &str = "sluice_records";
+
+/// Which kinds of record a destination takes.
+#[derive(Clone, Copy)]
+struct Records {
+    events: bool,
+    summaries: bool,
+}
+
+impl Records {
+    /// The kinds a destination's `sluice_records` names; both without the key.
+    fn of(name: &str, value: Option<&Value>) -> Result<Self, VectorError> {
+        let Some(value) = value else {
+            return Ok(Self {
+                events: true,
+                summaries: true,
+            });
+        };
+        let invalid = || {
+            VectorError::Config(format!(
+                "destination {name}: {RECORDS_KEY} must be a non-empty list of `events` and \
+                 `summaries`"
+            ))
+        };
+        let mut records = Self {
+            events: false,
+            summaries: false,
+        };
+        for kind in value.as_array().ok_or_else(invalid)? {
+            match kind.as_str() {
+                Some("events") => records.events = true,
+                Some("summaries") => records.summaries = true,
+                _ => return Err(invalid()),
+            }
+        }
+        if !(records.events || records.summaries) {
+            return Err(invalid());
+        }
+        Ok(records)
+    }
+}
+
 /// The component outputs that feed destinations, by kind, each with the source it carries.
 #[derive(Default)]
 struct Outputs {
@@ -229,9 +275,13 @@ impl Outputs {
         name: &str,
         formats: Option<&Value>,
         only: Option<&BTreeSet<SourceId>>,
+        records: Records,
         sources: &[LiveSource<'_>],
     ) -> Result<Vec<String>, VectorError> {
-        let wanted = |outputs: &[(SourceId, String)]| -> Vec<String> {
+        let wanted = |outputs: &[(SourceId, String)], summaries: bool| -> Vec<String> {
+            if (summaries && !records.summaries) || (!summaries && !records.events) {
+                return Vec::new();
+            }
             outputs
                 .iter()
                 .filter(|(source, _)| only.is_none_or(|o| o.contains(source)))
@@ -239,10 +289,14 @@ impl Outputs {
                 .collect()
         };
         let Some(formats) = formats else {
-            return Ok([&self.json_events, &self.text_events, &self.summaries]
-                .into_iter()
-                .flat_map(|o| wanted(o))
-                .collect());
+            return Ok([
+                (&self.json_events, false),
+                (&self.text_events, false),
+                (&self.summaries, true),
+            ]
+            .into_iter()
+            .flat_map(|(o, summaries)| wanted(o, summaries))
+            .collect());
         };
         let invalid = || {
             VectorError::Config(format!(
@@ -253,8 +307,8 @@ impl Outputs {
         for format in formats.as_array().ok_or_else(invalid)? {
             match format.as_str() {
                 Some("json") => {
-                    inputs.extend(wanted(&self.json_events));
-                    inputs.extend(wanted(&self.summaries));
+                    inputs.extend(wanted(&self.json_events, false));
+                    inputs.extend(wanted(&self.summaries, true));
                 }
                 Some("text") => {
                     // A text codec writes Vector's `message` field, so the line must be there.
@@ -269,7 +323,7 @@ impl Outputs {
                             live.source.id
                         )));
                     }
-                    inputs.extend(wanted(&self.text_events));
+                    inputs.extend(wanted(&self.text_events, false));
                 }
                 _ => return Err(invalid()),
             }
@@ -362,13 +416,19 @@ fn destination(
 ) -> Result<Value, VectorError> {
     let profile = destination_profile(name, sink, loaded)?;
     let mut sink = sink.clone();
-    let (formats, only) = sink.as_object_mut().map_or((None, None), |s| {
+    let (formats, only, records) = sink.as_object_mut().map_or((None, None, None), |s| {
         s.remove(RULES_KEY);
-        (s.remove(FORMATS_KEY), s.remove(SOURCES_KEY))
+        (
+            s.remove(FORMATS_KEY),
+            s.remove(SOURCES_KEY),
+            s.remove(RECORDS_KEY),
+        )
     });
     let only = destination_sources(name, only.as_ref(), sources)?;
+    let records = Records::of(name, records.as_ref())?;
     let feeds = outputs.get(profile.as_str()).unwrap_or(unreduced);
-    sink["inputs"] = json!(feeds.select(name, formats.as_ref(), only.as_ref(), sources)?);
+    sink["inputs"] =
+        json!(feeds.select(name, formats.as_ref(), only.as_ref(), records, sources)?);
     azure_batch_limit(name, &mut sink)?;
     Ok(sink)
 }
@@ -858,5 +918,29 @@ mod tests {
         }
         let config: Value = serde_yaml_ng::from_str(&two).unwrap();
         assert_eq!(config["secret"]["siem"]["type"], "directory");
+    }
+
+    #[test]
+    fn a_destination_takes_the_kinds_of_record_it_names() {
+        let outputs = Outputs {
+            json_events: vec![("fw".into(), "fw_forward".into())],
+            text_events: vec![("auth".into(), "auth_forward".into())],
+            summaries: vec![("fw".into(), "fw_summaries".into())],
+        };
+        let select = |records: Value| {
+            let records = Records::of("d", Some(&records))?;
+            outputs.select("d", None, None, records, &[])
+        };
+        assert_eq!(
+            select(json!(["events"])).unwrap(),
+            ["fw_forward", "auth_forward"]
+        );
+        assert_eq!(select(json!(["summaries"])).unwrap(), ["fw_summaries"]);
+        assert_eq!(select(json!(["summaries", "events"])).unwrap().len(), 3);
+        for invalid in [json!([]), json!(["rows"]), json!("events")] {
+            assert!(select(invalid.clone()).is_err(), "{invalid}");
+        }
+        let both = Records::of("d", None).unwrap();
+        assert_eq!(outputs.select("d", None, None, both, &[]).unwrap().len(), 3);
     }
 }

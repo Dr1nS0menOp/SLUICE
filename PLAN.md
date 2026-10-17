@@ -687,7 +687,7 @@ planned when it starts; it includes at least:
   extractions), Elastic (detection rules, ingest pipelines) and Chronicle; workbook and
   dashboard queries; `sluice up` reloading the inventory (done 2026-10-17: `--reload-rules`,
   ADR 0021); summaries as a table of their own with
-  counting helpers (a KQL function, a Splunk macro); fields nobody queries (query logs) as the
+  counting helpers (a KQL function, a Splunk macro; Sentinel done 2026-10-17, ADR 0029); fields nobody queries (query logs) as the
   safest cut proposals.
 - Destinations, table shapes and schema mappings (CIM, ECS, UDM, OCSF, ASIM, LEEF/CEF) for each,
   with native ingest-time transformations where the platform has them (Elastic ingest

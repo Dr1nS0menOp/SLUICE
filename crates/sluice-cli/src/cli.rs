@@ -91,6 +91,11 @@ pub(crate) struct ConnectArgs {
     /// Sentinel: the field `TimeGenerated` is read from (default: the time of ingestion).
     #[arg(long, requires = "sample")]
     pub(crate) time_field: Option<String>,
+    /// Sentinel: also write the table summary records go to (`SluiceSummary_CL`), its data
+    /// collection rule and the `SluiceCounts` function, and a destination for them; the
+    /// destination for events then takes events only (ADR 0029).
+    #[arg(long, requires = "out")]
+    pub(crate) summary_table: bool,
     /// Sentinel: the workspace's resource ID, for the data collection rule.
     #[arg(long, requires = "out")]
     pub(crate) workspace: Option<String>,

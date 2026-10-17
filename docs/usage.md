@@ -187,6 +187,14 @@ right `stream_name`. Create the rule in Azure, put its immutable id and endpoint
 destination, and give your app registration *Monitoring Metrics Publisher* on it. Syslog should
 carry its priority (`<86>…`); without it, `Facility` stays empty.
 
+### Summaries
+
+Events Sluice counts instead of sends become summary records, which a table of one shape cannot
+hold. Add `--summary-table` to `sluice connect sentinel`: it writes the table `SluiceSummary_CL`,
+its data collection rule, a second destination that takes summaries only, and `SluiceCounts.kql`,
+a function to save in the workspace that queries add counted events with (ADR 0029). The
+destination for events then says `sluice_records: [events]`.
+
 ### Any other source
 
 For data with no standard table, Sluice derives a custom table from a sample:

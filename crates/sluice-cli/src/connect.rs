@@ -29,6 +29,20 @@ pub(crate) fn connect(args: &ConnectArgs) -> Result<()> {
         let stream = standard_table_dcr(args, target, table)?;
         destinations[name]["stream_name"] = json!(stream);
     }
+    // A table of one shape of record has no columns for a summary record.
+    if table.is_some() || args.standard_table.is_some() || args.summary_table {
+        destinations[name][sluice_vector::RECORDS_KEY] = json!(["events"]);
+    }
+    if args.summary_table {
+        let mut summaries = destinations[name].clone();
+        summary_table(args, target)?;
+        summaries["stream_name"] = json!(sluice_vector::summary_table::SUMMARY_STREAM);
+        summaries[sluice_vector::RECORDS_KEY] = json!(["summaries"]);
+        if let Some(object) = summaries.as_object_mut() {
+            object.remove(sluice_vector::SOURCES_KEY);
+        }
+        destinations.insert(format!("{name}_summaries"), summaries);
+    }
     let mut config = json!({ "destinations": destinations });
     if let Some((backend, settings)) = target.secret_backend() {
         config["vector_secrets"] = json!({ backend: settings });
@@ -134,6 +148,38 @@ fn standard_table_dcr(
         path.display()
     );
     Ok(stream)
+}
+
+/// With `--summary-table`, writes the summary table, its data collection rule and the
+/// `SluiceCounts` function to `--out`.
+fn summary_table(args: &ConnectArgs, target: Target) -> Result<()> {
+    use sluice_vector::summary_table::{SUMMARY_COUNTS, SUMMARY_TABLE, summary_dcr, summary_table};
+    if target != Target::Sentinel {
+        bail!("--summary-table writes a Sentinel table; it only applies to `sentinel`");
+    }
+    let out = args.out.as_deref().context("--summary-table needs --out")?;
+    std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
+    let write = |file: &str, text: String| -> Result<()> {
+        let path = out.join(file);
+        std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))
+    };
+    write(
+        &format!("{SUMMARY_TABLE}.table.json"),
+        serde_json::to_string_pretty(&summary_table())? + "\n",
+    )?;
+    write(
+        "SluiceSummary.dcr.json",
+        serde_json::to_string_pretty(&summary_dcr(&args.location, workspace(args)))? + "\n",
+    )?;
+    write("SluiceCounts.kql", SUMMARY_COUNTS.to_owned())?;
+    println!(
+        "# Summaries: create {SUMMARY_TABLE} from {0}/{SUMMARY_TABLE}.table.json, the rule from \
+         {0}/SluiceSummary.dcr.json, and save {0}/SluiceCounts.kql as the workspace function \
+         SluiceCounts; set the summaries destination's `dcr_immutable_id` and endpoint from that \
+         rule.",
+        out.display()
+    );
+    Ok(())
 }
 
 /// The workspace resource ID given, or a placeholder.

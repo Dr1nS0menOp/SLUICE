@@ -433,6 +433,35 @@ fn connect_sentinel_writes_the_rule_of_each_standard_table() {
 }
 
 #[test]
+fn connect_sentinel_sends_summaries_to_a_table_of_their_own() {
+    let dir = scratch("connect-summaries");
+    let out = sluice(&[
+        "connect",
+        "sentinel",
+        "--standard-table",
+        "syslog",
+        "--summary-table",
+        "--out",
+        dir.to_str().unwrap(),
+        "--endpoint",
+        "https://dce.example",
+    ]);
+    let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).expect("valid YAML");
+    let events = &yaml["destinations"]["sentinel"];
+    let summaries = &yaml["destinations"]["sentinel_summaries"];
+    assert_eq!(events["sluice_records"][0], "events", "{out}");
+    assert_eq!(summaries["sluice_records"][0], "summaries", "{out}");
+    assert_eq!(summaries["stream_name"], "Custom-SluiceSummary");
+    for file in [
+        "SluiceSummary_CL.table.json",
+        "SluiceSummary.dcr.json",
+        "SluiceCounts.kql",
+    ] {
+        assert!(dir.join(file).is_file(), "{file}");
+    }
+}
+
+#[test]
 fn connect_refuses_sentinel_options_elsewhere_and_samples_that_are_not_json() {
     let dir = scratch("connect-refused");
     let out = dir.to_str().unwrap();
