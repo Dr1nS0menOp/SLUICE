@@ -190,6 +190,21 @@ fn a_fetched_elastic_inventory_reads_its_rules_not_its_manifest() {
 }
 
 #[test]
+fn fail_closed_every_rule_file_but_the_fetch_manifest_is_read() {
+    let dir = scratch("manifest-like");
+    let rule = "{\"rule_id\":\"a\",\"type\":\"query\",\"query\":\"user.name : root\"}\n";
+    fs::write(dir.join("rules-inventory.json"), rule).unwrap();
+    fs::create_dir_all(dir.join("team")).unwrap();
+    fs::write(
+        dir.join("team").join(sluice_core::inventory::MANIFEST_FILE),
+        rule.replace("\"a\"", "\"b\""),
+    )
+    .unwrap();
+    let rules = elastic(Some(&dir)).unwrap().unwrap();
+    assert_eq!(rules.requirements().len(), 2, "{:?}", rules.problems());
+}
+
+#[test]
 fn sentinel_rules_load_and_keep_their_problems() {
     let dir = scratch("sentinel");
     fs::write(

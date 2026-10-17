@@ -8,7 +8,7 @@ branding:
 
 inputs:
   config:
-    description: The Vector configuration to prove (a vector.yaml from `sluice analyze` or a `sluice up` proposal).
+    description: The Vector configuration to prove (a vector.yaml from `sluice analyze`).
     required: true
   input:
     description: Directory with one <source-id>.ndjson sample file per source.
@@ -22,10 +22,6 @@ inputs:
     default: ""
   sigma-pipeline:
     description: Optional SCHEMA=PIPELINE mapping of the Sigma rules, such as ecs=ecs_windows.
-    required: false
-    default: ""
-  profile:
-    description: The rule profile to prove, for a configuration of several.
     required: false
     default: ""
   allow-no-alerts:
@@ -85,14 +81,12 @@ runs:
         SOURCES: ${{ inputs.sources }}
         RULES: ${{ inputs.rules }}
         PIPELINE: ${{ inputs.sigma-pipeline }}
-        PROFILE: ${{ inputs.profile }}
         ALLOW_NO_ALERTS: ${{ inputs.allow-no-alerts }}
       run: |
         set -uo pipefail
         args=(prove --config "$CONFIG" --input "$INPUT" --sources "$SOURCES" --json)
         [ -n "$RULES" ] && args+=(--rules "$RULES")
         [ -n "$PIPELINE" ] && args+=(--sigma-pipeline "$PIPELINE")
-        [ -n "$PROFILE" ] && args+=(--profile "$PROFILE")
         [ "$ALLOW_NO_ALERTS" = "true" ] && args+=(--allow-no-alerts)
         sluice "${args[@]}" > "${RUNNER_TEMP}/sluice-proof.json"
         status=$?

@@ -113,13 +113,10 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
     } else {
         RulesBasis::NotKnown
     };
-    let inventory_notes: Vec<String> =
-        [args.wazuh_rules.as_deref(), args.sentinel_rules.as_deref()]
-            .into_iter()
-            .flatten()
-            .filter_map(crate::inventory::find_manifest)
-            .flat_map(|m| m.not_modeled)
-            .collect();
+    let inventory_notes: Vec<String> = siem_rules(args)
+        .filter_map(crate::inventory::find_manifest)
+        .flat_map(|m| m.not_modeled)
+        .collect();
     run(
         Input {
             sources: &sources,
@@ -170,18 +167,21 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
 /// Whether rules were given and every set came from a complete `sluice rules fetch`. Sigma has
 /// no SIEM API, so Sigma rules always need `--rules-complete`.
 fn fetched_only(args: &AnalyzeArgs) -> bool {
-    let given = [
+    args.rules.is_none()
+        && siem_rules(args).next().is_some()
+        && siem_rules(args).all(crate::inventory::is_complete)
+}
+
+/// The rule directories given of the SIEMs `sluice rules fetch` reads.
+fn siem_rules(args: &AnalyzeArgs) -> impl Iterator<Item = &Path> {
+    [
         args.wazuh_rules.as_deref(),
         args.sentinel_rules.as_deref(),
         args.elastic_rules.as_deref(),
         args.splunk_rules.as_deref(),
-    ];
-    args.rules.is_none()
-        && given.iter().any(Option::is_some)
-        && given
-            .iter()
-            .flatten()
-            .all(|dir| crate::inventory::is_complete(dir))
+    ]
+    .into_iter()
+    .flatten()
 }
 
 /// The Wazuh `logtest` client `--wazuh-api` asks for.
@@ -235,44 +235,33 @@ pub(crate) fn recipes(args: &RecipesArgs) -> Result<()> {
 }
 
 pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
-    let (rules, wazuh_rules, wazuh_decoders, sentinel_rules, elastic_rules, splunk_rules) =
-        match &args.command {
-            RulesCommand::Fetch(fetch) => return crate::inventory::fetch(fetch),
-            RulesCommand::Requirements {
-                rules,
-                wazuh_rules,
-                wazuh_decoders,
-                sentinel_rules,
-                elastic_rules,
-                splunk_rules,
-            } => (
-                rules,
-                wazuh_rules,
-                wazuh_decoders,
-                sentinel_rules,
-                elastic_rules,
-                splunk_rules,
-            ),
-        };
+    let args = match &args.command {
+        RulesCommand::Fetch(fetch) => return crate::inventory::fetch(fetch),
+        RulesCommand::Requirements(args) => args,
+    };
     let mut requirements = Vec::new();
     let mut problems = Vec::new();
-    if let Some(dir) = rules {
+    if let Some(dir) = &args.rules {
         let files = input::files(dir, &["yml", "yaml"])?;
-        let sigma = SigmaRules::parse(files.iter().map(|(_, text)| text.as_str()))?;
+        let sigma = SigmaRules::parse_with(
+            files.iter().map(|(_, text)| text.as_str()),
+            &input::sigma_pipelines(&args.sigma_pipeline)?,
+        )?;
         requirements.extend(sigma.requirements().iter().cloned());
         problems.extend(sigma.problems().iter().cloned());
     }
-    if let Some(wazuh) = input::wazuh(wazuh_rules.as_deref(), wazuh_decoders.as_deref())? {
+    if let Some(wazuh) = input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?
+    {
         requirements.extend(wazuh.requirements().iter().cloned());
         problems.extend(wazuh.problems().iter().cloned());
     }
-    if let Some(sentinel) = input::sentinel(sentinel_rules.as_deref())? {
+    if let Some(sentinel) = input::sentinel(args.sentinel_rules.as_deref())? {
         requirements.extend(sentinel.requirements().iter().cloned());
     }
-    if let Some(elastic) = input::elastic(elastic_rules.as_deref())? {
+    if let Some(elastic) = input::elastic(args.elastic_rules.as_deref())? {
         requirements.extend(elastic.requirements().iter().cloned());
     }
-    if let Some(splunk) = input::splunk(splunk_rules.as_deref())? {
+    if let Some(splunk) = input::splunk(args.splunk_rules.as_deref())? {
         requirements.extend(splunk.requirements().iter().cloned());
     }
     for problem in &problems {

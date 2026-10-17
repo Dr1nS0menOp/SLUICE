@@ -255,32 +255,6 @@ impl Components {
         }
     }
 
-    /// The reduction components of `profile`'s pipeline. The input and archive stay shared: one
-    /// copy of every event is archived, whatever each destination's rules allow.
-    pub(crate) fn for_profile(&self, profile: &str) -> Self {
-        let tag: String = profile
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() {
-                    c.to_ascii_lowercase()
-                } else {
-                    '_'
-                }
-            })
-            .collect();
-        let stem = format!("{}_{tag}", self.stem);
-        let name = |suffix: &str| format!("sluice_{stem}{suffix}");
-        Self {
-            input: self.input.clone(),
-            parse: self.parse.clone(),
-            program: name(""),
-            split: name("_route"),
-            summarize: name("_summarize"),
-            summaries: name("_summaries"),
-            stem,
-        }
-    }
-
     /// The id of the source's shaping step (live configurations with a `shape`).
     pub(crate) fn shape(&self) -> String {
         let source_stem = self.input.trim_end_matches("_input");

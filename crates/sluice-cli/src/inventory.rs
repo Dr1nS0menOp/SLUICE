@@ -58,15 +58,10 @@ pub(crate) fn fetch(args: &FetchArgs) -> Result<()> {
             )
         }
         FetchTarget::Elastic { kibana, space } => {
-            let auth = match std::env::var("KIBANA_API_KEY")
-                .ok()
-                .filter(|k| !k.is_empty())
-            {
-                Some(key) => sluice_elastic::inventory::Auth::ApiKey(key),
-                None => sluice_elastic::inventory::Auth::Basic {
-                    user: env("KIBANA_USER")?,
-                    password: env("KIBANA_PASSWORD")?,
-                },
+            use sluice_elastic::inventory::Auth;
+            let auth = match token_or_login("KIBANA_API_KEY", "KIBANA_USER", "KIBANA_PASSWORD")? {
+                Credential::Token(key) => Auth::ApiKey(key),
+                Credential::Login { user, password } => Auth::Basic { user, password },
             };
             let inventory =
                 sluice_elastic::inventory::fetch(kibana, &auth, space.as_deref(), &fetched_at)?;
@@ -107,12 +102,9 @@ pub(crate) fn fetch(args: &FetchArgs) -> Result<()> {
 /// `SPLUNK_PASSWORD`.
 fn splunk(api: &str, insecure: bool, fetched_at: &str) -> Result<Inventory> {
     use sluice_splunk::inventory::{Auth, Target};
-    let auth = match std::env::var("SPLUNK_TOKEN").ok().filter(|t| !t.is_empty()) {
-        Some(token) => Auth::Token(token),
-        None => Auth::Basic {
-            user: env("SPLUNK_USER")?,
-            password: env("SPLUNK_PASSWORD")?,
-        },
+    let auth = match token_or_login("SPLUNK_TOKEN", "SPLUNK_USER", "SPLUNK_PASSWORD")? {
+        Credential::Token(token) => Auth::Token(token),
+        Credential::Login { user, password } => Auth::Basic { user, password },
     };
     let target = Target {
         url: api,
@@ -125,9 +117,9 @@ fn splunk(api: &str, insecure: bool, fetched_at: &str) -> Result<Inventory> {
 /// Writes `inventory` to `out`: a new or empty directory, or an earlier fetch, which is
 /// replaced. Any other directory is refused, so a fetch never deletes the operator's files.
 ///
-/// The fetch is written next to `out` first and then renamed into place, so a reader (`sluice
-/// up --reload-rules`) never sees half of one: only the old fetch, the new one, or for a moment
-/// none.
+/// The fetch is written next to `out` first and then renamed into place, so an analysis reading
+/// `out` meanwhile, or a fetch that fails halfway, never leaves half of one: only the old fetch,
+/// the new one, or for a moment none.
 pub(crate) fn write(inventory: &Inventory, out: &Path) -> Result<()> {
     if let Some((path, _)) = inventory
         .files
@@ -197,10 +189,29 @@ pub(crate) fn is_complete(dir: &Path) -> bool {
 }
 
 fn env(name: &str) -> Result<String> {
-    std::env::var(name)
-        .ok()
-        .filter(|v| !v.is_empty())
-        .with_context(|| format!("{name} is not set"))
+    var(name).with_context(|| format!("{name} is not set"))
+}
+
+fn var(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|v| !v.is_empty())
+}
+
+/// A token, or else a user and password, from the environment.
+enum Credential {
+    Token(String),
+    Login { user: String, password: String },
+}
+
+/// The credential in the environment variable `token`, or in `user` and `password`; the error
+/// names both ways.
+fn token_or_login(token: &str, user: &str, password: &str) -> Result<Credential> {
+    if let Some(token) = var(token) {
+        return Ok(Credential::Token(token));
+    }
+    match (var(user), var(password)) {
+        (Some(user), Some(password)) => Ok(Credential::Login { user, password }),
+        _ => bail!("set {token}, or {user} and {password}"),
+    }
 }
 
 fn now_rfc3339() -> String {

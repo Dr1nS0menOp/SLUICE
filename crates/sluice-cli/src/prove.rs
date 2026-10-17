@@ -20,13 +20,13 @@ pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
     let events = input::events(&args.input, &sources)?;
     let yaml = std::fs::read_to_string(&args.config)
         .with_context(|| format!("reading {}", args.config.display()))?;
-    let deployed = sluice_vector::deployed(&yaml, &sources, args.profile.as_deref())
+    let deployed = sluice_vector::deployed(&yaml, &sources)
         .with_context(|| format!("reading the reductions of {}", args.config.display()))?;
     let unproven = deployed.unproven();
-    if !unproven.is_empty() && args.profile.is_none() {
+    if !unproven.is_empty() {
         bail!(
-            "{} runs programs this proof does not cover ({}): name the rule profile with \
-             --profile, or the programs are not Sluice's",
+            "{} runs programs this proof does not cover ({}): they are not Sluice's programs \
+             for these sources",
             args.config.display(),
             unproven
                 .iter()
@@ -37,13 +37,8 @@ pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
     }
     if deployed.unreduced.len() == sources.len() {
         bail!(
-            "{} has no Sluice program for any of these sources{}",
-            args.config.display(),
-            if args.profile.is_none() {
-                "; for a configuration with several rule profiles, name one with --profile"
-            } else {
-                ""
-            }
+            "{} has no Sluice program for any of these sources",
+            args.config.display()
         );
     }
 

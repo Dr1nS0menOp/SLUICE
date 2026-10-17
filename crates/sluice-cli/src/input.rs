@@ -174,11 +174,10 @@ pub(crate) fn elastic(dir: Option<&Path>) -> Result<Option<sluice_rules::Elastic
         return Ok(None);
     };
     let files = files(dir, &["json", "ndjson"])?;
-    // A fetched inventory's manifest is JSON too, and no rule.
     let rules = sluice_rules::ElasticRules::parse(
         files
             .iter()
-            .filter(|(path, _)| !path.ends_with(sluice_core::inventory::MANIFEST_FILE))
+            .filter(|(path, _)| !is_manifest(dir, path))
             .map(|(path, text)| (path.as_str(), text.as_str())),
     );
     for problem in rules.problems().iter().take(5) {
@@ -203,7 +202,7 @@ pub(crate) fn splunk(dir: Option<&Path>) -> Result<Option<sluice_rules::SplunkRu
     let rules = sluice_rules::SplunkRules::parse(
         files
             .iter()
-            .filter(|(path, _)| !path.ends_with(sluice_core::inventory::MANIFEST_FILE))
+            .filter(|(path, _)| !is_manifest(dir, path))
             .map(|(path, text)| (path.as_str(), text.as_str())),
     );
     for problem in rules.problems().iter().take(5) {
@@ -338,6 +337,13 @@ pub(crate) fn kusto(
         engine.skipped().len()
     );
     Ok(engine)
+}
+
+/// Whether `path` is the manifest `sluice rules fetch` wrote at the top of `dir`: JSON too, and
+/// no rule. Only that one file is skipped; any other, whatever its name, is read as rules, or
+/// its rules would constrain no cut.
+fn is_manifest(dir: &Path, path: &str) -> bool {
+    Path::new(path) == dir.join(sluice_core::inventory::MANIFEST_FILE)
 }
 
 /// Every file under `dir` with one of `extensions` (in any case), as `(path, contents)`, sorted

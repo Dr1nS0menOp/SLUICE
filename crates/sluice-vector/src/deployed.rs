@@ -2,9 +2,8 @@
 //! under review (a pull request, a proposal) can be proven as it is, not as it was meant to be
 //! (`sluice prove`, M11).
 //!
-//! Per source, the program transform (`sluice_<src>`, or `sluice_<src>_<profile>` when the
-//! configuration serves several rule profiles) is compiled with the `vrl` crate. The wiring
-//! around it must be Sluice's own, or the proof would not describe what Vector does:
+//! Per source, the program transform (`sluice_<src>`) is compiled with the `vrl` crate. The
+//! wiring around it must be Sluice's own, or the proof would not describe what Vector does:
 //!
 //! - the program drops nothing on error (`drop_on_error` with `reroute_dropped`), and its
 //!   `dropped` output is consumed: an event the program fails on is forwarded unmodified;
@@ -44,26 +43,21 @@ pub struct Deployed {
 }
 
 impl Deployed {
-    /// Programs in the configuration this reading does not prove: another profile's, or ones
-    /// Sluice cannot place (renamed, or left over from another layout).
+    /// Programs in the configuration this reading does not prove: ones Sluice cannot place
+    /// (renamed, or left over from another layout).
     #[must_use]
     pub fn unproven(&self) -> BTreeSet<&String> {
         self.programs.difference(&self.read).collect()
     }
 }
 
-/// Reads the reductions of `yaml` for `sources`, for the rule profile `profile` when the
-/// configuration was generated for several.
+/// Reads the reductions of `yaml` for `sources`.
 ///
 /// # Errors
 ///
 /// Returns [`VectorError::NotProvable`] if the configuration cannot be read or a source's wiring is
 /// not Sluice's, and [`VectorError::Compile`] if a program does not compile cleanly.
-pub fn deployed(
-    yaml: &str,
-    sources: &[Source],
-    profile: Option<&str>,
-) -> Result<Deployed, VectorError> {
+pub fn deployed(yaml: &str, sources: &[Source]) -> Result<Deployed, VectorError> {
     let config: Value =
         serde_yaml_ng::from_str(yaml).map_err(|e| VectorError::NotProvable(e.to_string()))?;
     let transforms = config["transforms"]
@@ -76,8 +70,7 @@ pub fn deployed(
     let mut read = BTreeSet::new();
     let mut unreduced = Vec::new();
     for source in sources {
-        let base = Components::for_source(&source.id);
-        let c = profile.map_or_else(|| base.clone(), |p| base.for_profile(p));
+        let c = Components::for_source(&source.id);
         let Some(program) = transforms.get(&c.program) else {
             unreduced.push(source.id.clone());
             continue;

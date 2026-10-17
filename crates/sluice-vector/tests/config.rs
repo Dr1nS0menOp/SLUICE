@@ -144,7 +144,7 @@ fn config_is_deterministic() {
 #[test]
 fn the_programs_read_back_from_the_config_reduce_exactly_as_the_proven_ones() {
     let (yaml, proven) = rendered_with_reducer();
-    let read = deployed(&yaml, &sample().sources, None).expect("Sluice's own config");
+    let read = deployed(&yaml, &sample().sources).expect("Sluice's own config");
     for event in &sample().events {
         assert_eq!(
             read.reducer.reduce(event).unwrap(),
@@ -164,7 +164,7 @@ fn edited(edit: impl FnOnce(&mut serde_json::Value)) -> String {
 }
 
 fn refused(yaml: &str) -> String {
-    match deployed(yaml, &sample().sources, None) {
+    match deployed(yaml, &sample().sources) {
         Err(error) => error.to_string(),
         Ok(_) => panic!("an edited configuration was accepted"),
     }
@@ -224,13 +224,13 @@ fn a_config_without_any_sluice_program_reduces_nothing() {
                 .any(|s| *id == format!("sluice_{}", s.id.as_str().replace('-', "_")))
         });
     });
-    let read = deployed(&yaml, &sample().sources, None).expect("nothing to refuse");
+    let read = deployed(&yaml, &sample().sources).expect("nothing to refuse");
     assert_eq!(read.unreduced.len(), sample().sources.len());
 }
 
 #[test]
 fn the_generated_config_leaves_no_program_unproven() {
-    let read = deployed(&rendered(), &sample().sources, None).expect("Sluice's own config");
+    let read = deployed(&rendered(), &sample().sources).expect("Sluice's own config");
     assert_eq!(read.unproven().len(), 0, "{:?}", read.unproven());
     assert!(!read.programs.is_empty());
 }
@@ -243,7 +243,7 @@ fn c3_a_program_under_another_name_is_reported_unproven() {
         transforms.insert("sluice_sysmon_old".into(), program);
         transforms["sluice_sysmon_route"]["inputs"] = serde_json::json!(["sluice_sysmon_old"]);
     });
-    let read = deployed(&yaml, &sample().sources, None).expect("readable");
+    let read = deployed(&yaml, &sample().sources).expect("readable");
     let unproven: Vec<&str> = read.unproven().into_iter().map(String::as_str).collect();
     assert_eq!(unproven, ["sluice_sysmon_old"]);
 }
@@ -255,7 +255,7 @@ fn c3_an_extra_remap_that_changes_events_is_reported_unproven() {
             "type": "remap", "inputs": ["sluice_sysmon_parse"], "source": "del(.Message)"
         });
     });
-    let read = deployed(&yaml, &sample().sources, None).expect("readable");
+    let read = deployed(&yaml, &sample().sources).expect("readable");
     assert!(read.unproven().contains(&"sluice_drop_messages".to_owned()));
 }
 

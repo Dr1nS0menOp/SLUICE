@@ -34,8 +34,8 @@ pub(crate) enum Command {
 pub(crate) struct ConnectArgs {
     /// The SIEM: `sentinel`.
     pub(crate) target: ConnectTarget,
-    /// Sentinel: sample records of a source (NDJSON, as forwarded) to derive a custom table
-    /// `<TABLE>_CL` and its data collection rule from.
+    /// Sentinel: sample records of a source (NDJSON, as the agent sends them) to derive a custom
+    /// table `<TABLE>_CL` and its data collection rule from.
     #[arg(long, requires = "table")]
     pub(crate) sample: Option<PathBuf>,
     /// Sentinel: the custom table's name, without `_CL`.
@@ -96,32 +96,39 @@ pub(crate) enum RulesCommand {
     /// Print, as JSON, what each rule needs: its log source, the fields it reads (`unknown` when
     /// it may read any), whether it matches raw text, and whether it is stateful. Sluice never
     /// removes what these say.
-    Requirements {
-        /// Directory of Sigma rules (`*.yml`, `*.yaml`), searched recursively.
-        #[arg(long)]
-        rules: Option<PathBuf>,
-        /// Directory of Wazuh rule files (`*.xml`), searched recursively.
-        #[arg(long)]
-        wazuh_rules: Option<PathBuf>,
-        /// Directory of Wazuh decoder files (`*.xml`), to bound rules by `<decoded_as>`.
-        #[arg(long, requires = "wazuh_rules")]
-        wazuh_decoders: Option<PathBuf>,
-        /// Directory of Microsoft Sentinel analytics rules (`*.yaml` with a KQL `query`),
-        /// searched recursively, such as a clone of Azure/Azure-Sentinel.
-        #[arg(long)]
-        sentinel_rules: Option<PathBuf>,
-        /// Directory of Elastic Security detection rules (Kibana's export, `*.ndjson` or
-        /// `*.json`, or the prebuilt rules package), searched recursively.
-        #[arg(long)]
-        elastic_rules: Option<PathBuf>,
-        /// Directory of Splunk configuration (`savedsearches.conf`, `macros.conf`, or the REST
-        /// API's JSON answers), searched recursively.
-        #[arg(long)]
-        splunk_rules: Option<PathBuf>,
-    },
+    Requirements(RequirementsArgs),
     /// Read the rules a SIEM runs from its API (read-only) into a directory, with an
     /// `inventory.json` that marks them complete (ADR 0021). Fetching again replaces it.
     Fetch(FetchArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct RequirementsArgs {
+    /// Directory of Sigma rules (`*.yml`, `*.yaml`), searched recursively.
+    #[arg(long)]
+    pub(crate) rules: Option<PathBuf>,
+    /// Map the Sigma rules onto another field naming convention (`SCHEMA=PIPELINE`), as for
+    /// `sluice analyze`, so the fields printed are the ones its cuts are checked against.
+    #[arg(long, value_name = "SCHEMA=PIPELINE")]
+    pub(crate) sigma_pipeline: Vec<String>,
+    /// Directory of Wazuh rule files (`*.xml`), searched recursively.
+    #[arg(long)]
+    pub(crate) wazuh_rules: Option<PathBuf>,
+    /// Directory of Wazuh decoder files (`*.xml`), to bound rules by `<decoded_as>`.
+    #[arg(long, requires = "wazuh_rules")]
+    pub(crate) wazuh_decoders: Option<PathBuf>,
+    /// Directory of Microsoft Sentinel analytics rules (`*.yaml` with a KQL `query`), searched
+    /// recursively, such as a clone of Azure/Azure-Sentinel.
+    #[arg(long)]
+    pub(crate) sentinel_rules: Option<PathBuf>,
+    /// Directory of Elastic Security detection rules (Kibana's export, `*.ndjson` or `*.json`,
+    /// or the prebuilt rules package), searched recursively.
+    #[arg(long)]
+    pub(crate) elastic_rules: Option<PathBuf>,
+    /// Directory of Splunk configuration (`savedsearches.conf`, `macros.conf`, or the REST
+    /// API's JSON answers), searched recursively.
+    #[arg(long)]
+    pub(crate) splunk_rules: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -307,8 +314,8 @@ pub(crate) struct AnalyzeArgs {
     /// Needs a sample read from the table, where empty and missing columns are the same.
     #[arg(long, requires = "sentinel_table")]
     pub(crate) sentinel_native: bool,
-    /// The data collection rule (JSON, as Azure or `sluice agent windows --dcr` gives it) the
-    /// records go through, for `--sentinel-native`: its stream's columns are what the
+    /// The data collection rule (JSON, as Azure exports it) the records go through, for
+    /// `--sentinel-native`: its stream's columns are what the
     /// transformation sees, and it runs after the data flow's own transformation. Sluice writes
     /// it back as `sentinel/dcr.json` with the proven transformations and an untransformed flow
     /// into an archive table per changed table (`sentinel/*.table.json`). Without it, nothing is
@@ -375,12 +382,12 @@ pub(crate) struct AnalyzeArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct ProveArgs {
-    /// The Vector configuration to prove: a `vector.yaml` from `sluice analyze`, or a proposal
-    /// or live configuration from `sluice up`.
+    /// The Vector configuration to prove: a `vector.yaml` from `sluice analyze`, as generated or
+    /// as changed in review.
     #[arg(long)]
     pub(crate) config: PathBuf,
     /// Directory with one `<source-id>.ndjson` file per source, as the configuration's
-    /// programs see them (for `sluice up`: as tapped, after shaping).
+    /// programs see them.
     #[arg(long)]
     pub(crate) input: PathBuf,
     /// Sources file (YAML), as for `sluice analyze`.
@@ -401,9 +408,6 @@ pub(crate) struct ProveArgs {
     /// The Sentinel table of a source's records, as `SOURCE=TABLE`. Repeatable.
     #[arg(long, value_name = "SOURCE=TABLE", requires = "kusto")]
     pub(crate) sentinel_table: Vec<String>,
-    /// The rule profile to prove, for a configuration of several (such as `sentinel+sigma`).
-    #[arg(long)]
-    pub(crate) profile: Option<String>,
     /// Print the result as JSON (for CI).
     #[arg(long)]
     pub(crate) json: bool,

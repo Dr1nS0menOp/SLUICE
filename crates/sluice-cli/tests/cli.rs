@@ -202,6 +202,26 @@ fn rules_requirements_include_filter_fields_and_correlations() {
 }
 
 #[test]
+fn rules_requirements_map_sigma_rules_as_analyze_does() {
+    let rules = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/rules/sigma");
+    let rules = rules.to_str().unwrap();
+    let plain = sluice(&["rules", "requirements", "--rules", rules]);
+    let mapped = sluice(&[
+        "rules",
+        "requirements",
+        "--rules",
+        rules,
+        "--sigma-pipeline",
+        "ecs=ecs_windows",
+    ]);
+    serde_json::from_str::<serde_json::Value>(&mapped).expect("JSON");
+    assert_ne!(
+        plain, mapped,
+        "the pipeline maps the Windows rules onto ECS"
+    );
+}
+
+#[test]
 fn recipes_lists_the_built_in_recipes() {
     let listing = sluice(&["recipes"]);
     assert!(listing.contains("microsoft/windows/sysmon/image-loaded"));
@@ -411,6 +431,9 @@ fn sluice_fails_without_credentials(args: &[&str]) -> String {
         .env_remove("WAZUH_API_PASSWORD")
         .env_remove("AZURE_TENANT_ID")
         .env("AZURE_CLIENT_ID", "")
+        .env_remove("KIBANA_API_KEY")
+        .env_remove("KIBANA_PASSWORD")
+        .env("KIBANA_USER", "u")
         .output()
         .expect("sluice runs");
     assert!(!output.status.success(), "sluice {args:?} succeeded");
@@ -454,6 +477,19 @@ fn rules_fetch_needs_a_directory_and_credentials_before_it_asks_anything() {
         out,
     ]);
     assert!(error.contains("AZURE_TENANT_ID is not set"), "{error}");
+    let error = sluice_fails_without_credentials(&[
+        "rules",
+        "fetch",
+        "elastic",
+        "--kibana",
+        "https://127.0.0.1:9",
+        "--out",
+        out,
+    ]);
+    assert!(
+        error.contains("set KIBANA_API_KEY, or KIBANA_USER and KIBANA_PASSWORD"),
+        "{error}"
+    );
     assert!(!Path::new(out).exists(), "nothing written");
 }
 
