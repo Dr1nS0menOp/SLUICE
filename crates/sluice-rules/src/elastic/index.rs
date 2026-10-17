@@ -103,6 +103,29 @@ fn scope(pattern: &str) -> Option<LogSource> {
         .and_then(|(_, product)| source(product, None))
 }
 
+/// Whether every one of `patterns` names Kibana's alert indices, so the rule reads the alerts
+/// of other rules rather than events.
+pub(crate) fn reads_alerts<'a>(patterns: impl IntoIterator<Item = &'a str>) -> bool {
+    const ALERTS: [&str; 4] = [
+        ".alerts-",
+        ".internal.alerts-",
+        ".siem-signals-",
+        ".preview.alerts-",
+    ];
+    let mut any = false;
+    for pattern in patterns {
+        let pattern = pattern.trim();
+        if pattern.starts_with('-') {
+            continue;
+        }
+        if !ALERTS.iter().any(|a| pattern.starts_with(a)) {
+            return false;
+        }
+        any = true;
+    }
+    any
+}
+
 /// The index patterns of an ES|QL query's `FROM`, up to the first pipe.
 pub(crate) fn esql_from(query: &str) -> Vec<String> {
     let mut words = query.split_whitespace();

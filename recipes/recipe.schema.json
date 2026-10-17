@@ -91,6 +91,18 @@
             "null"
           ],
           "default": null
+        },
+        "schema": {
+          "description": "The field naming convention the recipe's field names are in (ADR 0018), such as `ecs`\nfor documents as Elastic stores them; given, only templates of it match.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Schema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "additionalProperties": false,
@@ -177,6 +189,51 @@
             "op",
             "summary_keys"
           ]
+        }
+      ]
+    },
+    "Schema": {
+      "description": "The convention a source's field names follow, or that a rule's field names are written in.",
+      "oneOf": [
+        {
+          "description": "Not declared. Nothing is known about the names, so no rule's field names can be compared\nwith them (safety contract rule 3 then keeps everything such a rule could read).",
+          "type": "string",
+          "const": "undeclared"
+        },
+        {
+          "description": "The names Sigma rules use: Windows event data names (`Image`, `TargetUserName`) and the\nnames the rule author chose for other products.",
+          "type": "string",
+          "const": "sigma"
+        },
+        {
+          "description": "Elastic Common Schema (`process.executable`, `source.ip`).",
+          "type": "string",
+          "const": "ecs"
+        },
+        {
+          "description": "Splunk's Common Information Model.",
+          "type": "string",
+          "const": "cim"
+        },
+        {
+          "description": "Microsoft Sentinel's Advanced Security Information Model.",
+          "type": "string",
+          "const": "asim"
+        },
+        {
+          "description": "The Open Cybersecurity Schema Framework.",
+          "type": "string",
+          "const": "ocsf"
+        },
+        {
+          "description": "Google's Unified Data Model.",
+          "type": "string",
+          "const": "udm"
+        },
+        {
+          "description": "The columns of a Microsoft Sentinel table that is not an ASIM table (`Syslog`,\n`CommonSecurityLog`).",
+          "type": "string",
+          "const": "sentinel"
         }
       ]
     }

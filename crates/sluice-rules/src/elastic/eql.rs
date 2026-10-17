@@ -34,6 +34,7 @@ pub(crate) fn read(query: &str) -> Result<Reads, String> {
         at: 0,
         fields: BTreeSet::new(),
         stateful: false,
+        esql: false,
     };
     let prefilter = parser.query()?;
     if parser.at < tokens.len() {
@@ -49,6 +50,24 @@ pub(crate) fn read(query: &str) -> Result<Reads, String> {
         prefilter,
         stateful: parser.stateful,
     })
+}
+
+/// The superset of an ES|QL `WHERE` condition, which is close enough to EQL's to parse alike
+/// (ES|QL's `:` is a full-text match, and widens), and the fields it names.
+pub(crate) fn esql_condition(condition: &str) -> Result<(Predicate, BTreeSet<FieldPath>), String> {
+    let tokens = lex(condition)?;
+    let mut parser = Parser {
+        tokens: &tokens,
+        at: 0,
+        fields: BTreeSet::new(),
+        stateful: false,
+        esql: true,
+    };
+    let predicate = parser.or()?;
+    if parser.at < tokens.len() {
+        return Err(format!("unexpected {:?}", tokens[parser.at]));
+    }
+    Ok((predicate, parser.fields))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -94,6 +113,29 @@ fn lex(query: &str) -> Result<Vec<Token>, String> {
             let (text, next) = string(&chars, i)?;
             tokens.push(Token::Text(text));
             i = next;
+        } else if c == '{' {
+            // An ES|QL map of options (`match(f, "x", { "fuzziness": 1 })`): a value Sluice does
+            // not read.
+            let mut depth = 0usize;
+            while i < chars.len() {
+                match chars[i] {
+                    '"' => i = string(&chars, i)?.1 - 1,
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            if depth != 0 {
+                return Err("an unterminated `{`".to_owned());
+            }
+            i += 1;
+            tokens.push(Token::Number(String::new()));
         } else if c == '`' || c.is_alphabetic() || c == '_' || c == '@' || c == '?' {
             let (name, next) = name(&chars, if c == '?' { i + 1 } else { i })?;
             tokens.push(Token::Name(name));
@@ -194,9 +236,9 @@ fn string(chars: &[char], start: usize) -> Result<(String, usize), String> {
     Err("an unterminated string".to_owned())
 }
 
-const KEYWORDS: [&str; 14] = [
-    "and", "or", "not", "in", "like", "regex", "where", "by", "with", "maxspan", "until", "true",
-    "false", "null",
+const KEYWORDS: [&str; 16] = [
+    "and", "or", "not", "in", "like", "regex", "rlike", "is", "where", "by", "with", "maxspan",
+    "until", "true", "false", "null",
 ];
 
 struct Parser<'a> {
@@ -204,6 +246,8 @@ struct Parser<'a> {
     at: usize,
     fields: BTreeSet<FieldPath>,
     stateful: bool,
+    /// Parsing an ES|QL condition.
+    esql: bool,
 }
 
 impl Parser<'_> {
@@ -344,6 +388,22 @@ impl Parser<'_> {
             Operand::Field(path) => Some(path.clone()),
             _ => None,
         };
+        // ES|QL's `IS NULL` and `IS NOT NULL`: only the latter bounds the events.
+        if self.take_word("is") {
+            let not = self.take_word("not");
+            if !self.take_word("null") {
+                return Err(format!("expected `null` at token {}", self.at));
+            }
+            return Ok(match (not, field) {
+                (true, Some(field)) => Predicate::Field(FieldTest {
+                    field,
+                    op: MatchOp::Exists,
+                    values: Vec::new(),
+                    case_sensitive: false,
+                }),
+                _ => Predicate::Always,
+            });
+        }
         let negated = self.take_word("not");
         let op = match self.peek().cloned() {
             Some(Token::Op(op)) if ["==", "!=", ":", "<", "<=", ">", ">="].contains(&op) => {
@@ -351,7 +411,7 @@ impl Parser<'_> {
                 op.to_owned()
             }
             Some(Token::Name(n))
-                if ["in", "like", "regex"]
+                if ["in", "like", "regex", "rlike"]
                     .iter()
                     .any(|k| n.eq_ignore_ascii_case(k)) =>
             {
@@ -385,6 +445,8 @@ impl Parser<'_> {
             return Ok(Predicate::Always);
         };
         Ok(match op.as_str() {
+            // In ES|QL, `:` is a full-text match on analyzed tokens.
+            ":" if self.esql => Predicate::Always,
             "==" | ":" | "in" | "like" => Predicate::any(texts.iter().map(|t| matches(&field, t))),
             _ => Predicate::Always,
         })

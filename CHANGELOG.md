@@ -222,6 +222,11 @@ explains the terms.
   URL` the proof runs the rules themselves in Elasticsearch (EQL, ES|QL, and KQL and Lucene as
   the query Kibana builds), on full and on
   forwarded documents; `--elastic-native` (now a switch) proves its pipelines there.
+- Recipes can name the field naming convention they are written in (`match.schema`, such as
+  `ecs`); five ECS recipes drop the rendered `message` of Windows System, Application,
+  Security and PowerShell events as Elastic stores them.
+- Empty-field removal keeps a field a rule names on every event instead of keeping every event
+  the rule may match whole (ADR 0009, decision 6).
 - `sluice up` proposals carry the savings plan too: `plan-<profile>.json` per rule profile,
   exactly what the proposal enforces, named in `proposal.json`.
 - The report says per kind of event where its saving can run.

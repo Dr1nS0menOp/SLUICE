@@ -116,13 +116,6 @@ fn exists_and_free_text() {
 }
 
 #[test]
-fn a_wildcard_field_name_may_read_anything() {
-    let reads = read("process.* : x").unwrap();
-    assert!(reads.any_field.is_some());
-    assert!(reads.prefilter.is_always());
-}
-
-#[test]
 fn keywords_are_case_insensitive_and_escapes_are_values() {
     let reads = read(r"a : 1 AND b : x\:y OR NOT c : 2").unwrap();
     assert_eq!(fields(&reads), ["a", "b", "c"]);
@@ -131,6 +124,44 @@ fn keywords_are_case_insensitive_and_escapes_are_values() {
         escaped.prefilter,
         Predicate::all([contains("b", "x"), contains("b", "y")])
     );
+}
+
+#[test]
+fn c3_a_wildcard_name_is_a_field_below_its_prefix() {
+    let exists = |f: &str| {
+        Predicate::Field(FieldTest {
+            field: f.into(),
+            op: MatchOp::Exists,
+            values: Vec::new(),
+            case_sensitive: false,
+        })
+    };
+    // Elastic's "Threat Intel Hash Indicator Match": any `file.hash.…` field with a value.
+    let hashes = read("file.hash.*:* or process.hash.*:*").unwrap();
+    assert_eq!(fields(&hashes), ["file.hash", "process.hash"]);
+    assert_eq!(hashes.any_field, None);
+    assert_eq!(
+        hashes.prefilter,
+        Predicate::any([exists("file.hash"), exists("process.hash")])
+    );
+    assert_eq!(
+        read("event.*.score >= 3").unwrap().prefilter,
+        exists("event")
+    );
+    assert_eq!(
+        read("process.na* : cmd").unwrap().prefilter,
+        exists("process")
+    );
+    // Without a whole segment before it, a wildcard may be any field.
+    for query in ["* : x", "proc* : x", "*.name : x"] {
+        let reads = read(query).unwrap();
+        assert!(
+            reads.prefilter.is_always(),
+            "{query}: {:?}",
+            reads.prefilter
+        );
+        assert!(reads.any_field.is_some(), "{query}");
+    }
 }
 
 #[test]

@@ -217,6 +217,17 @@ fn c3_bounded_claims_become_conditions_not_exceptions() {
 }
 
 #[test]
+fn c3_a_field_a_bounded_rule_names_is_kept_empty_instead_of_its_events_whole() {
+    // Elastic's "My First Rule" (`event.kind:event`) may match every event, but reads only its
+    // own fields: those stay, the rest of the event may still lose its empty fields.
+    let reader = bounded("r", &["IpAddress"]);
+    let protection = Protection::of(&template(), &[&reader], true);
+    let (except, _, conditions) = empties(&protection);
+    assert_eq!(except, Some(fields(&["IpAddress"])));
+    assert_eq!(conditions, Vec::<Predicate>::new());
+}
+
+#[test]
 fn without_rules_every_empty_field_may_go() {
     let protection = Protection::of(&template(), &[], true);
     assert_eq!(empties(&protection).0, Some(BTreeSet::new()));

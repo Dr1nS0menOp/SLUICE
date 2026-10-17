@@ -18,6 +18,7 @@
 //! product they name, or every source when one pattern may hold anything.
 
 mod eql;
+mod esql;
 mod index;
 mod kql;
 #[cfg(test)]
@@ -184,43 +185,7 @@ impl ElasticRules {
             self.names.insert(rule.clone(), name.to_owned());
         }
         let query = item.get("query").and_then(Value::as_str);
-        let language = item
-            .get("language")
-            .and_then(Value::as_str)
-            .unwrap_or("kuery");
-        let read = match (kind, query) {
-            ("machine_learning", _) => Err("a machine learning job reads what it likes".to_owned()),
-            (_, None) => Err(format!("a {kind} rule without a query")),
-            ("eql", Some(q)) => eql::read(q).map(|r| Read {
-                fields: r.fields,
-                any_field: None,
-                prefilter: r.prefilter,
-                stateful: r.stateful,
-                query: ElasticQuery::Eql(q.to_owned()),
-            }),
-            ("esql", Some(q)) => Ok(names_only(q, ElasticQuery::Esql(q.to_owned()), true)),
-            (_, Some(q)) if language == "lucene" => {
-                let mut read = names_only(q, ElasticQuery::Esql(String::new()), false);
-                // Lucene is not parsed, so a term without a field, which searches every field,
-                // cannot be told apart. Kibana gives it to Elasticsearch as a query string.
-                read.any_field = Some("a Lucene query, which Sluice does not parse");
-                read.query = ElasticQuery::Search {
-                    query: serde_json::json!({ "query_string": { "query": q, "lenient": true } }),
-                    keys: Vec::new(),
-                };
-                Ok(read)
-            }
-            (_, Some(q)) => kql::read(q).map(|r| Read {
-                fields: r.fields,
-                any_field: r.any_field,
-                prefilter: r.prefilter,
-                stateful: false,
-                query: ElasticQuery::Search {
-                    query: r.dsl,
-                    keys: Vec::new(),
-                },
-            }),
-        };
+        let read = read(kind, query, item.get("language").and_then(Value::as_str));
         let mut patterns: Vec<String> = item
             .get("index")
             .and_then(Value::as_array)
@@ -237,6 +202,11 @@ impl ElasticRules {
         let scopes = index::scopes(patterns.iter().map(String::as_str));
         match read {
             Ok(mut read) => {
+                if index::reads_alerts(patterns.iter().map(String::as_str)) {
+                    // Alerts carry the fields of the events other rules raised them on, so
+                    // what such a rule tests about an alert bounds no source event.
+                    read.prefilter = Predicate::Always;
+                }
                 let groups = grouped(item);
                 read.fields.extend(groups.iter().cloned());
                 read.stateful |= matches!(kind, "threshold" | "new_terms");
@@ -294,6 +264,43 @@ impl ElasticRules {
     }
 }
 
+/// What a rule of `kind` with `query` in `language` (KQL when not given) reads.
+fn read(kind: &str, query: Option<&str>, language: Option<&str>) -> Result<Read, String> {
+    match (kind, query) {
+        ("machine_learning", _) => Err("a machine learning job reads what it likes".to_owned()),
+        (_, None) => Err(format!("a {kind} rule without a query")),
+        ("eql", Some(q)) => eql::read(q).map(|r| Read {
+            fields: r.fields,
+            any_field: None,
+            prefilter: r.prefilter,
+            stateful: r.stateful,
+            query: ElasticQuery::Eql(q.to_owned()),
+        }),
+        ("esql", Some(q)) => Ok(names_only(q, ElasticQuery::Esql(q.to_owned()), true)),
+        (_, Some(q)) if language == Some("lucene") => {
+            // Lucene is not parsed, so a term without a field, which searches every field,
+            // cannot be told apart. Kibana gives it to Elasticsearch as a query string.
+            let query = ElasticQuery::Search {
+                query: serde_json::json!({ "query_string": { "query": q, "lenient": true } }),
+                keys: Vec::new(),
+            };
+            let mut read = names_only(q, query, false);
+            read.any_field = Some("a Lucene query, which Sluice does not parse");
+            Ok(read)
+        }
+        (_, Some(q)) => kql::read(q).map(|r| Read {
+            fields: r.fields,
+            any_field: r.any_field,
+            prefilter: r.prefilter,
+            stateful: false,
+            query: ElasticQuery::Search {
+                query: r.dsl,
+                keys: Vec::new(),
+            },
+        }),
+    }
+}
+
 struct Read {
     fields: BTreeSet<FieldPath>,
     any_field: Option<&'static str>,
@@ -337,169 +344,23 @@ fn grouped(item: &Value) -> Vec<FieldPath> {
 }
 
 /// A query in a language Sluice does not parse (ES|QL, Lucene): every name in it is a field it
-/// may read, and it may match any event. `name.*` reads every field below `name`; any other `*`
-/// outside a string, a comment and `COUNT(*)` may name any field.
+/// may read; an ES|QL query may match what its first `WHERE` clauses keep.
 fn names_only(query: &str, kind: ElasticQuery, stateful: bool) -> Read {
-    let chars: Vec<char> = query.chars().collect();
-    let mut names = Names::default();
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        let next = chars.get(i + 1).copied();
-        if c == '"' && next == Some('"') && chars.get(i + 2) == Some(&'"') {
-            names.end_word(None);
-            i = find(&chars, i + 3, &['"', '"', '"']).map_or(chars.len(), |end| end + 3);
-            continue;
-        }
-        match c {
-            '"' | '\'' => {
-                names.end_word(None);
-                i += 1;
-                while i < chars.len() && chars[i] != c {
-                    i += if chars[i] == '\\' { 2 } else { 1 };
-                }
-            }
-            '/' if next == Some('/') => {
-                names.end_word(None);
-                i = find(&chars, i, &['\n']).unwrap_or(chars.len());
-            }
-            '/' if next == Some('*') => {
-                names.end_word(None);
-                i = find(&chars, i + 2, &['*', '/']).map_or(chars.len(), |end| end + 1);
-            }
-            '|' => {
-                names.end_word(None);
-                names.after_from = false;
-            }
-            c if c.is_alphanumeric() || "_.@".contains(c) => names.word.push(c),
-            '*' if names.word.ends_with('.') => {
-                let prefix = names.word.trim_end_matches('.').to_owned();
-                names.word.clear();
-                if !names.after_from {
-                    names.fields.insert(FieldPath::new(prefix));
-                }
-            }
-            '*' => {
-                names.end_word(None);
-                let count =
-                    previous(&chars, i) == Some('(') && next_non_space(&chars, i) == Some(')');
-                if !names.after_from && !count {
-                    names.any_field = Some("a `*` that may name any field");
-                }
-            }
-            _ => names.end_word(if c.is_whitespace() {
-                next_non_space(&chars, i)
-            } else {
-                Some(c)
-            }),
-        }
-        i += 1;
-    }
-    names.end_word(None);
+    let (mut fields, any_field) = esql::names(query);
+    let prefilter = if matches!(kind, ElasticQuery::Esql(_)) {
+        let (prefilter, named) = esql::prefilter(query);
+        fields.extend(named);
+        prefilter
+    } else {
+        Predicate::Always
+    };
     Read {
-        fields: names.fields,
-        any_field: names.any_field,
-        prefilter: Predicate::Always,
+        fields,
+        any_field,
+        prefilter,
         stateful,
         query: kind,
     }
-}
-
-/// The names [`names_only`] collects.
-#[derive(Default)]
-struct Names {
-    fields: BTreeSet<FieldPath>,
-    any_field: Option<&'static str>,
-    word: String,
-    /// Inside `FROM …`, up to the next pipe: index patterns, not fields.
-    after_from: bool,
-}
-
-impl Names {
-    /// Ends the current word; `next` is the character after it, to tell function calls.
-    fn end_word(&mut self, next: Option<char>) {
-        const WORDS: [&str; 39] = [
-            "from",
-            "where",
-            "stats",
-            "by",
-            "eval",
-            "keep",
-            "drop",
-            "rename",
-            "sort",
-            "limit",
-            "and",
-            "or",
-            "not",
-            "in",
-            "like",
-            "rlike",
-            "is",
-            "null",
-            "true",
-            "false",
-            "asc",
-            "desc",
-            "as",
-            "metadata",
-            "dissect",
-            "grok",
-            "enrich",
-            "mv_expand",
-            "on",
-            "with",
-            "row",
-            "show",
-            "lookup",
-            "join",
-            "nulls",
-            "first",
-            "last",
-            "to",
-            "inlinestats",
-        ];
-        let word = std::mem::take(&mut self.word);
-        if word.is_empty() {
-            return;
-        }
-        let lower = word.to_ascii_lowercase();
-        if lower == "from" {
-            self.after_from = true;
-        } else if !self.after_from
-            && next != Some('(')
-            && !WORDS.contains(&lower.as_str())
-            && !word.starts_with(|c: char| c.is_ascii_digit())
-        {
-            self.fields
-                .insert(FieldPath::new(word.trim_end_matches(['.', ':'])));
-        }
-    }
-}
-
-/// Where `pattern` next starts at or after `from`.
-fn find(chars: &[char], from: usize, pattern: &[char]) -> Option<usize> {
-    chars
-        .get(from..)?
-        .windows(pattern.len())
-        .position(|w| w == pattern)
-        .map(|at| from + at)
-}
-
-fn previous(chars: &[char], at: usize) -> Option<char> {
-    chars[..at]
-        .iter()
-        .rev()
-        .copied()
-        .find(|c| !c.is_whitespace())
-}
-
-fn next_non_space(chars: &[char], at: usize) -> Option<char> {
-    chars
-        .get(at + 1..)?
-        .iter()
-        .copied()
-        .find(|c| !c.is_whitespace())
 }
 
 /// The requirement of a rule read as `read`, for every source; the caller narrows its scope.

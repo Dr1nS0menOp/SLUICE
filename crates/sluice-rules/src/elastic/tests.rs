@@ -99,7 +99,17 @@ fn esql_reads_its_names_and_lucene_everything() {
          {\"rule_id\":\"l\",\"type\":\"query\",\"language\":\"lucene\",\"query\":\"event.code:4625 AND mimikatz\"}\n",
     )]);
     let esql = rule(&rules, ":q");
-    assert!(esql.stateful && esql.prefilter.is_always());
+    assert!(esql.stateful);
+    // Only events its first `WHERE` keeps reach the `STATS`; the later one tests a count.
+    assert_eq!(
+        esql.prefilter,
+        Predicate::Field(FieldTest {
+            field: "event.code".into(),
+            op: MatchOp::Equals,
+            values: vec!["4625".into()],
+            case_sensitive: false,
+        })
+    );
     let fields = known(esql);
     assert!(
         fields.contains(&"event.code") && fields.contains(&"user.name"),
@@ -110,15 +120,18 @@ fn esql_reads_its_names_and_lucene_everything() {
 }
 
 #[test]
-fn esql_prefixes_comments_and_raw_strings() {
-    let query = "/* a * comment */ from logs-* metadata _id | where x.y rlike \"\"\"a*b\"\"\" \
-                 // and *\n | keep event.*, user.name";
-    let read = names_only(query, ElasticQuery::Esql(query.to_owned()), true);
-    assert_eq!(read.any_field, None);
-    let fields: Vec<&str> = read.fields.iter().map(FieldPath::as_str).collect();
-    assert_eq!(fields, ["event", "user.name", "x.y"]);
-    let star = names_only("from a | keep *", ElasticQuery::Esql(String::new()), true);
-    assert!(star.any_field.is_some());
+fn c3_an_esql_rule_matches_what_its_first_where_keeps() {
+    let rules = ElasticRules::parse([(
+        "r.ndjson",
+        "{\"rule_id\":\"q\",\"type\":\"esql\",\"query\":\"from logs-windows.* | where event.code == \\\"4688\\\" | keep *\"}\n",
+    )]);
+    let esql = &rules.requirements()[0];
+    assert!(!esql.prefilter.is_always(), "{:?}", esql.prefilter);
+    assert_eq!(
+        esql.fields,
+        RequiredFields::Unknown,
+        "`keep *` reads every field"
+    );
 }
 
 #[test]
@@ -170,6 +183,17 @@ fn c3_a_rule_applies_to_the_sources_its_indices_read() {
     assert_eq!(products("two"), [Some("elastic_defend"), Some("windows")]);
     assert_eq!(products("any"), [None]);
     assert_eq!(products("q"), [Some("okta")]);
+}
+
+#[test]
+fn c3_a_rule_on_alerts_keeps_what_it_reads_on_every_event() {
+    let rules = ElasticRules::parse([(
+        "r.ndjson",
+        "{\"rule_id\":\"a\",\"type\":\"esql\",\"query\":\"from .alerts-security.* | where kibana.alert.risk_score >= 73 and user.name is not null | stats v = values(message) by user.name\"}\n",
+    )]);
+    let rule = &rules.requirements()[0];
+    assert!(rule.prefilter.is_always(), "{:?}", rule.prefilter);
+    assert!(known(rule).contains(&"message"));
 }
 
 #[test]

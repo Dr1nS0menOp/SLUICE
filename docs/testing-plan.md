@@ -263,10 +263,29 @@ Elasticsearch compiles, and nothing was removed (docs/notes/elasticsearch.md).
 As Elastic stores them (2026-10-17, `scripts/real-data/to-ecs.sh`: the same Windows events as
 Elastic Agent's winlog input sends them, through the ingest pipelines of Elastic's System 3.0.0
 and Windows 3.10.0 integrations in Elasticsearch 9.1.0; 42,335 documents, 53.7 MB), SigmaHQ
-through the built-in `ecs_windows` mapping saves 0.3 % (System) and 1.2 % (Application): the
-community recipes name Sigma's fields (`Message`), and in ECS the rendered text is `message`.
-With Elastic's 2,059 prebuilt rules (no machine learning) too, 1,944 of them run in
-Elasticsearch and the proof holds (42,531 = 42,531 alerts, 92 s); nothing is saved.
+through the built-in `ecs_windows` mapping saved 0.3 % (System) and 1.2 % (Application): the
+community recipes named Sigma's fields (`Message`), and in ECS the rendered text is `message`.
+With the ECS recipes (`recipes/microsoft/windows/*/…-ecs.yaml`, matched by `schema: ecs`):
+53.7 → 43.5 MB (18.9 %; System 17.5 %, Application 29.9 %), 196 = 196 alerts.
+
+With Elastic's prebuilt rules too (package 9.5.8, all enabled as a test, run in Elasticsearch
+for the proof):
+
+| Elastic rules | Saved | Alerts (full = forwarded) |
+|---|---:|---|
+| none | 18.9 % | 196 = 196 |
+| 2,035: no machine learning, none over alert indices | 18.9 % | 42,531 = 42,531 |
+| 2,059: no machine learning | 0.6 % | 42,531 = 42,531 |
+
+The last row keeps `message` everywhere because "LLM-Based Compromised User Triage by User"
+reads it from alerts, which carry it from any event (ADR 0025). Getting there found: a fail-open
+pre-filter for wildcard field names in KQL (`file.hash.*:*` became `exists` of a field named
+`file.hash.*`, never true; now `exists(file.hash)`), a guardrail that kept every event of a
+rule naming a field whole for empty-field removal (ADR 0009, decision 6), ES|QL `*` as
+multiplication read as "any field", and ES|QL options maps (`{ "fuzziness": 1 }`) the parser
+refused. Elasticsearch's own pipelines for System and Application would need 484 KB and 366 KB
+of script with these rules, above the 65,535 bytes it compiles, so there the savings run in
+Vector only.
 
 All reproduce. Findings:
 - Linux needs `complete: true` on its sources, as the earlier run had: without it, rules for any

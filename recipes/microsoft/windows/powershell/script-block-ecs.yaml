@@ -1,0 +1,14 @@
+id: microsoft/windows/powershell/script-block-ecs
+description: PowerShell script block logging as Elastic stores it (ECS)
+match:
+  logsource: { product: windows, category: ps_script }
+  schema: ecs
+reductions:
+  - op: drop_fields
+    fields: [message]
+  - op: drop_empty_fields
+rationale: >-
+  In ECS, the message of a script block event (4104) is a fixed header followed by the whole
+  script block, which Elastic's Windows integration keeps in powershell.file.script_block_text,
+  so it doubles the largest PowerShell events without adding information. Rules that match on
+  message keep it through the guardrails.

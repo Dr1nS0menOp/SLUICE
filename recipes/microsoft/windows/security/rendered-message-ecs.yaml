@@ -1,0 +1,14 @@
+id: microsoft/windows/security/rendered-message-ecs
+description: Windows Security events as Elastic stores them (ECS), every type
+match:
+  logsource: { product: windows, service: security }
+  schema: ecs
+reductions:
+  - op: drop_fields
+    fields: [message]
+  - op: drop_empty_fields
+rationale: >-
+  In ECS, message is the localized rendering of the event's own data, which Elastic keeps in
+  winlog.event_data and maps onto ECS fields, plus fixed explanatory text, so it adds no
+  information. Null and empty-string fields carry none either. Rules that match on message, or
+  on an empty value, keep these fields through the guardrails.

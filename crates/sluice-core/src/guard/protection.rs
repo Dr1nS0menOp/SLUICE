@@ -111,8 +111,10 @@ impl<'a> Protection<'a> {
     }
 
     /// Fields exempt from empty-field removal, or `None` if a rule with an unbounded pre-filter
-    /// may read any field. Fields claimed only by bounded rules are removed outside their
-    /// pre-filters, which are added to `conditions`.
+    /// may read any field. A field a rule names is exempt everywhere, bounded rule or not:
+    /// keeping one possibly empty field costs less than keeping every event the rule may match
+    /// whole, and is as safe. Only a bounded rule that may read any field adds its pre-filter
+    /// to `conditions`.
     pub(super) fn drop_empty_exceptions(
         &self,
         adjustments: &mut Vec<Adjustment>,
@@ -132,10 +134,10 @@ impl<'a> Protection<'a> {
                     });
                     return None;
                 }
-                (Some(field), true) => {
+                (Some(field), _) => {
                     except.insert(field.clone());
                 }
-                (_, false) => conditions.push(claim.rule.prefilter.clone()),
+                (None, false) => conditions.push(claim.rule.prefilter.clone()),
             }
         }
         Some(except)

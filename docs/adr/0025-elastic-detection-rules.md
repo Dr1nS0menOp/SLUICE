@@ -33,9 +33,17 @@ only).
    `stringContains` become equalities or containment. Negation, ranges, nested queries,
    regexes, other functions and non-ASCII values widen to `true`; free text and wildcard field
    names read every field. Sequences, samples, pipes, `threshold` and `new_terms` are stateful.
-4. **ES|QL and Lucene are not parsed**: an ES|QL rule reads every name in it (`x.*` reads
-   `x`), may match any event, and is stateful; a Lucene rule may read anything. Machine
-   learning rules may read anything (their jobs are not in the rule).
+4. **ES|QL and Lucene are not fully parsed**: an ES|QL rule reads every name in it (`x.*` reads
+   `x`; a bare `*` in `KEEP` or `DROP` may name any field), is stateful, and may match what its
+   `WHERE` clauses keep (parsed as EQL conditions; `:` and `RLIKE` widen) up to the first
+   command that is more than adding columns or dropping rows, leaving out conditions on columns
+   it made. A Lucene rule may read anything. Machine learning rules may read anything (their
+   jobs are not in the rule). A wildcard field name in KQL (`file.hash.*`) reads the fields
+   below its whole segments (`file.hash`) and may match where that exists; one without
+   (`proc*`) may read any field.
+   A rule over Kibana's alert indices (`.alerts-security.*`) reads alerts other rules raised,
+   which carry the fields of their events: what it tests about an alert bounds no source event,
+   so it may match any, and keeps the fields it names everywhere.
 5. **Index patterns scope a rule** (`elastic/index.rs`): where an integration's data stream says
    unambiguously what the data is (`logs-system.security*` and `winlogbeat-*` are `windows`,
    `logs-aws.*` is `aws`, `logs-endpoint.*` is `elastic_defend`, …), the rule applies to sources

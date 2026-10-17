@@ -44,6 +44,12 @@ rule could read are kept on events the rule cannot match.
    "every event". One such rule used to block every reduction on all Linux data.
 5. **A cost limit.** A combined pre-filter of more than 256 tests falls back to the fail-closed
    choice (keep the fields, or forward everything) with reason `ProtectionTooBroad`.
+6. **Empty fields a rule names are kept, not its events** (2026-10-17). For removing null and
+   empty fields, a field a bounded rule names is exempt on every event instead of its events
+   being kept whole: keeping one possibly empty field covers "kept where the rule may match" at
+   a fraction of the cost. Only a bounded rule that may read any field still adds its
+   pre-filter. Elastic's sample threshold rule `event.kind:event` reads two fields but matches
+   every ECS event; it kept every event of a real sample whole.
 
 ## Consequences
 

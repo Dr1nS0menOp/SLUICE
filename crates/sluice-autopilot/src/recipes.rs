@@ -1,8 +1,9 @@
 //! Community recipes: YAML proposals that target templates by what they *are*.
 //!
 //! A recipe matches templates by log source plus either discriminator values (JSON templates,
-//! such as `EventID: "4624"`) or a substring of the template pattern (text templates). Template
-//! ids are hashes of the exact shape, so recipes never name them.
+//! such as `EventID: "4624"`) or a substring of the template pattern (text templates), and,
+//! where its field names are those of one convention, by the template's schema (ADR 0018).
+//! Template ids are hashes of the exact shape, so recipes never name them.
 //!
 //! - A **specific** recipe has a discriminator or pattern matcher, and may use any reduction.
 //! - A **source-wide** recipe matches only on log source. It may only contain lossless (L1)
@@ -19,6 +20,7 @@ use sluice_core::field::FieldPath;
 use sluice_core::ids::TemplateId;
 use sluice_core::logsource::LogSource;
 use sluice_core::recipe::{Level, Provenance, Recipe, Reduction};
+use sluice_core::schema::Schema;
 use sluice_core::template::{Template, TemplateShape};
 
 use crate::error::AutopilotError;
@@ -53,6 +55,10 @@ struct RecipeFile {
 struct Matcher {
     /// The Sigma-style log source; every attribute given must equal the template's.
     logsource: LogSource,
+    /// The field naming convention the recipe's field names are in (ADR 0018), such as `ecs`
+    /// for documents as Elastic stores them; given, only templates of it match.
+    #[serde(default)]
+    schema: Option<Schema>,
     /// JSON templates: discriminator values, such as `EventID: "4624"`.
     #[serde(default)]
     discriminators: BTreeMap<String, String>,
@@ -68,6 +74,7 @@ impl Matcher {
 
     fn matches(&self, template: &Template) -> bool {
         same_logsource(&self.logsource, &template.logsource)
+            && self.schema.is_none_or(|schema| schema == template.schema)
             && self
                 .discriminators
                 .iter()

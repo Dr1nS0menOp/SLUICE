@@ -1,0 +1,14 @@
+id: microsoft/windows/powershell/rendered-message-ecs
+description: PowerShell Operational events as Elastic stores them (ECS)
+match:
+  logsource: { product: windows, service: powershell }
+  schema: ecs
+reductions:
+  - op: drop_fields
+    fields: [message]
+  - op: drop_empty_fields
+rationale: >-
+  In ECS, message is rendered from the event's own data; for script block logging (4104) it
+  repeats the whole script block, which Elastic's Windows integration keeps in
+  powershell.file.script_block_text, after a fixed header. Rules read that and the other
+  fields, which stay. Rules that match on message keep it through the guardrails.

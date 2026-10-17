@@ -95,6 +95,27 @@ fn recipes_never_match_unknown_logsource_attributes() {
 }
 
 #[test]
+fn a_recipe_in_one_convention_matches_templates_of_it_only() {
+    let ecs = "id: e\ndescription: d\nmatch:\n  logsource: { product: windows, service: security }\n  schema: ecs\nreductions:\n  - op: drop_fields\n    fields: [message]\nrationale: r\n";
+    let book = RecipeBook::parse([("e.yaml", ecs)]).unwrap();
+    let sigma = keyset("sigma", "windows", "security", "4624");
+    let elastic = Template {
+        id: "ecs".into(),
+        schema: Schema::Ecs,
+        ..sigma.clone()
+    };
+    let resolution = book.resolve(&[sigma, elastic]);
+    assert_eq!(
+        resolution
+            .recipes
+            .keys()
+            .map(TemplateId::as_str)
+            .collect::<Vec<_>>(),
+        ["ecs"]
+    );
+}
+
+#[test]
 fn text_recipes_match_on_pattern() {
     let yaml = "id: c\ndescription: d\nmatch:\n  logsource: { product: linux, service: auth }\n  pattern: \"CRON\"\nreductions:\n  - op: summarize\n    summary_keys: [host.name]\nrationale: r\n";
     let book = RecipeBook::parse([("c.yaml", yaml)]).unwrap();

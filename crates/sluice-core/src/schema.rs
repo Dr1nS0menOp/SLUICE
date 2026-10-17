@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
     Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Schema {
     /// Not declared. Nothing is known about the names, so no rule's field names can be compared
     /// with them (safety contract rule 3 then keeps everything such a rule could read).

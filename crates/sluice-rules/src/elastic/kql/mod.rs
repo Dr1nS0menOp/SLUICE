@@ -278,7 +278,13 @@ impl Parser<'_> {
     /// any field.
     fn name(&mut self, name: &str, wildcard: bool) -> Option<FieldPath> {
         if wildcard {
-            self.any_field = Some("a field name with a wildcard");
+            // `file.hash.*` reads the fields below `file.hash`; `*` or `proc*` may be any.
+            match wildcard_prefix(name) {
+                Some(prefix) => {
+                    self.fields.insert(prefix);
+                }
+                None => self.any_field = Some("a field name with a wildcard"),
+            }
             return None;
         }
         let path = FieldPath::new(name);
@@ -375,7 +381,7 @@ fn one_or(mut parts: Vec<Node>, join: fn(Vec<Node>) -> Node) -> Node {
 fn prefilter(node: &Node) -> Predicate {
     match node {
         // A negation cannot be bounded from inside it, and a wildcard name may be any field.
-        Node::All | Node::Not(_) | Node::Is { field: None, .. } => Predicate::Always,
+        Node::All | Node::Not(_) => Predicate::Always,
         Node::Or(parts) => Predicate::any(parts.iter().map(prefilter)),
         Node::And(parts) => Predicate::all(parts.iter().map(prefilter)),
         Node::Is {
@@ -383,10 +389,26 @@ fn prefilter(node: &Node) -> Predicate {
             value,
             ..
         } => self::value(Some(field), value),
+        // A wildcard name (`file.hash.*: *`) is a field below its prefix, which then exists; one
+        // without a prefix may be any field.
+        Node::Is {
+            field: None, name, ..
+        } => wildcard_prefix(name).map_or(Predicate::Always, exists),
+        Node::Exists { name } | Node::Range { name, .. } if name.contains(['*', '?']) => {
+            wildcard_prefix(name).map_or(Predicate::Always, exists)
+        }
         // Only that the field has a value is known.
         Node::Exists { name } | Node::Range { name, .. } => exists(FieldPath::new(name.as_str())),
         Node::Free(value) => self::value(None, value),
     }
+}
+
+/// The whole segments of a wildcard field name before its first wildcard (`file.hash.*` and
+/// `file.ha*` are below `file`… `file.hash`), or `None` when the wildcard is in the first one.
+fn wildcard_prefix(name: &str) -> Option<FieldPath> {
+    let before = &name[..name.find(['*', '?'])?];
+    let prefix = &before[..before.rfind('.')?];
+    (!prefix.is_empty()).then(|| FieldPath::new(prefix))
 }
 
 fn exists(path: FieldPath) -> Predicate {
