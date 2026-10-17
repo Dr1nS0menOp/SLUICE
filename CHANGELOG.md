@@ -247,7 +247,8 @@ explains the terms.
 - A Sentinel rule on a custom table (`<Name>_CL`) applies to every source and keeps every
   record its query reads (ADR 0015). Before, it counted as a rule on tables no source has, so
   a JSON source sent to that table with `sluice connect sentinel --sample` was not protected
-  by it.
+  by it. A column `connect` renamed (`user_agent` from `user-agent`) protects the field it
+  came from too.
 - Splunk's derived fields (`props.conf`, `transforms.conf`): a search's test on an alias tests
   what it copies, one on a computed, looked-up or extracted field matches every event, and the
   search reads what those fields are made from. Before, a test on such a field, which no record

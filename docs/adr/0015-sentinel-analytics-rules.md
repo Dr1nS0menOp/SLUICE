@@ -134,5 +134,10 @@ not. 63 rules call ASIM parsers, which read the tables indirectly.
    it names, and may match any row: a data collection rule may rename columns, so a `where` on
    them bounds no record. Before, such a rule counted as a rule on other tables, which no
    source has, and the fields it reads were not protected. Other tables Azure fills itself
-   (`SigninLogs`, `AuditLogs`) stay rules on other tables. Columns of the retired HTTP Data
+   (`SigninLogs`, `AuditLogs`) stay rules on other tables. A column the table's rule renamed
+   (`sluice connect` writes `user_agent` for `user-agent`, `F_timestamp` for `@timestamp`,
+   `ProcessId2` for a second `ProcessId`) protects the names it may come from as well: `_`
+   read as `-`, `.`, ` `, `@`, `:` or `/`, without a leading `F` or a trailing number. A name
+   that mixes those characters (`a-b.c`) is not covered; with `--kusto` the proof covers it, as
+   the emulator holds the table as the rule fills it. Columns of the retired HTTP Data
    Collector API (`name_s`, flattened nested names) are not mapped back to the record.

@@ -482,3 +482,29 @@ fn rule_names_are_the_names_the_siem_shows() {
     assert_eq!(rules.names().len(), 1);
     assert_eq!(rules.names()[&"sentinel:r1".into()], "Brute force");
 }
+
+#[test]
+fn c3_a_custom_table_rule_protects_the_fields_its_columns_were_renamed_from() {
+    let r = rule("MyApp_CL | where user_agent has 'curl' | project F_timestamp, ProcessId2");
+    let RequiredFields::Known(fields) = &r.fields else {
+        panic!("fields are known");
+    };
+    for field in [
+        "user_agent",
+        "user-agent",
+        "@timestamp",
+        "F_timestamp",
+        "ProcessId",
+    ] {
+        assert!(
+            fields.contains(&sluice_core::field::FieldPath::new(field)),
+            "{field}: {fields:?}"
+        );
+    }
+    // Rules on standard tables name their columns only.
+    let r = rule("SecurityEvent | where Target_User == 'x'");
+    let RequiredFields::Known(fields) = &r.fields else {
+        panic!("fields are known");
+    };
+    assert!(!fields.contains(&sluice_core::field::FieldPath::new("Target-User")));
+}

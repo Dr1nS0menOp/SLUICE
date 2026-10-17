@@ -15,12 +15,13 @@ mod lexer;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Deserialize;
 
 use self::functions::Functions;
 use serde_yaml_ng::Value;
+use sluice_core::field::FieldPath;
 use sluice_core::ids::RuleId;
 use sluice_core::logsource::LogSource;
 use sluice_core::predicate::Predicate;
@@ -154,8 +155,10 @@ fn requirement(id: &str, reads: extract::Reads, problems: &mut Vec<String>) -> R
         field_names: None,
         fields: if reads.any_field.is_some() {
             RequiredFields::Unknown
-        } else {
+        } else if reads.custom_tables.is_empty() {
             RequiredFields::Known(reads.fields)
+        } else {
+            RequiredFields::Known(reads.fields.iter().flat_map(renamed_from).collect())
         },
         matches_raw_text: reads.any_field.is_some(),
         stateful: reads.stateful,
@@ -179,6 +182,38 @@ fn requirement(id: &str, reads: extract::Reads, problems: &mut Vec<String>) -> R
         },
         rule,
     }
+}
+
+/// `column` and every record field a custom table's rule may have renamed into it: a data
+/// collection rule from `sluice connect sentinel --sample` makes an invalid name valid by
+/// writing `_` for what Log Analytics refuses, putting `F` in front of a name that does not
+/// start with a letter, and numbering a name taken twice (`user-agent` → `user_agent`,
+/// `@timestamp` → `F_timestamp`, `ProcessId` → `ProcessId2`). A rule reading the column reads
+/// the field, so each may be protected; extra names only cost savings.
+fn renamed_from(column: &FieldPath) -> BTreeSet<FieldPath> {
+    let name = column.as_str();
+    let mut stems = vec![name.to_owned()];
+    let unnumbered = name.trim_end_matches(|c: char| c.is_ascii_digit());
+    if unnumbered.len() < name.len() && !unnumbered.is_empty() {
+        stems.push(unnumbered.to_owned());
+    }
+    for stem in stems.clone() {
+        if let Some(rest) = stem.strip_prefix('F')
+            && rest.starts_with(|c: char| c == '_' || c.is_ascii_digit())
+        {
+            stems.push(rest.to_owned());
+        }
+    }
+    let mut out = BTreeSet::new();
+    for stem in &stems {
+        out.insert(FieldPath::new(stem.as_str()));
+        if stem.contains('_') {
+            for replacement in ['-', '.', ' ', '@', ':', '/'] {
+                out.insert(FieldPath::new(stem.replace('_', &replacement.to_string())));
+            }
+        }
+    }
+    out
 }
 
 /// The log source of a rule. `SecurityEvent` alone is Windows Security and `WindowsEvent` is
