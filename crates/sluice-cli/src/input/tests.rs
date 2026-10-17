@@ -172,6 +172,24 @@ fn wazuh_rules_load_with_or_without_decoders() {
 }
 
 #[test]
+fn a_fetched_elastic_inventory_reads_its_rules_not_its_manifest() {
+    let dir = scratch("elastic");
+    fs::write(
+        dir.join("rules.ndjson"),
+        "{\"rule_id\":\"a\",\"type\":\"query\",\"query\":\"user.name : root\"}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join(sluice_core::inventory::MANIFEST_FILE),
+        "{\"system\":\"elastic\",\"from\":\"k\",\"fetched_at\":\"t\",\"complete\":true,\"counts\":{}}\n",
+    )
+    .unwrap();
+    let rules = elastic(Some(&dir)).unwrap().unwrap();
+    assert_eq!(rules.problems(), &[] as &[String]);
+    assert_eq!(rules.requirements().len(), 1);
+}
+
+#[test]
 fn sentinel_rules_load_and_keep_their_problems() {
     let dir = scratch("sentinel");
     fs::write(

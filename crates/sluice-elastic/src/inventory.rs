@@ -49,7 +49,7 @@ pub fn fetch(
     let prefix = space.map_or_else(String::new, |s| format!("/s/{s}"));
     let get = |page: usize| -> Result<Value, ElasticError> {
         let target = format!(
-            "{base}{prefix}/api/detection_engine/rules/_find?page={page}&per_page={PAGE}&sort_field=rule_id"
+            "{base}{prefix}/api/detection_engine/rules/_find?page={page}&per_page={PAGE}&sort_field=name&sort_order=asc"
         );
         let request = agent
             .get(&target)
@@ -90,8 +90,10 @@ fn collect(
     from: &str,
     fetched_at: &str,
 ) -> Result<Inventory, ElasticError> {
-    let mut rules: Vec<Value> = Vec::new();
+    // By rule id: a rule that moved between pages while they were read is there once.
+    let mut by_id: BTreeMap<String, Value> = BTreeMap::new();
     let mut total = None;
+    let mut read = 0usize;
     for page in 1.. {
         let answer = get(page)?;
         let data = answer["data"]
@@ -100,11 +102,19 @@ fn collect(
         total = answer["total"]
             .as_u64()
             .and_then(|t| usize::try_from(t).ok());
-        rules.extend(data.iter().cloned());
-        if data.is_empty() || total.is_some_and(|t| rules.len() >= t) {
+        read += data.len();
+        for rule in data {
+            let id = rule["rule_id"]
+                .as_str()
+                .or_else(|| rule["id"].as_str())
+                .map_or_else(|| format!("#{}", by_id.len()), str::to_owned);
+            by_id.insert(id, rule.clone());
+        }
+        if data.is_empty() || total.is_some_and(|t| read >= t) {
             break;
         }
     }
+    let rules: Vec<Value> = by_id.into_values().collect();
     let mut not_modeled = Vec::new();
     let complete = total == Some(rules.len());
     if !complete {
@@ -194,6 +204,15 @@ mod tests {
         let inventory = collect(|n| Ok(pages[n - 1].clone()), "http://k", "t").unwrap();
         assert!(!inventory.manifest.complete);
         assert!(inventory.manifest.not_modeled[0].contains("3 rules but 1"));
+    }
+
+    #[test]
+    fn c3_a_rule_read_twice_while_pages_shift_does_not_make_a_fetch_complete() {
+        // A rule moved to the next page: `c` is read twice and `b` never.
+        let pages = [page(&["a", "c"], 3), page(&["c"], 3)];
+        let inventory = collect(|n| Ok(pages[n - 1].clone()), "http://k", "t").unwrap();
+        assert_eq!(inventory.manifest.counts["rules"], 2);
+        assert!(!inventory.manifest.complete);
     }
 
     #[test]

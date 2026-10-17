@@ -60,6 +60,17 @@ installed pipeline. ADR 0024 uses these facts.
   all ES|QL or EQL (34 numeric comparisons on `keyword`, 30 unknown functions, 16 numeric `in`
   lists, …). An analysis then takes 47 s, most of it running the rules twice per round.
 
+## Reading the rules from Kibana (9.1.0)
+
+- `GET /api/detection_engine/rules/_find?page=N&per_page=500` answers `{page, perPage, total,
+  data}`; `sort_field` takes `name`, `created_at`, `updated_at`, `enabled`, `severity`, … but
+  not `rule_id` (400). Prebuilt rules are created together, so `created_at` ties.
+- `PUT /api/detection_engine/rules/prepackaged` (with `kbn-xsrf`) downloads the
+  `security_detection_engine` package and installs its rules, disabled; a second call answers
+  500 "Error installing new prebuilt rules" once they are there.
+- The Security solution needs Elasticsearch with security on and Kibana's encryption keys
+  (`xpack.encryptedSavedObjects.encryptionKey` and the like).
+
 ## Deploying
 
 - `PUT _ingest/pipeline/NAME` takes the generated file as it is; indexing with

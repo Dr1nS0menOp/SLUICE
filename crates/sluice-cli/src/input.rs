@@ -174,9 +174,11 @@ pub(crate) fn elastic(dir: Option<&Path>) -> Result<Option<sluice_rules::Elastic
         return Ok(None);
     };
     let files = files(dir, &["json", "ndjson"])?;
+    // A fetched inventory's manifest is JSON too, and no rule.
     let rules = sluice_rules::ElasticRules::parse(
         files
             .iter()
+            .filter(|(path, _)| !path.ends_with(sluice_core::inventory::MANIFEST_FILE))
             .map(|(path, text)| (path.as_str(), text.as_str())),
     );
     for problem in rules.problems().iter().take(5) {

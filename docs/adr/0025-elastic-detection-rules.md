@@ -72,8 +72,12 @@ only).
 
 ## Consequences
 
-- The fetch is tested on simulated pages only: the Security solution needs Elasticsearch with
-  security and encryption keys, which the test container does not run.
+- The fetch was tried against Kibana 9.1.0 (Elasticsearch with security on, Elastic's prebuilt
+  rules installed through `PUT /api/detection_engine/rules/prepackaged`, and a custom rule): all
+  1,613 rules read, complete. It found two bugs: `_find` refuses `sort_field=rule_id` (now
+  `name`; rules are kept by id, so one that moves between pages is there once), and
+  `--elastic-rules` read the fetch's own `inventory.json` as a rule it could not read, which
+  blocked every saving. Kibana installs prebuilt rules disabled: only the enabled ones count.
 
 - On Elastic's 2,165 prebuilt rules that run (package `security_detection_engine` 9.5.8, all
   enabled as a test): every one is read; 135 may read any field (106 machine learning jobs, 18
