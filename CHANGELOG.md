@@ -234,6 +234,13 @@ explains the terms.
 - `sluice rules fetch splunk --api URL`: the saved searches, macros, props and transforms of
   every app, through Splunk's REST API, as a complete inventory for `--splunk-rules` (ADR 0021,
   ADR 0026).
+- Fluent Bit Lua filters (`--fluent-bit-native` with `--fluent-bit CMD` for `analyze` and
+  `demo`; ADR 0027, crate `sluice-fluentbit`): per source, a Lua filter that makes the plan's
+  field removals in the agent, recognising records as Vector does and keeping whole every one
+  a rule could match. Proven in a real Fluent Bit: nothing goes that Vector keeps, no other
+  value changes, the rules raise the same alerts. A record the filter does not change is not
+  touched. `scripts/fluentbit-check.sh` runs the tests against Fluent Bit 4.0.3; `check.sh`
+  and CI run it.
 - `sluice analyze --sentinel-native` for JSON sources in a custom table: `--sentinel-table
   SOURCE=<Name>_CL` with the rule `sluice connect sentinel --sample` wrote as `--sentinel-dcr`.
   The emulator holds the table as that rule fills it (renamed columns included), Sentinel rules

@@ -63,6 +63,10 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
                 .elasticsearch
                 .as_deref()
                 .filter(|_| args.elastic_native),
+            fluent_bit: args
+                .fluent_bit
+                .as_deref()
+                .filter(|_| args.fluent_bit_native),
             ..Native::default()
         },
     )?;
@@ -153,6 +157,10 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
                 .elasticsearch
                 .as_deref()
                 .filter(|_| args.elastic_native),
+            fluent_bit: args
+                .fluent_bit
+                .as_deref()
+                .filter(|_| args.fluent_bit_native),
         },
     )
 }
@@ -292,6 +300,9 @@ struct Native<'a> {
     sentinel: Option<SentinelNative<'a>>,
     /// `--elastic-native`: the Elasticsearch (`--elasticsearch`) to prove ingest pipelines in.
     elastic: Option<&'a str>,
+    /// `--fluent-bit-native`: the command that runs Fluent Bit (`--fluent-bit`), to prove Lua
+    /// filters in.
+    fluent_bit: Option<&'a Path>,
 }
 
 /// What `--sentinel-native` asks for.
@@ -361,6 +372,9 @@ fn run(
     }
     if let Some(url) = native.elastic {
         crate::native::elastic::elastic(&analysis, input, url, out)?;
+    }
+    if let Some(command) = native.fluent_bit {
+        crate::native::fluentbit::fluent_bit(&analysis, input, command, out)?;
     }
     Ok(())
 }

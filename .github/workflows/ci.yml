@@ -57,6 +57,15 @@ jobs:
       - run: docker pull docker.elastic.co/elasticsearch/elasticsearch:9.1.0
       - run: bash scripts/elastic-check.sh
 
+  fluent-bit:
+    name: Generated Lua filters against the real Fluent Bit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: docker pull fluent/fluent-bit:4.0.3
+      - run: bash scripts/fluentbit-check.sh
   sigma-differential:
     name: Rule requirements against pySigma (examples and SigmaHQ)
     runs-on: ubuntu-latest

@@ -422,6 +422,12 @@ pub(crate) struct DemoArgs {
     /// Also prove and write Elasticsearch ingest pipelines, as `sluice analyze --elastic-native`.
     #[arg(long, requires = "elasticsearch")]
     pub(crate) elastic_native: bool,
+    /// A command that runs Fluent Bit, for `--fluent-bit-native`.
+    #[arg(long, value_name = "CMD")]
+    pub(crate) fluent_bit: Option<PathBuf>,
+    /// Also prove and write Fluent Bit Lua filters, as `sluice analyze --fluent-bit-native`.
+    #[arg(long, requires = "fluent_bit")]
+    pub(crate) fluent_bit_native: bool,
     #[command(flatten)]
     pub(crate) ai: AiArgs,
 }
@@ -500,6 +506,16 @@ pub(crate) struct AnalyzeArgs {
     /// same alerts. Needs documents as the index stores them.
     #[arg(long, requires = "elasticsearch")]
     pub(crate) elastic_native: bool,
+    /// A command that runs Fluent Bit: the `fluent-bit` binary, or a wrapper that runs it in a
+    /// container (`scripts/fluentbit-check.sh` writes one). It takes Fluent Bit's own arguments.
+    #[arg(long, value_name = "CMD")]
+    pub(crate) fluent_bit: Option<PathBuf>,
+    /// Also write, per source, a Fluent Bit Lua filter (`fluent-bit/SOURCE.lua`) that makes the
+    /// plan's field removals in the agent, after proving it in `--fluent-bit` (ADR 0027): it
+    /// removes nothing Vector keeps, changes nothing else, and the rules raise the same alerts.
+    /// Needs records as the agent reads them.
+    #[arg(long, requires = "fluent_bit")]
+    pub(crate) fluent_bit_native: bool,
     /// Wazuh manager API (for example `https://wazuh:55000`) to spot-check reductions with its
     /// real decoders and rules through `logtest`. The password is read from
     /// `WAZUH_API_PASSWORD`.

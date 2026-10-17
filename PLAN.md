@@ -658,6 +658,11 @@ planned when it starts; it includes at least:
   SigmaHQ, System −24.8 % and Application −39.3 %. Text templates and counting stay with a
   pipeline tool. Next: Splunk.
 
+  Status 2026-10-17 (ADR 0027): Fluent Bit Lua filters are done and *proven* in a real Fluent
+  Bit (4.0.3): the same recognition and keep-whole as the ingest pipelines, an unchanged record
+  left as it was, and the same savings on the synthetic sample. Next agent: the OpenTelemetry
+  Collector.
+
   Status 2026-10-17 (ADR 0025): Elastic's own detection rules are requirements: KQL and EQL
   parsed for fields and a superset pre-filter, ES|QL and Lucene read broadly, scoped by index
   patterns; all 2,165 prebuilt rules that run are read. The proof runs them in Elasticsearch

@@ -23,6 +23,7 @@ sluice-archive.workspace = true
 sluice-autopilot.workspace = true
 sluice-core.workspace = true
 sluice-elastic.workspace = true
+sluice-fluentbit.workspace = true
 sluice-kql.workspace = true
 sluice-mcp.workspace = true
 sluice-rules.workspace = true

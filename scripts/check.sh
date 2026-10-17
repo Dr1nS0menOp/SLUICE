@@ -47,4 +47,12 @@ else
     printf '\n==> elastic: skipped (docker pull docker.elastic.co/elasticsearch/elasticsearch:9.1.0)\n'
 fi
 
+if command -v docker >/dev/null 2>&1 \
+    && docker image inspect fluent/fluent-bit:4.0.3 >/dev/null 2>&1; then
+    step "fluent-bit (Lua filters and their differential test against Fluent Bit)"
+    bash "$(dirname "$0")/fluentbit-check.sh"
+else
+    printf '\n==> fluent-bit: skipped (docker pull fluent/fluent-bit:4.0.3)\n'
+fi
+
 printf '\nAll gates passed.\n'

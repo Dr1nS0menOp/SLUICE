@@ -1,0 +1,21 @@
+[package]
+name = "sluice-fluentbit"
+description = "Fluent Bit Lua filters that carry out a savings plan's field removals, proven in a real Fluent Bit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+sluice-core.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+sluice-rules.workspace = true
+sluice-synth.workspace = true
+sluice-vector.workspace = true
+
+[lints]
+workspace = true

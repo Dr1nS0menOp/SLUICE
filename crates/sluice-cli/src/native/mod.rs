@@ -1,5 +1,6 @@
-//! `sluice analyze --sentinel-native` and `--elastic-native`: the plan's field removals in a
-//! SIEM's own ingestion, proven in the SIEM's engine before anything is written.
+//! `sluice analyze --sentinel-native`, `--elastic-native` and `--fluent-bit-native`: the plan's
+//! field removals in a SIEM's own ingestion or in the agent, proven in that engine before
+//! anything is written.
 //!
 //! The proof has two parts, both on the sample:
 //! 1. **Never more than Vector.** Every field the generated code removes from a record is one
@@ -8,6 +9,7 @@
 //!    ingestion leaves them as on the full ones.
 
 pub(crate) mod elastic;
+pub(crate) mod fluentbit;
 pub(crate) mod sentinel;
 
 use std::collections::BTreeSet;

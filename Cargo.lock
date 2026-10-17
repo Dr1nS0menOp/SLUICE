@@ -2822,6 +2822,7 @@ dependencies = [
  "sluice-autopilot",
  "sluice-core",
  "sluice-elastic",
+ "sluice-fluentbit",
  "sluice-kql",
  "sluice-mcp",
  "sluice-rules",
@@ -2866,6 +2867,18 @@ dependencies = [
  "sluice-vector",
  "thiserror",
  "ureq",
+]
+
+[[package]]
+name = "sluice-fluentbit"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sluice-core",
+ "sluice-rules",
+ "sluice-synth",
+ "sluice-vector",
+ "thiserror",
 ]
 
 [[package]]
