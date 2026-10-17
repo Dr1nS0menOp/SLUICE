@@ -124,6 +124,10 @@ fn splunk(api: &str, insecure: bool, fetched_at: &str) -> Result<Inventory> {
 
 /// Writes `inventory` to `out`: a new or empty directory, or an earlier fetch, which is
 /// replaced. Any other directory is refused, so a fetch never deletes the operator's files.
+///
+/// The fetch is written next to `out` first and then renamed into place, so a reader (`sluice
+/// up --reload-rules`) never sees half of one: only the old fetch, the new one, or for a moment
+/// none.
 pub(crate) fn write(inventory: &Inventory, out: &Path) -> Result<()> {
     if let Some((path, _)) = inventory
         .files
@@ -132,26 +136,44 @@ pub(crate) fn write(inventory: &Inventory, out: &Path) -> Result<()> {
     {
         bail!("refusing to write outside {}: {path}", out.display());
     }
-    if out.exists() {
+    let replace = if out.exists() {
         let empty = fs::read_dir(out)
             .with_context(|| format!("reading {}", out.display()))?
             .next()
             .is_none();
-        if !empty {
-            if manifest(out).is_none() {
-                bail!(
-                    "{} is not empty and holds no {MANIFEST_FILE}; fetch into a new directory",
-                    out.display()
-                );
-            }
-            fs::remove_dir_all(out).with_context(|| format!("replacing {}", out.display()))?;
+        if !empty && manifest(out).is_none() {
+            bail!(
+                "{} is not empty and holds no {MANIFEST_FILE}; fetch into a new directory",
+                out.display()
+            );
         }
+        true
+    } else {
+        false
+    };
+    let beside = |what: &str| {
+        let name = out
+            .file_name()
+            .map_or_else(|| "inventory".into(), |n| n.to_string_lossy());
+        out.with_file_name(format!(".{name}.{what}-{}", std::process::id()))
+    };
+    let staging = beside("fetching");
+    if staging.exists() {
+        fs::remove_dir_all(&staging).with_context(|| format!("clearing {}", staging.display()))?;
     }
     for (path, text) in &inventory.files {
-        crate::output::write(&out.join(path), text)?;
+        crate::output::write(&staging.join(path), text)?;
     }
     let manifest = serde_json::to_string_pretty(&inventory.manifest)? + "\n";
-    crate::output::write(&out.join(MANIFEST_FILE), &manifest)
+    crate::output::write(&staging.join(MANIFEST_FILE), &manifest)?;
+    if replace {
+        let old = beside("replaced");
+        fs::rename(out, &old).with_context(|| format!("replacing {}", out.display()))?;
+        fs::rename(&staging, out).with_context(|| format!("writing {}", out.display()))?;
+        fs::remove_dir_all(&old).with_context(|| format!("removing {}", old.display()))
+    } else {
+        fs::rename(&staging, out).with_context(|| format!("writing {}", out.display()))
+    }
 }
 
 /// The manifest of a fetched inventory in `dir`, if there is one.
@@ -253,6 +275,18 @@ mod tests {
         write(&first, &out).unwrap();
         write(&inventory(true), &out).unwrap();
         assert!(!out.join("rules/gone.yaml").exists());
+        // Nothing of the staging is left beside it.
+        let name = out.file_name().unwrap().to_string_lossy().into_owned();
+        let leftovers: Vec<_> = fs::read_dir(out.parent().unwrap())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with(&format!(".{name}."))
+            })
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
         fs::remove_dir_all(&out).unwrap();
     }
 

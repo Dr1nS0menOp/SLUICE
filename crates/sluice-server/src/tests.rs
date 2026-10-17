@@ -758,3 +758,56 @@ fn listening_beyond_loopback_needs_a_token() {
         crate::check_exposure("0.0.0.0:8686", Some("0123456789abcdef0123456789abcdef")).is_ok()
     );
 }
+
+/// Rules with Sigma's `rule` only, and Wazuh's example rules when `wazuh`.
+fn rules_of(sigma: &str, wazuh: bool) -> Rules {
+    Rules {
+        sigma: SigmaRules::parse([sigma]).unwrap(),
+        wazuh: wazuh.then(|| {
+            sluice_rules::WazuhRules::parse([include_str!(
+                "../../../examples/rules/wazuh/local_rules.xml"
+            )])
+            .unwrap()
+        }),
+        sentinel: None,
+        elastic: None,
+        splunk: None,
+        bases: ["sigma", "wazuh"]
+            .map(|set| (set.to_owned(), sluice_autopilot::RulesBasis::SelfContained))
+            .into(),
+    }
+}
+
+#[tokio::test]
+async fn reloaded_rules_are_in_force_from_the_next_cycle() {
+    let shared = shared(&scratch("reload"));
+    let before = shared.rule_info().len();
+    shared
+        .replace_rules(rules_of(
+            include_str!("../../../examples/rules/sigma/linux.yml"),
+            false,
+        ))
+        .unwrap();
+    let after = shared.rule_info();
+    assert_ne!(after.len(), before);
+    assert_eq!(shared.rules().sigma.requirements().len(), after.len());
+    post(&shared, "/tap/sysmon", ndjson("sysmon", 5)).await;
+    shared.run_cycle(1_791_622_800).unwrap();
+}
+
+#[tokio::test]
+async fn c3_reloaded_rules_without_a_set_a_destination_runs_are_refused() {
+    let mut destinations = Map::new();
+    destinations.insert("wazuh".into(), json!({"type": "blackhole"}));
+    let shared = shared_with(&scratch("reload-refused"), None, destinations, true);
+    let before = serde_json::to_value(shared.rule_info()).unwrap();
+    let windows = include_str!("../../../examples/rules/sigma/windows.yml");
+    let error = shared.replace_rules(rules_of(windows, false)).unwrap_err();
+    assert!(error.to_string().contains("no wazuh rules"), "{error}");
+    assert_eq!(
+        serde_json::to_value(shared.rule_info()).unwrap(),
+        before,
+        "the loaded rules stay in force"
+    );
+    shared.replace_rules(rules_of(windows, true)).unwrap();
+}

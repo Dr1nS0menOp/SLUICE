@@ -69,8 +69,14 @@ events breaks when events become summaries, even though no alert changes.
   the workspace and, for the query log, Log Analytics Reader with `LAQueryLogs` enabled.
 - Splunk, Elastic, Chronicle and QRadar inventories follow with their query languages (M12);
   until then their destinations need the operator's claim for L2 and L3. So do workbook
-  queries (they live in the workbooks' serialized JSON) and polling the inventory from
-  `sluice up`: for now, fetch again and restart.
+  queries (they live in the workbooks' serialized JSON).
+- **Reloading, 2026-10-17.** `sluice up --reload-rules SECS` looks at each fetched inventory's
+  manifest every `SECS` seconds and loads every rule set again when a fetch is newer, for the
+  next cycle; `sluice up` itself holds no SIEM credentials, the fetch runs on a timer. A fetch
+  writes beside the directory and renames it into place, and the manifests are read before and
+  after the rules: rules read while a fetch replaced its directory are dropped, so a half-read
+  rule set is never put in force. Rules that cannot be loaded, or that lack a set a destination
+  names, leave the loaded ones in force.
 - Verified 2026-10-14 against a real Wazuh 4.x manager (168 rule and 121 decoder files) and the
   Sentinel test workspace (a scheduled rule, a hunting query, a function and Fusion): the
   fetched Sentinel inventory, proven in the emulator on synthetic `SecurityEvent` records, kept

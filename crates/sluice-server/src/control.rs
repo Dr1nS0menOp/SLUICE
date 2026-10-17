@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError, RwLock};
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use serde_json::{Value, json};
 use sluice_autopilot::{
@@ -97,15 +97,16 @@ impl Profile {
 pub(crate) struct Shared {
     pub(crate) config: ServerConfig,
     pub(crate) sources: Vec<Source>,
-    rules: Rules,
+    /// The rules, replaced whole when they are reloaded; a cycle works on one snapshot.
+    rules: RwLock<Arc<Rules>>,
     /// Stands in for Sigma in profiles that do not run it.
     no_sigma: SigmaRules,
     book: RecipeBook,
     pub(crate) windows: Mutex<Windows>,
     /// One per rule profile any destination uses, sorted by name.
     pub(crate) profiles: Vec<Profile>,
-    /// What every loaded rule needs; fixed for the process lifetime.
-    pub(crate) rule_info: Vec<RuleInfo>,
+    /// What every loaded rule needs, replaced with the rules.
+    rule_info: RwLock<Vec<RuleInfo>>,
     /// The bearer token every route but `/healthz` requires, if set.
     pub(crate) control_token: Option<String>,
     last_config: Mutex<String>,
@@ -183,13 +184,13 @@ impl Shared {
             .map(crate::config::LiveSourceConfig::analysis_source)
             .collect();
         Ok(Self {
-            rule_info: rule_info(&rules),
+            rule_info: RwLock::new(rule_info(&rules)),
             control_token,
             windows: Mutex::new(Windows::new(config.window)),
             profiles,
             config,
             sources,
-            rules,
+            rules: RwLock::new(Arc::new(rules)),
             no_sigma: SigmaRules::parse(std::iter::empty::<&str>())
                 .map_err(|e| ServerError::Config(e.to_string()))?,
             book,
@@ -200,6 +201,48 @@ impl Shared {
             operators,
             oidc,
         })
+    }
+
+    /// The rules as they are now. A cycle takes them once, so a reload never changes the
+    /// rules halfway through one.
+    pub(crate) fn rules(&self) -> Arc<Rules> {
+        Arc::clone(&self.rules.read().unwrap_or_else(PoisonError::into_inner))
+    }
+
+    /// What every loaded rule needs.
+    pub(crate) fn rule_info(&self) -> Vec<RuleInfo> {
+        self.rule_info
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Replaces the rules from the next cycle on: a rule added to the SIEM is guarded from then.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::Config`] when a destination names a rule set the new rules lack; the
+    /// rules in force stay.
+    pub(crate) fn replace_rules(&self, rules: Rules) -> Result<(), ServerError> {
+        let loaded = loaded(&rules);
+        if let Some((profile, set)) = self.profiles.iter().find_map(|profile| {
+            profile
+                .name
+                .split('+')
+                .find(|set| !loaded.contains(set))
+                .map(|set| (&profile.name, set))
+        }) {
+            return Err(ServerError::Config(format!(
+                "the reloaded rules have no {set} rules, which profile {profile} runs"
+            )));
+        }
+        let info = rule_info(&rules);
+        *self.rules.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(rules);
+        *self
+            .rule_info
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = info;
+        Ok(())
     }
 
     /// The profile named `name`, or the first one (with a single profile, the only one).
@@ -242,7 +285,7 @@ impl Shared {
 
     /// The configuration with nothing enforced: every source passes through.
     pub(crate) fn initial_config(&self) -> Result<String, ServerError> {
-        self.render(&[])
+        self.render(&self.rules(), &[])
     }
 
     /// Writes the configuration with nothing enforced: every source passes through.
@@ -266,17 +309,18 @@ impl Shared {
     }
 
     fn cycle_on(&self, events: &[Event], now: i64) -> Result<CycleReport, ServerError> {
+        let rules = self.rules();
         let decisions = lock(&self.decisions).clone();
         let mut lifecycles: Vec<_> = self.profiles.iter().map(|p| lock(&p.lifecycle)).collect();
         let mut results = Vec::with_capacity(self.profiles.len());
         for (profile, lifecycle) in self.profiles.iter().zip(&mut lifecycles) {
-            let input = self.input(profile, events);
+            let input = self.input(&rules, profile, events);
             let settings = Settings {
                 operator_rules: decisions
                     .get(&profile.name)
                     .map(|d| d.rules(&self.sources))
                     .unwrap_or_default(),
-                rules: self.basis(profile),
+                rules: basis(&rules, profile),
                 ..Settings::default()
             };
             let result = cycle(
@@ -303,14 +347,15 @@ impl Shared {
                 data_plane: &result.data_plane,
             })
             .collect();
-        let yaml = self.render(&live)?;
+        let yaml = self.render(&rules, &live)?;
         let config_changed = match self.config.proposals() {
             // The proposal waits for review; what Vector runs is the operator's deployment,
             // which is proven here and switched off if it fails.
             Some(dir) => {
-                let bases: Vec<RulesBasis> = self.profiles.iter().map(|p| self.basis(p)).collect();
+                let bases: Vec<RulesBasis> =
+                    self.profiles.iter().map(|p| basis(&rules, p)).collect();
                 let proposal = proposal(now, &live, &results, &bases);
-                let plans = self.plans(events, &results)?;
+                let plans = self.plans(&rules, events, &results)?;
                 self.write_proposal(&dir, &yaml, &proposal, &plans)?;
                 self.guard_running(events, now)?
             }
@@ -324,7 +369,7 @@ impl Shared {
         }
         let mut transitions = Vec::new();
         for ((profile, lifecycle), result) in self.profiles.iter().zip(&lifecycles).zip(&results) {
-            let input = self.input(profile, events);
+            let input = self.input(&rules, profile, events);
             let report = Report::new(&result.analysis, input);
             let mut status = profile
                 .status
@@ -349,20 +394,15 @@ impl Shared {
         })
     }
 
-    /// On what grounds a profile's rules are complete: those of its weakest rule set.
-    pub(crate) fn basis(&self, profile: &Profile) -> RulesBasis {
-        RulesBasis::weakest(
-            profile
-                .name
-                .split('+')
-                .map(|set| self.rules.bases.get(set).copied().unwrap_or_default()),
-        )
-    }
-
     /// The analysis input of a profile: the events with the rules it runs.
-    pub(crate) fn input<'a>(&'a self, profile: &Profile, events: &'a [Event]) -> Input<'a> {
+    pub(crate) fn input<'a>(
+        &'a self,
+        rules: &'a Rules,
+        profile: &Profile,
+        events: &'a [Event],
+    ) -> Input<'a> {
         let sigma = if profile.runs("sigma") {
-            &self.rules.sigma
+            &rules.sigma
         } else {
             &self.no_sigma
         };
@@ -370,9 +410,8 @@ impl Shared {
             sources: &self.sources,
             events,
             sigma,
-            wazuh: self.rules.wazuh.as_ref().filter(|_| profile.runs("wazuh")),
-            sentinel: self
-                .rules
+            wazuh: rules.wazuh.as_ref().filter(|_| profile.runs("wazuh")),
+            sentinel: rules
                 .sentinel
                 .as_ref()
                 .filter(|_| profile.runs("sentinel"))
@@ -380,8 +419,7 @@ impl Shared {
                     rules: &s.rules,
                     engine: s.engine.as_deref().map(|e| e as &dyn RuleEngine),
                 }),
-            elastic: self
-                .rules
+            elastic: rules
                 .elastic
                 .as_ref()
                 .filter(|_| profile.runs("elastic"))
@@ -389,15 +427,11 @@ impl Shared {
                     rules: &e.rules,
                     engine: e.engine.as_deref().map(|e| e as &dyn RuleEngine),
                 }),
-            splunk: self
-                .rules
-                .splunk
-                .as_ref()
-                .filter(|_| profile.runs("splunk")),
+            splunk: rules.splunk.as_ref().filter(|_| profile.runs("splunk")),
         }
     }
 
-    fn render(&self, profiles: &[LiveProfile<'_>]) -> Result<String, ServerError> {
+    fn render(&self, rules: &Rules, profiles: &[LiveProfile<'_>]) -> Result<String, ServerError> {
         let shapes: Vec<Option<String>> = self
             .config
             .sources
@@ -434,7 +468,7 @@ impl Shared {
             tap_token: self.control_token.as_ref().map(|_| TOKEN_REFERENCE),
             secret_backends: &secret_backends,
         };
-        live_config(&sources, profiles, &loaded(&self.rules), &settings)
+        live_config(&sources, profiles, &loaded(rules), &settings)
             .map_err(|e| ServerError::Config(e.to_string()))
     }
 
@@ -442,6 +476,7 @@ impl Shared {
     /// JSON.
     fn plans(
         &self,
+        rules: &Rules,
         events: &[Event],
         results: &[sluice_autopilot::Cycle],
     ) -> Result<Vec<(String, String)>, ServerError> {
@@ -449,7 +484,7 @@ impl Shared {
             .iter()
             .zip(results)
             .map(|(profile, result)| {
-                let report = Report::new(&result.analysis, self.input(profile, events));
+                let report = Report::new(&result.analysis, self.input(rules, profile, events));
                 let plan = SavingsPlan::deployed(result, &report, &self.sources);
                 let json = plan
                     .to_json()
@@ -551,6 +586,16 @@ fn proposal(
 /// The file a profile's savings plan is proposed in.
 fn plan_file(profile: &str) -> String {
     format!("plan-{profile}.json")
+}
+
+/// On what grounds a profile's rules are complete: those of its weakest rule set.
+pub(crate) fn basis(rules: &Rules, profile: &Profile) -> RulesBasis {
+    RulesBasis::weakest(
+        profile
+            .name
+            .split('+')
+            .map(|set| rules.bases.get(set).copied().unwrap_or_default()),
+    )
 }
 
 /// What every loaded rule needs, per rule set.

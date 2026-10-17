@@ -223,6 +223,11 @@ sluice up --config sluice.yaml --rules sigma/rules \
   starts the emulator in Docker.
 - Point it at the rules you actually run. A rule that reads `EventData` on every event keeps
   `EventData` on every event, which is right for that rule and costly if you never enabled it.
+- Keep them current without a restart: run `sluice rules fetch` on a timer (a systemd timer
+  or cron) into the same directory, and start `sluice up` with `--reload-rules 300`. Every five
+  minutes it looks at each fetched inventory's `inventory.json`, and when a fetch is newer it
+  loads the rules again: a rule added in the SIEM is guarded from the next cycle on. If the new
+  rules cannot be loaded, the old ones stay in force and `sluice status` says why.
 - `sluice analyze` proves the same way on a sample, offline: add `--sentinel-rules DIR --kusto
   http://127.0.0.1:8090 --sentinel-table windows-security=SecurityEvent` (one `SOURCE=TABLE`
   per source whose sample records are stored as that table).

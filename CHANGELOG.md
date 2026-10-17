@@ -234,6 +234,11 @@ explains the terms.
 - `sluice rules fetch splunk --api URL`: the saved searches, macros, props and transforms of
   every app, through Splunk's REST API, as a complete inventory for `--splunk-rules` (ADR 0021,
   ADR 0026).
+- `sluice up --reload-rules SECS`: rules fetched anew (`sluice rules fetch` on a timer) are
+  loaded without a restart and guard from the next cycle on (ADR 0021). A fetch now replaces
+  its directory in one rename, so no reader sees half of one.
+- The proof of what Vector runs (proposal mode) now runs the Elastic rules too, when
+  `--elasticsearch` is given; it ran Sigma and Sentinel only.
 - A Sentinel rule on a custom table (`<Name>_CL`) applies to every source and keeps every
   record its query reads (ADR 0015). Before, it counted as a rule on tables no source has, so
   a JSON source sent to that table with `sluice connect sentinel --sample` was not protected

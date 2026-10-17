@@ -671,12 +671,14 @@ planned when it starts; it includes at least:
 
   Status 2026-10-17 (ADR 0026): Splunk's scheduled and correlation searches are requirements,
   read from `savedsearches.conf`/`macros.conf` or the REST API with macros expanded: the base
-  search as a superset pre-filter, the pipeline for names, counting and raw reads. Open: a
-  Splunk engine for the proof (needs the Splunk General Terms accepted), `sluice rules fetch
-  splunk`, and props/transforms extractions.
+  search as a superset pre-filter, the pipeline for names, counting and raw reads; fields Splunk
+  derives (`props.conf`, `transforms.conf`) are read through; `sluice rules fetch splunk` reads
+  all of it from the REST API. On ESCU 6.8.0: 2,223 searches read, 845 bounded. Open: a Splunk
+  engine for the proof (needs the Splunk General Terms accepted).
 - The rest of M10 for every SIEM: inventories over Splunk (`saved/searches`, macros,
   extractions), Elastic (detection rules, ingest pipelines) and Chronicle; workbook and
-  dashboard queries; `sluice up` polling the inventory; summaries as a table of their own with
+  dashboard queries; `sluice up` reloading the inventory (done 2026-10-17: `--reload-rules`,
+  ADR 0021); summaries as a table of their own with
   counting helpers (a KQL function, a Splunk macro); fields nobody queries (query logs) as the
   safest cut proposals.
 - Destinations, table shapes and schema mappings (CIM, ECS, UDM, OCSF, ASIM, LEEF/CEF) for each,

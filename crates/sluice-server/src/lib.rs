@@ -51,7 +51,19 @@ pub const CONTROL_TOKEN_ENV: &str = "SLUICE_CONTROL_TOKEN";
 /// The shortest control token accepted.
 pub const MIN_CONTROL_TOKEN_LEN: usize = 32;
 
+/// Reloads the rules while the control plane runs (ADR 0021): an inventory `sluice rules
+/// fetch` rewrites on a timer is guarded from the next cycle on.
+pub struct Reload {
+    /// How often to look for new rules.
+    pub every: Duration,
+    /// The new rules when they changed, `None` when they did not. Runs on a blocking thread.
+    pub load: Box<dyn Fn() -> Result<Option<Rules>, String> + Send + Sync>,
+}
+
 /// Runs the control plane and Vector until Ctrl-C, or until Vector exits.
+///
+/// With `reload`, the rules are looked at again every so often and replace the loaded ones
+/// before the next cycle; rules that fail to load leave the loaded ones in force.
 ///
 /// With `control_token`, every route but `/healthz` requires `Authorization: Bearer <token>`.
 /// Without one, the control plane only listens on a loopback address: anyone who can post to
@@ -66,6 +78,7 @@ pub async fn up(
     rules: Rules,
     book: RecipeBook,
     control_token: Option<String>,
+    reload: Option<Reload>,
 ) -> Result<(), ServerError> {
     check_config(&config, control_token.as_deref())?;
     let listener = TcpListener::bind(&config.listen)
@@ -86,7 +99,7 @@ pub async fn up(
     tracing::info!(listen = %shared.config.listen, "control plane listening");
 
     let server = axum::serve(listener, routes::router(Arc::clone(&shared)));
-    let control = control_loop(Arc::clone(&shared), vector.id());
+    let control = control_loop(Arc::clone(&shared), vector.id(), reload.map(Arc::new));
     tokio::select! {
         result = server => result.map_err(|e| ServerError::Io(e.to_string()))?,
         () = control => {}
@@ -225,11 +238,16 @@ fn spawn_vector(config: &ServerConfig) -> Result<Child, ServerError> {
 /// Runs a cycle every `cycle_secs` on a blocking thread, and makes Vector reload whenever the
 /// configuration changed. A failed cycle keeps the previous configuration and is reported in
 /// the status.
-async fn control_loop(shared: Arc<Shared>, vector_pid: Option<u32>) {
+async fn control_loop(shared: Arc<Shared>, vector_pid: Option<u32>, reload: Option<Arc<Reload>>) {
     let mut ticker = tokio::time::interval(Duration::from_secs(shared.config.cycle_secs.max(1)));
     ticker.tick().await;
+    let mut looked = tokio::time::Instant::now();
     loop {
         ticker.tick().await;
+        if let Some(reload) = reload.as_ref().filter(|r| looked.elapsed() >= r.every) {
+            looked = tokio::time::Instant::now();
+            reload_rules(&shared, Arc::clone(reload)).await;
+        }
         let worker = Arc::clone(&shared);
         let result = tokio::task::spawn_blocking(move || worker.run_cycle(unix_now())).await;
         match result {
@@ -253,6 +271,32 @@ async fn control_loop(shared: Arc<Shared>, vector_pid: Option<u32>) {
                 tracing::error!(%error, "cycle panicked; previous configuration stays in force");
             }
         }
+    }
+}
+
+/// Loads the rules again and puts them in force; on failure the loaded ones stay, and the
+/// status says why.
+async fn reload_rules(shared: &Arc<Shared>, reload: Arc<Reload>) {
+    let loaded = tokio::task::spawn_blocking(move || (reload.load)()).await;
+    let error = match loaded {
+        Ok(Ok(None)) => return,
+        Ok(Ok(Some(rules))) => match shared.replace_rules(rules) {
+            Ok(()) => {
+                tracing::info!("rules reloaded; they are guarded from this cycle on");
+                return;
+            }
+            Err(error) => error.to_string(),
+        },
+        Ok(Err(error)) => error,
+        Err(error) => error.to_string(),
+    };
+    tracing::warn!(%error, "rules not reloaded; the loaded ones stay in force");
+    for profile in &shared.profiles {
+        let mut status = profile
+            .status
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        status.last_error = Some(format!("rules not reloaded: {error}"));
     }
 }
 

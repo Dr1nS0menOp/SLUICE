@@ -130,7 +130,7 @@ async fn tap(
 
 /// `GET /rules`: what every loaded rule needs.
 async fn rules(State(shared): State<Arc<Shared>>) -> Json<Vec<RuleInfo>> {
-    Json(shared.rule_info.clone())
+    Json(shared.rule_info())
 }
 
 /// The query of `GET /status`.

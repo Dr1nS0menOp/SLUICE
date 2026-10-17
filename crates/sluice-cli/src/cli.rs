@@ -335,7 +335,7 @@ pub(crate) struct ReplayArgs {
     pub(crate) batch: usize,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Clone, Args)]
 pub(crate) struct UpArgs {
     /// The `sluice up` configuration (sources with their Vector sources, destinations, paths).
     #[arg(long)]
@@ -384,6 +384,11 @@ pub(crate) struct UpArgs {
     /// Feed synthetic traffic into the configured `http_server` sources (for trying it out).
     #[arg(long)]
     pub(crate) demo_traffic: bool,
+    /// Look at the rule directories again every SECS seconds, and load them again when a
+    /// `sluice rules fetch` has rewritten one (run it on a timer). A new rule is guarded from
+    /// the next cycle on. Only fetched inventories (with `inventory.json`) are watched.
+    #[arg(long, value_name = "SECS", value_parser = clap::value_parser!(u64).range(10..))]
+    pub(crate) reload_rules: Option<u64>,
     /// Check the configuration and rules and print the Vector configuration `up` would start
     /// with, without starting anything (pipe it to `vector validate`).
     #[arg(long, conflicts_with = "demo_traffic")]

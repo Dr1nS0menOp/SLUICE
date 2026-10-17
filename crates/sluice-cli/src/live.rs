@@ -27,19 +27,7 @@ pub(crate) fn up(args: &UpArgs) -> Result<()> {
         .with_context(|| format!("resolving merge keys in {}", args.config.display()))?;
     let config: ServerConfig = serde_yaml_ng::from_value(yaml)
         .with_context(|| format!("reading {}", args.config.display()))?;
-    let rules = Rules {
-        sigma: SigmaRules::parse_with(
-            read(args.rules.as_deref(), &["yml", "yaml"])?
-                .iter()
-                .map(String::as_str),
-            &input::sigma_pipelines(&args.sigma_pipeline)?,
-        )?,
-        wazuh: input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?,
-        sentinel: sentinel(args, &config)?,
-        elastic: elastic(args)?,
-        splunk: input::splunk(args.splunk_rules.as_deref())?,
-        bases: rule_bases(args),
-    };
+    let rules = load_rules(args, &config)?;
     let analysis_sources: Vec<_> = config
         .sources
         .iter()
@@ -67,13 +55,87 @@ pub(crate) fn up(args: &UpArgs) -> Result<()> {
         thread::spawn(move || demo_traffic(&targets));
     }
     let runtime = tokio::runtime::Runtime::new().context("starting the async runtime")?;
+    let reload = args.reload_rules.map(|secs| reloader(args, &config, secs));
     runtime.block_on(sluice_server::up(
         config,
         rules,
         RecipeBook::embedded()?,
         control_token(),
+        reload,
     ))?;
     Ok(())
+}
+
+/// Every rule set `args` names, with the engines that run them.
+fn load_rules(args: &UpArgs, config: &ServerConfig) -> Result<Rules> {
+    Ok(Rules {
+        sigma: SigmaRules::parse_with(
+            read(args.rules.as_deref(), &["yml", "yaml"])?
+                .iter()
+                .map(String::as_str),
+            &input::sigma_pipelines(&args.sigma_pipeline)?,
+        )?,
+        wazuh: input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?,
+        sentinel: sentinel(args, config)?,
+        elastic: elastic(args)?,
+        splunk: input::splunk(args.splunk_rules.as_deref())?,
+        bases: rule_bases(args),
+    })
+}
+
+/// When each fetched inventory among the rule directories was fetched (`None` for one that is
+/// not a fetch, or is being replaced).
+fn fetch_stamps(args: &UpArgs) -> Vec<Option<String>> {
+    [
+        args.wazuh_rules.as_deref(),
+        args.wazuh_decoders.as_deref(),
+        args.sentinel_rules.as_deref(),
+        args.elastic_rules.as_deref(),
+        args.splunk_rules.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|dir| crate::inventory::find_manifest(dir).map(|m| m.fetched_at))
+    .collect()
+}
+
+/// Loads the rules again whenever a fetched inventory was fetched anew. The stamps are read
+/// before and after: rules read while a fetch replaced its directory are dropped, and read
+/// again on the next look.
+fn reloader(args: &UpArgs, config: &ServerConfig, secs: u64) -> sluice_server::Reload {
+    let args = args.clone();
+    let config = config.clone();
+    let stamps = fetch_stamps(&args);
+    if stamps.iter().all(Option::is_none) {
+        eprintln!(
+            "note: --reload-rules watches fetched inventories only (`sluice rules fetch`), and \
+             none of the rule directories is one"
+        );
+    }
+    let seen = std::sync::Mutex::new(stamps);
+    sluice_server::Reload {
+        every: Duration::from_secs(secs),
+        load: Box::new(move || {
+            let before = fetch_stamps(&args);
+            let mut last = seen
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            // A fetch that is gone for now is being replaced.
+            let replacing = last
+                .iter()
+                .zip(&before)
+                .any(|(l, b)| l.is_some() && b.is_none());
+            if before == *last || replacing {
+                return Ok(None);
+            }
+            let rules = load_rules(&args, &config).map_err(|e| format!("{e:#}"))?;
+            if fetch_stamps(&args) != before {
+                return Ok(None);
+            }
+            *last = before;
+            Ok(Some(rules))
+        }),
+    }
 }
 
 pub(crate) fn status(args: &StatusArgs) -> Result<()> {
@@ -379,5 +441,69 @@ fn wait_for_sources(targets: &[(String, String)]) {
             return;
         }
         thread::sleep(Duration::from_millis(500));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use clap::Parser;
+    use sluice_core::inventory::{Inventory, Manifest};
+
+    use super::*;
+    use crate::cli::{Cli, Command};
+
+    fn fetch(dir: &Path, at: &str) {
+        let inventory = Inventory {
+            files: vec![("rules.ndjson".into(), String::new())],
+            manifest: Manifest {
+                system: "elastic".into(),
+                from: "http://kibana".into(),
+                fetched_at: at.into(),
+                complete: true,
+                counts: BTreeMap::new(),
+                not_modeled: Vec::new(),
+            },
+        };
+        crate::inventory::write(&inventory, dir).unwrap();
+    }
+
+    fn config() -> ServerConfig {
+        let mut yaml: serde_yaml_ng::Value =
+            serde_yaml_ng::from_str(include_str!("../../../examples/up/sluice-up.yaml")).unwrap();
+        yaml.apply_merge().unwrap();
+        serde_yaml_ng::from_value(yaml).unwrap()
+    }
+
+    #[test]
+    fn c3_rules_are_reloaded_once_per_new_fetch_and_never_halfway_through_one() {
+        let dir = std::env::temp_dir().join(format!("sluice-reload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        fetch(&dir, "2026-10-17T00:00:00Z");
+        let cli = Cli::try_parse_from([
+            "sluice",
+            "up",
+            "--config",
+            "x.yaml",
+            "--elastic-rules",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+        let Command::Up(args) = cli.command else {
+            panic!("an up command");
+        };
+        let reload = reloader(&args, &config(), 10);
+        assert!((reload.load)().unwrap().is_none(), "nothing fetched yet");
+        fetch(&dir, "2026-10-17T01:00:00Z");
+        assert!((reload.load)().unwrap().is_some(), "a new fetch is loaded");
+        assert!((reload.load)().unwrap().is_none(), "and only once");
+        // While a fetch replaces the directory, its manifest is missing for a moment.
+        std::fs::remove_file(dir.join(sluice_core::inventory::MANIFEST_FILE)).unwrap();
+        assert!(
+            (reload.load)().unwrap().is_none(),
+            "a fetch in progress is waited for"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

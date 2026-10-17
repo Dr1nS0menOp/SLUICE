@@ -137,13 +137,15 @@ impl Shared {
         let name = tagged.then_some(profile.name.as_str());
         let read =
             sluice_vector::deployed(deployed, &self.sources, name).map_err(|e| e.to_string())?;
-        let input = self.input(profile, events);
+        let rules = self.rules();
+        let input = self.input(&rules, profile, events);
         let sigma = input
             .sigma
             .engine(input.sources)
             .map_err(|e| e.to_string())?;
         let mut engines: Vec<&dyn RuleEngine> = vec![&sigma];
         engines.extend(input.sentinel.and_then(|s| s.engine));
+        engines.extend(input.elastic.and_then(|e| e.engine));
         let proof = prove(events, &Engines(engines), &read.reducer).map_err(|e| e.to_string())?;
         if proof.holds() {
             Ok(read)
