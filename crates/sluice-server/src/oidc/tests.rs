@@ -198,6 +198,7 @@ fn shared_with_oidc(
         sigma: sluice_rules::SigmaRules::parse(std::iter::empty::<&str>()).unwrap(),
         wazuh: None,
         sentinel: None,
+        elastic: None,
         bases: std::collections::BTreeMap::new(),
     };
     let mut destinations = serde_json::Map::new();

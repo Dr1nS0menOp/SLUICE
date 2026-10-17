@@ -214,6 +214,11 @@ explains the terms.
   Elasticsearch at URL shows it removes nothing the proven data plane keeps and the Sigma rules
   raise the same alerts (ADR 0024, crate `sluice-elastic`). `scripts/elastic-check.sh` runs the
   differential tests against a real Elasticsearch; `check.sh` and CI run it.
+- Elastic Security detection rules (`--elastic-rules DIR` for `analyze`, `up` and `rules
+  requirements`; ADR 0025): Kibana's export or Elastic's prebuilt rules package, read for the
+  ECS fields each rule names and a superset pre-filter from its KQL or EQL, scoped by its index
+  patterns. ES|QL, Lucene and machine learning rules are read broadly; only enabled, current
+  versions count. Destinations can name `elastic` in `sluice_rules`.
 - `sluice up` proposals carry the savings plan too: `plan-<profile>.json` per rule profile,
   exactly what the proposal enforces, named in `proposal.json`.
 - The report says per kind of event where its saving can run.

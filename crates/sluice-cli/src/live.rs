@@ -11,7 +11,7 @@ use sluice_autopilot::{RecipeBook, RulesBasis};
 use sluice_core::event::Timestamp;
 use sluice_kql::{KustoEngine, Table};
 use sluice_rules::SigmaRules;
-use sluice_server::{Rules, SentinelRuleSet, ServerConfig, Shape, Status};
+use sluice_server::{ElasticRuleSet, Rules, SentinelRuleSet, ServerConfig, Shape, Status};
 use sluice_synth::{SynthConfig, generate};
 
 use crate::cli::{McpArgs, StatusArgs, UpArgs};
@@ -36,6 +36,10 @@ pub(crate) fn up(args: &UpArgs) -> Result<()> {
         )?,
         wazuh: input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?,
         sentinel: sentinel(args, &config)?,
+        elastic: input::elastic(args.elastic_rules.as_deref())?.map(|rules| ElasticRuleSet {
+            rules,
+            engine: None,
+        }),
         bases: rule_bases(args),
     };
     let analysis_sources: Vec<_> = config
@@ -248,6 +252,11 @@ fn rule_bases(args: &UpArgs) -> BTreeMap<String, RulesBasis> {
             "sentinel",
             args.sentinel_rules.as_deref(),
             fetched(args.sentinel_rules.as_deref()),
+        ),
+        (
+            "elastic",
+            args.elastic_rules.as_deref(),
+            fetched(args.elastic_rules.as_deref()),
         ),
     ];
     let mut by_set = BTreeMap::new();

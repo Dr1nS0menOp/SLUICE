@@ -166,6 +166,31 @@ pub(crate) fn sentinel(dir: Option<&Path>) -> Result<Option<sluice_rules::Sentin
     Ok(Some(rules))
 }
 
+/// Elastic Security detection rules from `dir` (Kibana's `_export` NDJSON or JSON, or the
+/// prebuilt rules package), if given; the first problems are printed as warnings, all of them
+/// are in the report.
+pub(crate) fn elastic(dir: Option<&Path>) -> Result<Option<sluice_rules::ElasticRules>> {
+    let Some(dir) = dir else {
+        return Ok(None);
+    };
+    let files = files(dir, &["json", "ndjson"])?;
+    let rules = sluice_rules::ElasticRules::parse(
+        files
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str())),
+    );
+    for problem in rules.problems().iter().take(5) {
+        eprintln!("warning: {problem}");
+    }
+    if rules.problems().len() > 5 {
+        eprintln!(
+            "warning: … and {} more Elastic rules read broadly (listed in the report)",
+            rules.problems().len() - 5
+        );
+    }
+    Ok(Some(rules))
+}
+
 /// The Kusto emulator at `url`, running `rules` on the sources `--sentinel-table` names.
 pub(crate) fn kusto(
     url: &str,

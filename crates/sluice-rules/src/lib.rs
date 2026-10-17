@@ -1,4 +1,4 @@
-//! Rule awareness: Sigma and Wazuh rules as engine-neutral requirements.
+//! Rule awareness: Sigma, Wazuh, Sentinel and Elastic rules as engine-neutral requirements.
 //!
 //! Each engine's rules are reduced to [`sluice_core::rules::RuleRequirements`], the facts the
 //! guardrails need: scope, fields read, raw-text matching, statefulness and a superset
@@ -8,11 +8,13 @@
 //! opaque requirement that blocks every cut it might be affected by, and it is reported as a
 //! problem.
 
+mod elastic;
 mod error;
 mod sentinel;
 mod sigma;
 mod wazuh;
 
+pub use crate::elastic::{ElasticQuery, ElasticRules};
 pub use crate::error::RulesError;
 pub use crate::sentinel::SentinelRules;
 pub use crate::sigma::{SigmaEngine, SigmaPipeline, SigmaRules};

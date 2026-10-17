@@ -13,7 +13,7 @@ use sluice_core::rules::RuleRequirements;
 use sluice_core::source::Source;
 use sluice_core::template::{LineHeader, Template, TemplateShape};
 use sluice_discover::{DiscoverConfig, Discovery, discover};
-use sluice_rules::{SentinelRules, SigmaRules, WazuhRules};
+use sluice_rules::{ElasticRules, SentinelRules, SigmaRules, WazuhRules};
 use sluice_vector::{Plan, VrlReducer, compile_reducer};
 
 use crate::basis::RulesBasis;
@@ -75,6 +75,27 @@ pub struct Input<'a> {
     pub wazuh: Option<&'a WazuhRules>,
     /// Microsoft Sentinel analytics rules, if any.
     pub sentinel: Option<Sentinel<'a>>,
+    /// Elastic Security detection rules, if any.
+    pub elastic: Option<Elastic<'a>>,
+}
+
+/// Elastic Security detection rules (ADR 0025). Their requirements constrain the guardrails;
+/// with an engine (the rules run in Elasticsearch) the proof also evaluates them.
+#[derive(Clone, Copy)]
+pub struct Elastic<'a> {
+    /// The rules.
+    pub rules: &'a ElasticRules,
+    /// Runs the rules' queries on full and on forwarded documents.
+    pub engine: Option<&'a dyn RuleEngine>,
+}
+
+impl std::fmt::Debug for Elastic<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Elastic")
+            .field("rules", &self.rules.requirements().len())
+            .field("engine", &self.engine.is_some())
+            .finish()
+    }
 }
 
 /// Sentinel analytics rules (ADR 0015). Their requirements constrain the guardrails; with an
@@ -174,6 +195,9 @@ pub fn analyze(
     if let Some(sentinel) = input.sentinel {
         problems.extend(sentinel.rules.problems().iter().cloned());
     }
+    if let Some(elastic) = input.elastic {
+        problems.extend(elastic.rules.problems().iter().cloned());
+    }
     if let Some(advisor) = helpers.advisor {
         let advice = advise(
             advisor,
@@ -266,6 +290,7 @@ pub fn analyze_proposals(
         .iter()
         .chain(input.wazuh.map_or(&[][..], WazuhRules::requirements))
         .chain(input.sentinel.map_or(&[][..], |s| s.rules.requirements()))
+        .chain(input.elastic.map_or(&[][..], |e| e.rules.requirements()))
         .chain(&settings.operator_rules)
         .cloned()
         .collect();
@@ -320,6 +345,7 @@ pub(crate) fn prove(
     let sigma = input.sigma.engine(input.sources)?;
     let mut engines: Vec<&dyn RuleEngine> = vec![&sigma];
     engines.extend(input.sentinel.and_then(|s| s.engine));
+    engines.extend(input.elastic.and_then(|e| e.engine));
     let engine = Engines(engines);
     let build = |recipes: &[EffectiveRecipe]| {
         let plans = templates

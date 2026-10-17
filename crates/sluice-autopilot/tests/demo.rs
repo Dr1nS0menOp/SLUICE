@@ -39,6 +39,7 @@ fn demo() -> &'static Demo {
             sigma: &rules,
             wazuh: None,
             sentinel: None,
+            elastic: None,
         };
         let analysis = analyze(
             input,
@@ -75,6 +76,7 @@ fn plan() -> SavingsPlan {
         sigma: &demo.rules,
         wazuh: None,
         sentinel: None,
+        elastic: None,
     };
     let report = Report::new(&demo.analysis, input);
     SavingsPlan::new(&demo.analysis, &report, &demo.sample.sources)
@@ -146,6 +148,7 @@ fn counting_runs_only_in_a_pipeline_and_removing_fields_also_in_the_siem() {
         sigma: &demo.rules,
         wazuh: None,
         sentinel: None,
+        elastic: None,
     };
     let report = Report::new(&demo.analysis, input);
     let row = |id: &str| report.templates.iter().find(|t| t.id == id).expect("a row");

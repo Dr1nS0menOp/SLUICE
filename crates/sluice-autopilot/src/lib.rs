@@ -18,7 +18,7 @@ mod report;
 mod spot;
 
 pub use crate::analyze::{
-    Analysis, Helpers, Input, Sentinel, Settings, analyze, analyze_proposals,
+    Analysis, Elastic, Helpers, Input, Sentinel, Settings, analyze, analyze_proposals,
 };
 pub use crate::basis::RulesBasis;
 pub use crate::error::AutopilotError;

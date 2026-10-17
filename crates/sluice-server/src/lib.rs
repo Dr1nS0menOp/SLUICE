@@ -35,7 +35,7 @@ use tokio::process::{Child, Command};
 
 pub use crate::config::{LiveSourceConfig, PromotionConfig, ServerConfig, Shape, WindowConfig};
 use crate::control::Shared;
-pub use crate::control::{Rules, SentinelRuleSet};
+pub use crate::control::{ElasticRuleSet, Rules, SentinelRuleSet};
 pub use crate::error::ServerError;
 pub use crate::oidc::OidcConfig;
 pub use crate::operator::{Action, ActionRequest, ProfileDecisions};

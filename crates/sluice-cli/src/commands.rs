@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use sluice_autopilot::{
-    Helpers, Input, RecipeBook, Report, RulesBasis, SavingsPlan, Sentinel, Settings,
+    Elastic, Helpers, Input, RecipeBook, Report, RulesBasis, SavingsPlan, Sentinel, Settings,
     analyze as run_autopilot, render_html,
 };
 use sluice_core::advice::Advisor;
@@ -46,6 +46,7 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
             sigma: &sigma,
             wazuh: None,
             sentinel: None,
+            elastic: None,
         },
         &RecipeBook::embedded()?,
         Helpers {
@@ -86,6 +87,7 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
     let advisor = ai::advisor(&args.ai)?;
     let logtest = logtest(args)?;
     let sentinel_rules = input::sentinel(args.sentinel_rules.as_deref())?;
+    let elastic_rules = input::elastic(args.elastic_rules.as_deref())?;
     let kusto = match (&sentinel_rules, &args.kusto) {
         (Some(rules), Some(url)) => Some(input::kusto(url, rules, &args.sentinel_table)?),
         _ => None,
@@ -114,6 +116,10 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
                 rules,
                 engine: kusto.as_ref().map(|k| k as &dyn RuleEngine),
             }),
+            elastic: elastic_rules.as_ref().map(|rules| Elastic {
+                rules,
+                engine: None,
+            }),
         },
         &book,
         Helpers {
@@ -141,7 +147,11 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
 /// Whether rules were given and every set came from a complete `sluice rules fetch`. Sigma has
 /// no SIEM API, so Sigma rules always need `--rules-complete`.
 fn fetched_only(args: &AnalyzeArgs) -> bool {
-    let given = [args.wazuh_rules.as_deref(), args.sentinel_rules.as_deref()];
+    let given = [
+        args.wazuh_rules.as_deref(),
+        args.sentinel_rules.as_deref(),
+        args.elastic_rules.as_deref(),
+    ];
     args.rules.is_none()
         && given.iter().any(Option::is_some)
         && given
@@ -200,14 +210,21 @@ pub(crate) fn recipes(args: &RecipesArgs) -> Result<()> {
 }
 
 pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
-    let (rules, wazuh_rules, wazuh_decoders, sentinel_rules) = match &args.command {
+    let (rules, wazuh_rules, wazuh_decoders, sentinel_rules, elastic_rules) = match &args.command {
         RulesCommand::Fetch(fetch) => return crate::inventory::fetch(fetch),
         RulesCommand::Requirements {
             rules,
             wazuh_rules,
             wazuh_decoders,
             sentinel_rules,
-        } => (rules, wazuh_rules, wazuh_decoders, sentinel_rules),
+            elastic_rules,
+        } => (
+            rules,
+            wazuh_rules,
+            wazuh_decoders,
+            sentinel_rules,
+            elastic_rules,
+        ),
     };
     let mut requirements = Vec::new();
     let mut problems = Vec::new();
@@ -223,6 +240,9 @@ pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
     }
     if let Some(sentinel) = input::sentinel(sentinel_rules.as_deref())? {
         requirements.extend(sentinel.requirements().iter().cloned());
+    }
+    if let Some(elastic) = input::elastic(elastic_rules.as_deref())? {
+        requirements.extend(elastic.requirements().iter().cloned());
     }
     for problem in &problems {
         eprintln!("warning: {problem}");

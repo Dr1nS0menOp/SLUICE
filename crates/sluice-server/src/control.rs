@@ -7,13 +7,13 @@ use std::sync::{Mutex, PoisonError, RwLock};
 
 use serde_json::{Value, json};
 use sluice_autopilot::{
-    EMPTY_PROOF, Helpers, Input, Lifecycle, RecipeBook, Report, RulesBasis, SavingsPlan, Sentinel,
-    Settings, Transition, cycle,
+    EMPTY_PROOF, Elastic, Helpers, Input, Lifecycle, RecipeBook, Report, RulesBasis, SavingsPlan,
+    Sentinel, Settings, Transition, cycle,
 };
 use sluice_core::alert::RuleEngine;
 use sluice_core::event::{Event, Timestamp};
 use sluice_core::source::Source;
-use sluice_rules::{SentinelRules, SigmaRules, WazuhRules};
+use sluice_rules::{ElasticRules, SentinelRules, SigmaRules, WazuhRules};
 use sluice_vector::{
     LiveProfile, LiveSettings, LiveSource, Plan, destination_profile, live_config,
 };
@@ -36,7 +36,9 @@ pub struct Rules {
     pub wazuh: Option<WazuhRules>,
     /// Microsoft Sentinel analytics rules, for destinations that name `sentinel`.
     pub sentinel: Option<SentinelRuleSet>,
-    /// Per rule set (`sigma`, `wazuh`, `sentinel`), on what grounds it is every rule its SIEM
+    /// Elastic Security detection rules, for destinations that name `elastic`.
+    pub elastic: Option<ElasticRuleSet>,
+    /// Per rule set (`sigma`, `wazuh`, `sentinel`, `elastic`), on what grounds it is every rule its SIEM
     /// runs: fetched from it, or claimed by the operator (ADR 0021). A set that is missing is
     /// not known to be complete. A profile is as complete as its weakest set; only a complete
     /// one summarizes.
@@ -53,6 +55,16 @@ pub struct SentinelRuleSet {
     pub engine: Option<Box<dyn RuleEngine + Send + Sync>>,
 }
 
+/// Elastic Security detection rules and, if available, the engine that runs them for the proof
+/// (ADR 0025).
+pub struct ElasticRuleSet {
+    /// The rules; their requirements constrain the guardrails.
+    pub rules: ElasticRules,
+    /// Runs the rules' queries (Elasticsearch). Without it, the proof of a profile with Elastic
+    /// covers its other rule sets only.
+    pub engine: Option<Box<dyn RuleEngine + Send + Sync>>,
+}
+
 /// What one control cycle did.
 #[derive(Debug, Default)]
 pub(crate) struct CycleReport {
@@ -66,12 +78,17 @@ pub(crate) struct CycleReport {
 /// profile has its own lifecycle: a recipe enforced for a Sentinel destination proven against
 /// Sigma says nothing about a Wazuh destination.
 pub(crate) struct Profile {
+    /// The rule sets it runs, joined with `+` (`sentinel+sigma`).
     pub(crate) name: String,
-    sigma: bool,
-    wazuh: bool,
-    sentinel: bool,
     pub(crate) lifecycle: Mutex<Lifecycle>,
     pub(crate) status: RwLock<Status>,
+}
+
+impl Profile {
+    /// Whether the profile runs the rule set `set`.
+    fn runs(&self, set: &str) -> bool {
+        self.name.split('+').any(|r| r == set)
+    }
 }
 
 /// Everything the HTTP handlers and the control loop share.
@@ -136,9 +153,6 @@ impl Shared {
         let profiles: Vec<Profile> = names
             .into_iter()
             .map(|name| Profile {
-                sigma: name.split('+').any(|r| r == "sigma"),
-                wazuh: name.split('+').any(|r| r == "wazuh"),
-                sentinel: name.split('+').any(|r| r == "sentinel"),
                 lifecycle: Mutex::new(Lifecycle::new(config.promotion.into())),
                 status: RwLock::new(Status {
                     profile: name.clone(),
@@ -166,31 +180,8 @@ impl Shared {
             .iter()
             .map(crate::config::LiveSourceConfig::analysis_source)
             .collect();
-        let mut rule_info: Vec<RuleInfo> = rules
-            .sigma
-            .requirements()
-            .iter()
-            .map(|r| RuleInfo::new("sigma", r))
-            .collect();
-        if let Some(wazuh) = &rules.wazuh {
-            rule_info.extend(
-                wazuh
-                    .requirements()
-                    .iter()
-                    .map(|r| RuleInfo::new("wazuh", r)),
-            );
-        }
-        if let Some(sentinel) = &rules.sentinel {
-            rule_info.extend(
-                sentinel
-                    .rules
-                    .requirements()
-                    .iter()
-                    .map(|r| RuleInfo::new("sentinel", r)),
-            );
-        }
         Ok(Self {
-            rule_info,
+            rule_info: rule_info(&rules),
             control_token,
             windows: Mutex::new(Windows::new(config.window)),
             profiles,
@@ -368,7 +359,7 @@ impl Shared {
 
     /// The analysis input of a profile: the events with the rules it runs.
     pub(crate) fn input<'a>(&'a self, profile: &Profile, events: &'a [Event]) -> Input<'a> {
-        let sigma = if profile.sigma {
+        let sigma = if profile.runs("sigma") {
             &self.rules.sigma
         } else {
             &self.no_sigma
@@ -377,15 +368,24 @@ impl Shared {
             sources: &self.sources,
             events,
             sigma,
-            wazuh: self.rules.wazuh.as_ref().filter(|_| profile.wazuh),
+            wazuh: self.rules.wazuh.as_ref().filter(|_| profile.runs("wazuh")),
             sentinel: self
                 .rules
                 .sentinel
                 .as_ref()
-                .filter(|_| profile.sentinel)
+                .filter(|_| profile.runs("sentinel"))
                 .map(|s| Sentinel {
                     rules: &s.rules,
                     engine: s.engine.as_deref().map(|e| e as &dyn RuleEngine),
+                }),
+            elastic: self
+                .rules
+                .elastic
+                .as_ref()
+                .filter(|_| profile.runs("elastic"))
+                .map(|e| Elastic {
+                    rules: &e.rules,
+                    engine: e.engine.as_deref().map(|e| e as &dyn RuleEngine),
                 }),
         }
     }
@@ -546,8 +546,32 @@ fn plan_file(profile: &str) -> String {
     format!("plan-{profile}.json")
 }
 
-/// The rule sets a destination can name: Sigma always (it may be empty), Wazuh and Sentinel
-/// when loaded.
+/// What every loaded rule needs, per rule set.
+fn rule_info(rules: &Rules) -> Vec<RuleInfo> {
+    let sets = [
+        ("sigma", Some(rules.sigma.requirements())),
+        ("wazuh", rules.wazuh.as_ref().map(WazuhRules::requirements)),
+        (
+            "sentinel",
+            rules.sentinel.as_ref().map(|s| s.rules.requirements()),
+        ),
+        (
+            "elastic",
+            rules.elastic.as_ref().map(|e| e.rules.requirements()),
+        ),
+    ];
+    sets.into_iter()
+        .flat_map(|(set, requirements)| {
+            requirements
+                .unwrap_or_default()
+                .iter()
+                .map(move |r| RuleInfo::new(set, r))
+        })
+        .collect()
+}
+
+/// The rule sets a destination can name: Sigma always (it may be empty), Wazuh, Sentinel and
+/// Elastic when loaded.
 fn loaded(rules: &Rules) -> Vec<&'static str> {
     let mut loaded = vec!["sigma"];
     if rules.wazuh.is_some() {
@@ -555,6 +579,9 @@ fn loaded(rules: &Rules) -> Vec<&'static str> {
     }
     if rules.sentinel.is_some() {
         loaded.push("sentinel");
+    }
+    if rules.elastic.is_some() {
+        loaded.push("elastic");
     }
     loaded
 }

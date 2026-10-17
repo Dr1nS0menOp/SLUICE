@@ -117,6 +117,7 @@ fn any_proposals_yield_an_alert_preserving_data_plane() {
                 sigma: rules(),
                 wazuh: None,
                 sentinel: None,
+                elastic: None,
             };
             let analysis = analyze_proposals(
                 input,

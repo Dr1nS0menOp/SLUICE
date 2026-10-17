@@ -17,7 +17,7 @@ pub(crate) enum Command {
     /// Run the autopilot on generated sample data with example rules.
     Demo(DemoArgs),
     /// Run the autopilot on your own sample and rules.
-    Analyze(AnalyzeArgs),
+    Analyze(Box<AnalyzeArgs>),
     /// List the built-in community recipes, print their JSON Schema, or export them to edit.
     Recipes(RecipesArgs),
     /// Inspect detection rules as Sluice understands them.
@@ -194,6 +194,10 @@ pub(crate) enum RulesCommand {
         /// searched recursively, such as a clone of Azure/Azure-Sentinel.
         #[arg(long)]
         sentinel_rules: Option<PathBuf>,
+        /// Directory of Elastic Security detection rules (Kibana's export, `*.ndjson` or
+        /// `*.json`, or the prebuilt rules package), searched recursively.
+        #[arg(long)]
+        elastic_rules: Option<PathBuf>,
     },
     /// Read the rules a SIEM runs from its API (read-only) into a directory, with an
     /// `inventory.json` that marks them complete (ADR 0021). Fetching again replaces it.
@@ -335,6 +339,10 @@ pub(crate) struct UpArgs {
     /// still constrain every cut, but the proof covers the other rule sets only.
     #[arg(long, requires = "sentinel_rules")]
     pub(crate) kusto: Option<String>,
+    /// Directory of Elastic Security detection rules (Kibana's export or the prebuilt rules
+    /// package), for destinations whose `sluice_rules` name `elastic` (ADR 0025).
+    #[arg(long)]
+    pub(crate) elastic_rules: Option<PathBuf>,
     /// The rule sets given are every rule and query their SIEMs run, so profiles may summarize
     /// (L2, L3). Sets fetched with `sluice rules fetch` count as complete without it (ADR 0021).
     #[arg(long)]
@@ -411,6 +419,11 @@ pub(crate) struct AnalyzeArgs {
     /// `windows-security=SecurityEvent`). Repeatable.
     #[arg(long, value_name = "SOURCE=TABLE", requires = "kusto")]
     pub(crate) sentinel_table: Vec<String>,
+    /// Directory of Elastic Security detection rules: Kibana's export (`_export` NDJSON or
+    /// `_find` JSON) or Elastic's prebuilt rules package (ADR 0025). Their requirements
+    /// constrain every cut.
+    #[arg(long)]
+    pub(crate) elastic_rules: Option<PathBuf>,
     /// Also prove, per `--sentinel-table` source, a data collection rule transformation that
     /// makes the plan's field removals in Sentinel's own ingestion, in the emulator (ADR 0013).
     /// Needs a sample read from the table, where empty and missing columns are the same.

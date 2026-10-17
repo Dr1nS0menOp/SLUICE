@@ -105,6 +105,10 @@ impl Report {
             rules.push(("Sentinel".to_owned(), sentinel.rules.requirements().len()));
             requirements.extend(sentinel.rules.requirements());
         }
+        if let Some(elastic) = input.elastic {
+            rules.push(("Elastic".to_owned(), elastic.rules.requirements().len()));
+            requirements.extend(elastic.rules.requirements());
+        }
         Self {
             total: proof.total,
             alerts_full: proof.full_alerts.len(),

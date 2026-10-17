@@ -125,6 +125,7 @@ fn analyze_with(
             sigma: rules,
             wazuh: None,
             sentinel: None,
+            elastic: None,
         },
         discovery,
         proposals,

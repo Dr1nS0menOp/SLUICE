@@ -60,6 +60,7 @@ fn recipes_are_shadowed_then_enforced_and_keep_holding() {
             sigma: &rules,
             wazuh: None,
             sentinel: None,
+            elastic: None,
         };
         let now = Timestamp(1_791_619_200 + hour * 3_600);
         let result = cycle(
@@ -115,6 +116,7 @@ fn recipes_are_shadowed_then_enforced_and_keep_holding() {
         sigma: &rules,
         wazuh: None,
         sentinel: None,
+        elastic: None,
     };
     let before = lifecycle.enforced();
     let result = cycle(
