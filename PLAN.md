@@ -749,8 +749,9 @@ safety first. Each fix starts with a failing test named after the contract rule:
    named `_CL` table's `Always` into the shaped-table markers (`sentinel/mod.rs`). A resolved
    function over `X_CL` only is dropped (`functions.rs`). Plan: `reads_every_table`; always
    merge callees; build the table list in one place.
-3. **Values matched by meaning.** A CIDR value (`10.0.0.0/8`) in Elastic KQL and in SPL becomes
-   a text test. It must widen to `exists`, as Sigma's `|cidr` already does.
+3. **Values matched by meaning.** Done for networks: a CIDR value (`10.0.0.0/8`) in Elastic KQL
+   and in SPL widens to `exists`. Open: KQL numbers (`4.0` against a stored `4`) and SPL
+   `CASE()`/`TERM()` in field values.
 4. **Wazuh decoded fields on text lines.** Field tests on decoder outputs (`srcip`, `user`) are
    compared with text templates as if the fields existed. Plan: `Predicate::on_text_line()`
    (field tests become `Always`) for rules that may see text lines.

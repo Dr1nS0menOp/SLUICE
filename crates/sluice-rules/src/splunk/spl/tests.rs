@@ -220,3 +220,11 @@ fn every_command_that_parses_the_raw_event_reads_it() {
     }
     assert!(!read("a=1 | eval b=c").raw);
 }
+
+#[test]
+fn c3_a_network_matches_every_address_in_it() {
+    assert_eq!(
+        matches(&FieldPath::new("src"), "10.0.0.0/8"),
+        test("src", MatchOp::Exists, &[])
+    );
+}

@@ -212,3 +212,15 @@ fn broken_queries_are_errors() {
     }
     assert!(read("").unwrap().prefilter.is_always());
 }
+
+#[test]
+fn c3_a_network_matches_every_address_in_it() {
+    let field = FieldPath::new("source.ip");
+    let network = Literal {
+        text: "10.0.0.0/8".into(),
+        quoted: false,
+        wildcard: false,
+    };
+    assert_eq!(value(Some(&field), &network), exists(field.clone()));
+    assert_eq!(value(None, &network), Predicate::Always);
+}

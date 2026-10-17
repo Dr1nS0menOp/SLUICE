@@ -22,3 +22,24 @@ pub use crate::sentinel::SentinelRules;
 pub use crate::sigma::{SigmaEngine, SigmaPipeline, SigmaRules};
 pub use crate::splunk::SplunkRules;
 pub use crate::wazuh::WazuhRules;
+
+/// Whether `value` names a network, such as `10.0.0.0/8` or `fe80::/10`. Elasticsearch and
+/// Splunk match an address against it by membership (`10.1.2.3` holds no `8`), which no test
+/// of the value's text describes: a pre-filter widens it to the field having a value.
+pub(crate) fn is_cidr(value: &str) -> bool {
+    value.split_once('/').is_some_and(|(address, bits)| {
+        address.parse::<std::net::IpAddr>().is_ok() && bits.parse::<u8>().is_ok()
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn networks_are_told_from_paths_and_dates() {
+        assert!(super::is_cidr("10.0.0.0/8"));
+        assert!(super::is_cidr("fe80::/10"));
+        assert!(!super::is_cidr("/usr/bin"));
+        assert!(!super::is_cidr("10/8"));
+        assert!(!super::is_cidr("10.0.0.0"));
+    }
+}

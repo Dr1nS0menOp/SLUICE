@@ -555,6 +555,9 @@ fn matches(field: &FieldPath, value: &str) -> Predicate {
             case_sensitive: false,
         })
     };
+    if crate::is_cidr(value) {
+        return test(MatchOp::Exists, Vec::new());
+    }
     if let Some(digits) = number(value) {
         // A number written with an exponent (`4.624e3`) holds no such digits.
         return test(MatchOp::Contains, vec![digits, "e".to_owned()]);

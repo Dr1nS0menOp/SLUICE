@@ -425,6 +425,9 @@ fn value(field: Option<&FieldPath>, value: &Literal) -> Predicate {
     if !value.text.is_ascii() {
         return Predicate::Always;
     }
+    if crate::is_cidr(&value.text) {
+        return field.map_or(Predicate::Always, |f| exists(f.clone()));
+    }
     // A word holds all of its alphanumeric runs: the analyzer keeps `cmd.exe` one token, and a
     // keyword is the whole value.
     let word = |word: &str| -> Option<Predicate> {

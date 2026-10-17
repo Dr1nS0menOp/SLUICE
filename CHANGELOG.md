@@ -49,6 +49,9 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
   discovery marks as text on a JSON record. Its raw text is the whole serialized record, so a
   term can match any value: such a rule now protects every field of a JSON record, on the
   events its pre-filter may match.
+- A network value (`source.ip: 10.0.0.0/8` in Elastic KQL, `src=10.0.0.0/8` in SPL) was read as
+  text, while both engines match addresses in the network: it now widens to the field having a
+  value.
 - `sluice rules fetch elastic|splunk` without credentials names both ways to give them.
 - **Breaking:** `sluice prove --profile` and the Action's `profile` input are gone; rule profiles
   were a `sluice up` setting.
