@@ -3,8 +3,8 @@
 //!
 //! Each evaluation loads the events into a fresh index and runs every rule on it: EQL with
 //! `_eql/search` (an alert per event, a sequence's on its last event), ES|QL with `_query` on the
-//! index instead of its `FROM` (an alert per result row, by content). KQL needs Kibana's
-//! translation and is left to the rules' requirements.
+//! index instead of its `FROM` (an alert per result row, by content), and KQL or Lucene as the
+//! query Kibana builds from it with `_search` (an alert per document).
 //!
 //! The index maps every scalar as `keyword` (ECS maps most strings so; numbers here too, so that
 //! sources sharing the index can disagree on a field's type), and maps every field the rules name
@@ -32,6 +32,14 @@ pub enum RuleQuery {
     Eql(String),
     /// ES|QL; its `FROM` is replaced by the proof's index.
     Esql(String),
+    /// A query for `_search`, as Kibana builds one from KQL or Lucene: an alert per matching
+    /// document, with the values of `keys` (what a threshold or new-terms rule groups by).
+    Search {
+        /// The Elasticsearch query.
+        query: Value,
+        /// Fields whose values are part of an alert.
+        keys: Vec<FieldPath>,
+    },
 }
 
 /// Most hits one EQL query may return before the comparison would be incomplete.
@@ -177,8 +185,67 @@ impl ElasticEngine {
                 )?;
                 Ok(esql_alerts(rule, &answer))
             }
+            RuleQuery::Search { query, keys } => {
+                let answer = self.client.call(
+                    "POST",
+                    &format!("{index}/_search"),
+                    &json!({ "query": query, "size": MAX_HITS }).to_string(),
+                )?;
+                search_alerts(rule, &answer, keys)
+            }
         }
     }
+}
+
+/// An alert per hit; with `keys`, one per hit and its values of them, so that a document whose
+/// group changes alerts differently.
+fn search_alerts(
+    rule: &RuleId,
+    answer: &Value,
+    keys: &[FieldPath],
+) -> Result<Vec<Alert>, ElasticError> {
+    let hits: Vec<&Value> = answer["hits"]["hits"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .collect();
+    if hits.len() >= MAX_HITS {
+        return Err(ElasticError::Response(format!(
+            "{rule}: {MAX_HITS} hits or more, too many to compare"
+        )));
+    }
+    hits.into_iter()
+        .map(|hit| {
+            let id: u64 = hit["_id"]
+                .as_str()
+                .and_then(|id| id.parse().ok())
+                .ok_or_else(|| {
+                    ElasticError::Response(format!("a hit without an event id: {hit}"))
+                })?;
+            if keys.is_empty() {
+                return Ok(Alert {
+                    rule: rule.clone(),
+                    event: EventId(id),
+                });
+            }
+            let values: Vec<String> = keys
+                .iter()
+                .map(|key| {
+                    key.segments()
+                        .try_fold(&hit["_source"], |v, s| v.get(s))
+                        .map_or_else(String::new, Value::to_string)
+                })
+                .collect();
+            Ok(Alert {
+                rule: rule.clone(),
+                event: EventId(fnv1a(&[
+                    rule.as_str(),
+                    &id.to_string(),
+                    &values.join("\u{1f}"),
+                ])),
+            })
+        })
+        .collect()
 }
 
 impl RuleEngine for ElasticEngine {

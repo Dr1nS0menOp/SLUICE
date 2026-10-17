@@ -660,9 +660,9 @@ planned when it starts; it includes at least:
 
   Status 2026-10-17 (ADR 0025): Elastic's own detection rules are requirements: KQL and EQL
   parsed for fields and a superset pre-filter, ES|QL and Lucene read broadly, scoped by index
-  patterns; all 2,165 prebuilt rules that run are read. The proof runs the EQL and ES|QL rules
-  in Elasticsearch (`--elasticsearch`; 1,189 of 1,304 run there). Open: KQL rules in the proof
-  (Kibana translates them), and a real ECS sample to measure on.
+  patterns; all 2,165 prebuilt rules that run are read. The proof runs them in Elasticsearch
+  (`--elasticsearch`; EQL, ES|QL, and KQL as Kibana's query: 1,944 of 2,059 run there). Open: a
+  real ECS sample to measure on.
 - Requirements extractors and, where an engine can run offline, proofs for each SIEM's own rule
   language, in this order (decided 2026-10-14): Elastic first (KQL, EQL, ES|QL, detection
   rules; OpenSearch and the SIEMs built on it follow), then Splunk SPL (correlation searches),

@@ -219,7 +219,8 @@ explains the terms.
   ECS fields each rule names and a superset pre-filter from its KQL or EQL, scoped by its index
   patterns. ES|QL, Lucene and machine learning rules are read broadly; only enabled, current
   versions count. Destinations can name `elastic` in `sluice_rules`. With `--elasticsearch
-  URL` the proof runs the EQL and ES|QL rules themselves in Elasticsearch, on full and on
+  URL` the proof runs the rules themselves in Elasticsearch (EQL, ES|QL, and KQL and Lucene as
+  the query Kibana builds), on full and on
   forwarded documents; `--elastic-native` (now a switch) proves its pipelines there.
 - `sluice up` proposals carry the savings plan too: `plan-<profile>.json` per rule profile,
   exactly what the proposal enforces, named in `proposal.json`.

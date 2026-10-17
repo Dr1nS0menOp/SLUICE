@@ -191,9 +191,8 @@ pub(crate) fn elastic(dir: Option<&Path>) -> Result<Option<sluice_rules::Elastic
     Ok(Some(rules))
 }
 
-/// Elasticsearch at `url`, running the EQL and ES|QL rules of `rules` on an index that maps
-/// every field they name (ADR 0025). KQL and Lucene rules need Kibana and are covered by their
-/// requirements only.
+/// Elasticsearch at `url`, running the rules of `rules` on an index that maps every field they
+/// name (ADR 0025): EQL and ES|QL as they are, KQL as the query Kibana builds from it.
 pub(crate) fn elasticsearch(
     url: &str,
     rules: &sluice_rules::ElasticRules,
@@ -202,13 +201,16 @@ pub(crate) fn elasticsearch(
     let queries: Vec<(sluice_core::ids::RuleId, sluice_elastic::RuleQuery)> = rules
         .queries()
         .iter()
-        .filter_map(|(id, query)| {
+        .map(|(id, query)| {
             let query = match query {
                 ElasticQuery::Eql(q) => sluice_elastic::RuleQuery::Eql(q.clone()),
                 ElasticQuery::Esql(q) => sluice_elastic::RuleQuery::Esql(q.clone()),
-                ElasticQuery::Kql(_) | ElasticQuery::Lucene(_) => return None,
+                ElasticQuery::Search { query, keys } => sluice_elastic::RuleQuery::Search {
+                    query: query.clone(),
+                    keys: keys.clone(),
+                },
             };
-            Some((id.clone(), query))
+            (id.clone(), query)
         })
         .collect();
     let fields: std::collections::BTreeSet<sluice_core::field::FieldPath> = rules
@@ -223,11 +225,10 @@ pub(crate) fn elasticsearch(
     let engine = sluice_elastic::ElasticEngine::connect(url, &queries, &fields)
         .with_context(|| format!("connecting to Elasticsearch at {url}"))?;
     eprintln!(
-        "Elastic: {} rules run in Elasticsearch, {} refused there and {} in KQL or Lucene are \
-         covered by their requirements only",
+        "Elastic: {} rules run in Elasticsearch; {} refused there are covered by their \
+         requirements only",
         engine.rules().count(),
         engine.skipped().len(),
-        rules.queries().len() - queries.len()
     );
     let mut reasons: std::collections::BTreeMap<&str, (usize, &str)> =
         std::collections::BTreeMap::new();

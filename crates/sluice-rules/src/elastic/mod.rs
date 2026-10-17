@@ -42,13 +42,17 @@ pub struct ElasticRules {
     problems: Vec<String>,
 }
 
-/// A rule's query, in the language Elasticsearch runs it in.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A rule's query, as Elasticsearch runs it.
+#[derive(Debug, Clone, PartialEq)]
 pub enum ElasticQuery {
-    /// KQL (`kuery`), translated by Kibana before Elasticsearch runs it.
-    Kql(String),
-    /// Lucene query string syntax.
-    Lucene(String),
+    /// KQL or Lucene, as the query Kibana gives `_search`: an alert per matching document. A
+    /// threshold or new-terms rule alerts on the values of `keys` too, the fields it groups by.
+    Search {
+        /// The Elasticsearch query.
+        query: Value,
+        /// Fields whose values are part of an alert.
+        keys: Vec<FieldPath>,
+    },
     /// EQL, run by `_eql/search`.
     Eql(String),
     /// ES|QL, run by `_query`.
@@ -196,14 +200,25 @@ impl ElasticRules {
             }),
             ("esql", Some(q)) => Ok(names_only(q, ElasticQuery::Esql(q.to_owned()), true)),
             (_, Some(q)) if language == "lucene" => {
-                Ok(names_only(q, ElasticQuery::Lucene(q.to_owned()), false))
+                let mut read = names_only(q, ElasticQuery::Esql(String::new()), false);
+                // Lucene is not parsed, so a term without a field, which searches every field,
+                // cannot be told apart. Kibana gives it to Elasticsearch as a query string.
+                read.any_field = Some("a Lucene query, which Sluice does not parse");
+                read.query = ElasticQuery::Search {
+                    query: serde_json::json!({ "query_string": { "query": q, "lenient": true } }),
+                    keys: Vec::new(),
+                };
+                Ok(read)
             }
             (_, Some(q)) => kql::read(q).map(|r| Read {
                 fields: r.fields,
                 any_field: r.any_field,
                 prefilter: r.prefilter,
                 stateful: false,
-                query: ElasticQuery::Kql(q.to_owned()),
+                query: ElasticQuery::Search {
+                    query: r.dsl,
+                    keys: Vec::new(),
+                },
             }),
         };
         let mut patterns: Vec<String> = item
@@ -222,8 +237,12 @@ impl ElasticRules {
         let scopes = index::scopes(patterns.iter().map(String::as_str));
         match read {
             Ok(mut read) => {
-                read.fields.extend(grouped(item));
+                let groups = grouped(item);
+                read.fields.extend(groups.iter().cloned());
                 read.stateful |= matches!(kind, "threshold" | "new_terms");
+                if let ElasticQuery::Search { keys, .. } = &mut read.query {
+                    keys.clone_from(&groups);
+                }
                 for scope in scopes {
                     let mut requirement = requirement(rule.clone(), &read);
                     requirement.logsource = scope;
@@ -377,11 +396,6 @@ fn names_only(query: &str, kind: ElasticQuery, stateful: bool) -> Read {
         i += 1;
     }
     names.end_word(None);
-    // Lucene is not parsed, so a term without a field, which searches every field, cannot be
-    // told apart.
-    if matches!(kind, ElasticQuery::Lucene(_)) {
-        names.any_field = Some("a Lucene query, which Sluice does not parse");
-    }
     Read {
         fields: names.fields,
         any_field: names.any_field,

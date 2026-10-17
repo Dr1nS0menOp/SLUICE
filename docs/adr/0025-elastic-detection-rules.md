@@ -44,13 +44,18 @@ only).
 6. **The proof runs the rules in Elasticsearch** (`sluice_elastic::ElasticEngine`,
    `--elasticsearch URL` for `analyze` and `up`): each evaluation loads the events into a fresh
    index and runs every EQL rule (`_eql/search`; an alert per event, a sequence's on its last
-   event) and ES|QL rule (`_query` with its `FROM` replaced; an alert per row, by content). The
+   event) and ES|QL rule (`_query` with its `FROM` replaced; an alert per row, by content), and
+   every KQL and Lucene rule as the query Kibana builds from it (`_search`; `match`,
+   `match_phrase`, `query_string` for wildcards, `exists`, `range`, `bool`; Lucene as a
+   `query_string`), an alert per document, with the values of the fields a `threshold` or
+   `new_terms` rule groups by. The
    index maps every scalar as `keyword`, and every field the rules name as ECS would (`*.ip` as
    `ip`, `keyword` with its `caseless` and `text` multi-fields), so a query is not refused for a
    field no event carries. Rules Elasticsearch refuses even so are set aside when the engine is
-   built and covered by their requirements, as are KQL and Lucene rules, which Kibana translates
-   before Elasticsearch runs them. With `--elastic-native`, the pipelines are proven with these
-   rules too.
+   built and covered by their requirements. A threshold or new-terms rule is compared per
+   matching document and group, which is stricter than its count over the group: what keeps
+   the documents and groups keeps the counts. With `--elastic-native`, the pipelines are proven
+   with these rules too.
 
 ## Consequences
 
@@ -61,9 +66,10 @@ only).
   `SLUICE_ELASTIC_RULES` points at the package.
 - One rule that may read any field and applies everywhere blocks every saving on ECS data:
   fail closed, and listed in the report.
-- Of the prebuilt rules, 1,189 of the 1,304 in EQL and ES|QL run in Elasticsearch 9.1.0 for
-  the proof (docs/notes/elasticsearch.md); the 755 in KQL do not. The proof index approximates
-  a real one: numbers are `keyword`, so a numeric comparison is on text, the same for full and
-  reduced documents.
+- Of the 2,059 prebuilt rules other than machine learning, 1,944 run in Elasticsearch 9.1.0
+  for the proof (docs/notes/elasticsearch.md). The proof index approximates a real one: numbers
+  are `keyword`, so a numeric comparison is on text, the same for full and reduced documents;
+  a `text` field of ECS (`message`) is a `keyword` here, so a KQL value on it must be the whole
+  value instead of a word of it; nested queries run on full paths.
 - The rules' licence (Elastic License 2.0) keeps them out of the repository; they are read from
   the user's export or cache.

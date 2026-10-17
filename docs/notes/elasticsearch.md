@@ -55,10 +55,10 @@ installed pipeline. ADR 0024 uses these facts.
 - EQL returns sequences under `hits.sequences[].events`, with each event's `_id`; ES|QL
   returns `columns` and `values`.
 - The prebuilt rules package 9.5.8 uses ES|QL functions 9.1.0 does not have (`mv_contains`).
-- With the prebuilt rules (no machine learning) on the demo sample: of 1,304 EQL and ES|QL
-  rules, 1,189 run and 115 are refused (34 numeric comparisons on `keyword`, 30 unknown
-  functions, 16 numeric `in` lists, …); 755 are KQL or Lucene, which Elasticsearch does not
-  run itself. An analysis then takes 44 s, most of it running the rules twice per round.
+- With the prebuilt rules (no machine learning) on the demo sample: of 2,059 rules, 1,944 run
+  (EQL, ES|QL, and KQL as the query Sluice builds from it as Kibana does) and 115 are refused,
+  all ES|QL or EQL (34 numeric comparisons on `keyword`, 30 unknown functions, 16 numeric `in`
+  lists, …). An analysis then takes 47 s, most of it running the rules twice per round.
 
 ## Deploying
 

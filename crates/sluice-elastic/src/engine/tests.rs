@@ -131,6 +131,16 @@ fn c5_in_elasticsearch_a_removed_field_a_rule_reads_changes_its_alerts() {
             ),
         ),
         (
+            RuleId::new("elastic:kql"),
+            RuleQuery::Search {
+                query: json!({"bool": {"filter": [
+                    {"match": {"process.name": {"query": "cmd.exe", "lenient": true}}},
+                    {"exists": {"field": "user.name"}},
+                ]}}),
+                keys: vec!["host.id".into()],
+            },
+        ),
+        (
             RuleId::new("elastic:broken"),
             RuleQuery::Eql("process where length(process.name, 1, 2) == 3".into()),
         ),
@@ -140,7 +150,7 @@ fn c5_in_elasticsearch_a_removed_field_a_rule_reads_changes_its_alerts() {
         .map(FieldPath::from)
         .collect();
     let engine = ElasticEngine::connect(&url, &rules, &fields).expect("connects");
-    assert_eq!(engine.rules().count(), 3, "{:?}", engine.skipped());
+    assert_eq!(engine.rules().count(), 4, "{:?}", engine.skipped());
     assert_eq!(engine.skipped().len(), 1, "{:?}", engine.skipped());
 
     let full = [
@@ -158,7 +168,7 @@ fn c5_in_elasticsearch_a_removed_field_a_rule_reads_changes_its_alerts() {
     let rules_fired: BTreeSet<&str> = full_alerts.iter().map(|a| a.rule.as_str()).collect();
     assert_eq!(
         rules_fired,
-        ["elastic:eql", "elastic:esql", "elastic:seq"].into()
+        ["elastic:eql", "elastic:esql", "elastic:kql", "elastic:seq"].into()
     );
 
     // Without a field no rule reads, the alerts are the same.
@@ -172,4 +182,19 @@ fn c5_in_elasticsearch_a_removed_field_a_rule_reads_changes_its_alerts() {
     let lost_alerts = engine.alerts(&lost).expect("runs");
     assert_ne!(lost_alerts, full_alerts);
     assert!(!lost_alerts.iter().any(|a| a.rule.as_str() == "elastic:eql"));
+    assert!(!lost_alerts.iter().any(|a| a.rule.as_str() == "elastic:kql"));
+
+    // A changed group (`host.id` of a threshold rule) is a different alert.
+    let mut regrouped = full.clone();
+    regrouped[0].fields["host"] = json!({"id": "h2"});
+    let regrouped_alerts = engine.alerts(&regrouped).expect("runs");
+    let kql = |alerts: &BTreeSet<Alert>| -> Vec<Alert> {
+        alerts
+            .iter()
+            .filter(|a| a.rule.as_str() == "elastic:kql")
+            .cloned()
+            .collect()
+    };
+    assert_eq!(kql(&regrouped_alerts).len(), 1);
+    assert_ne!(kql(&regrouped_alerts), kql(&full_alerts));
 }
