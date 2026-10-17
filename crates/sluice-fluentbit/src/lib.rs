@@ -44,3 +44,18 @@ pub fn filter_section(tag: &str, script_path: &str) -> String {
          {script_path}\n    Call            {CALL}\n    enable_flb_null true\n"
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_filter_section_runs_the_script_with_nulls_kept() {
+        let section = filter_section("windows.*", "/etc/fluent-bit/windows.lua");
+        assert!(section.starts_with("[FILTER]\n"));
+        assert!(section.contains("Match           windows.*"));
+        assert!(section.contains("Call            sluice"));
+        assert!(section.contains("enable_flb_null true"));
+        assert!(functions().contains("local function sluice_keys"));
+    }
+}

@@ -154,3 +154,27 @@ impl Drop for Scratch {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_command_that_is_not_there_is_an_error() {
+        let record = Map::new();
+        let result = FluentBit::new("/nonexistent/fluent-bit").run(None, &[&record]);
+        assert!(matches!(result, Err(FluentBitError::Run(_))), "{result:?}");
+    }
+
+    #[test]
+    fn a_command_that_fails_or_forwards_nothing_is_an_error() {
+        let record = Map::new();
+        // `false` exits with an error; `true` exits fine without forwarding a record.
+        assert!(FluentBit::new("false").run(None, &[&record]).is_err());
+        let silent = FluentBit::new("true").run(None, &[&record]);
+        assert!(
+            matches!(silent, Err(FluentBitError::Output(_))),
+            "{silent:?}"
+        );
+    }
+}

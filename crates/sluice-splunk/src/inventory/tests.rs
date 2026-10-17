@@ -110,3 +110,133 @@ fn base64_as_basic_authorization_needs_it() {
     assert_eq!(base64("admin:changeme"), "YWRtaW46Y2hhbmdlbWU=");
     assert_eq!(base64("ab"), "YWI=");
 }
+
+/// A Splunk that answers each GET with `answer(path and query, authorization)`.
+fn splunk(answer: fn(&str, &str) -> (u16, String)) -> String {
+    use std::io::{BufRead, BufReader, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let url = format!("http://{}", listener.local_addr().expect("bound"));
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { break };
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                continue;
+            }
+            let target = line
+                .split_whitespace()
+                .nth(1)
+                .unwrap_or_default()
+                .to_owned();
+            let mut authorization = String::new();
+            loop {
+                let mut header = String::new();
+                if reader.read_line(&mut header).unwrap_or(0) == 0 || header.trim().is_empty() {
+                    break;
+                }
+                if let Some((name, value)) = header.trim_end().split_once(':')
+                    && name.eq_ignore_ascii_case("authorization")
+                {
+                    value.trim().clone_into(&mut authorization);
+                }
+            }
+            let (status, body) = answer(&target, &authorization);
+            let response = format!(
+                "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = reader.get_mut().write_all(response.as_bytes());
+        }
+    });
+    url
+}
+
+/// One page of three searches and one macro, for the token `t` only.
+fn answers(target: &str, authorization: &str) -> (u16, String) {
+    if authorization != "Bearer t" {
+        return (
+            401,
+            r#"{"messages":[{"text":"call not properly authenticated"}]}"#.to_owned(),
+        );
+    }
+    assert!(target.contains("output_mode=json"), "{target}");
+    let (entries, total) = if target.contains("saved/searches") {
+        let offset: usize = target
+            .split("offset=")
+            .nth(1)
+            .and_then(|o| o.split('&').next())
+            .and_then(|o| o.parse().ok())
+            .unwrap_or(0);
+        let all: Vec<Value> = (0..3)
+            .map(|i| {
+                entry(
+                    &format!("s{i}"),
+                    &json!({"search": "a=1", "is_scheduled": true}),
+                )
+            })
+            .collect();
+        (all.into_iter().skip(offset).take(2).collect::<Vec<_>>(), 3)
+    } else if target.contains("admin/macros") {
+        (vec![entry("m", &json!({"definition": "index=x"}))], 1)
+    } else {
+        (Vec::new(), 0)
+    };
+    (
+        200,
+        json!({"paging": {"total": total}, "entry": entries}).to_string(),
+    )
+}
+
+#[test]
+fn a_fetch_reads_every_page_over_http_with_the_token() {
+    let url = splunk(answers);
+    let auth = Auth::Token("t".into());
+    let target = Target {
+        url: &url,
+        auth: &auth,
+        insecure: false,
+    };
+    let inventory = fetch(&target, "2026-10-17T00:00:00Z").expect("fetches");
+    assert!(inventory.manifest.complete);
+    assert_eq!(inventory.manifest.counts["searches"], 3);
+    assert_eq!(inventory.manifest.counts["macros"], 1);
+    assert_eq!(inventory.manifest.from, url);
+}
+
+#[test]
+fn a_refused_or_unreachable_splunk_is_an_error() {
+    let url = splunk(answers);
+    let wrong = Auth::Basic {
+        user: "u".into(),
+        password: "p".into(),
+    };
+    let refused = fetch(
+        &Target {
+            url: &url,
+            auth: &wrong,
+            insecure: true,
+        },
+        "t",
+    );
+    assert!(
+        matches!(refused, Err(SplunkError::Rejected { status: 401, .. })),
+        "{refused:?}"
+    );
+    let closed = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
+        format!("http://{}", listener.local_addr().expect("bound"))
+    };
+    let unreachable = fetch(
+        &Target {
+            url: &closed,
+            auth: &Auth::Token("t".into()),
+            insecure: false,
+        },
+        "t",
+    );
+    assert!(
+        matches!(unreachable, Err(SplunkError::Unreachable { .. })),
+        "{unreachable:?}"
+    );
+}

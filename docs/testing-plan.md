@@ -192,6 +192,16 @@ the tests it led to:
 | sluice-ai | 78.6 % | 93.3 % | 70 % |
 | sluice-cli | 55.1 % | 72.2 % | 70 % |
 | sluice-synth | 100 % | 100 % | 70 % |
+| sluice-elastic (2026-10-17) | 88.4 % | 88.4 % | 85 % |
+| sluice-splunk (2026-10-17) | 63.7 % | 96.8 % | 85 % |
+| sluice-fluentbit (2026-10-17) | 93.0 % | 95.2 % | 85 % |
+| sluice-otel (2026-10-17) | 95.9 % | 95.9 % | 85 % |
+
+sluice-rules with its Elastic and Splunk extractors: 95.6 % (2026-10-17). The engine-backed
+tests count only with their engines set (`SLUICE_ELASTIC_URL`, `SLUICE_KUSTO_URL`,
+`SLUICE_FLUENT_BIT`, `SLUICE_OTEL_COLLECTOR`, as the `*-check.sh` scripts set them). Run
+`cargo llvm-cov clean --workspace` before measuring: profile data of earlier builds stays behind
+and counts their copies of the code as not run (it showed `sentinel/extract.rs` at 50 %).
 
 What stays uncovered is mostly process wiring: `sluice-server/src/lib.rs` (the serve loop and
 Vector's process), `sluice-cli/src/live.rs` (`sluice up`), and the network half of `sluice rules
