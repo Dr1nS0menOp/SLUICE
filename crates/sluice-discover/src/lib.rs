@@ -10,8 +10,7 @@
 //!   to the program name), masked for numbers and hex identifiers, and split at the positions
 //!   where only a few words alternate (`categorical.rs`), so `Accepted` and `Failed` stay apart.
 //!
-//! Discovery is online: [`Discoverer::observe`] takes one event at a time, so the live control
-//! plane can use the same code as the offline analysis.
+//! Discovery is online: [`Discoverer::observe`] takes one event at a time.
 
 mod categorical;
 mod drain;

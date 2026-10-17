@@ -20,7 +20,6 @@ use sluice_core::template::{Template, TemplateShape};
 
 use crate::analyze::Analysis;
 use crate::basis::RulesBasis;
-use crate::live::Cycle;
 use crate::report::{Report, text};
 
 /// The format of [`SavingsPlan`], changed whenever its meaning changes.
@@ -140,27 +139,6 @@ impl SavingsPlan {
         )
     }
 
-    /// The plan of what a live cycle deploys (`cycle.deployed`, the enforced recipes only), as
-    /// `sluice up` proposes it; `report` (of the cycle's analysis) gives the rule counts.
-    #[must_use]
-    pub fn deployed(cycle: &Cycle, report: &Report, sources: &[Source]) -> Self {
-        let proof = &cycle.deployed.proof;
-        let deployed = Report {
-            total: proof.total,
-            alerts_full: proof.full_alerts.len(),
-            alerts_forwarded: proof.forwarded_alerts.len(),
-            proven: proof.holds(),
-            ..report.clone()
-        };
-        Self::build(
-            &cycle.templates,
-            &cycle.deployed,
-            &cycle.analysis.proposals,
-            &deployed,
-            sources,
-        )
-    }
-
     fn build(
         templates: &[Template],
         selection: &Selection,
@@ -218,8 +196,7 @@ impl SavingsPlan {
     }
 }
 
-/// Where `recipe`'s saving can run; none when it changes nothing.
-/// Where `recipe`'s saving on `template` can run. Only a pipeline tool counts, and only it
+/// Where `recipe`'s saving on `template` can run; none when it changes nothing. Only a pipeline tool counts, and only it
 /// recognises a text template (by a regex over the line): every generator for a SIEM's
 /// ingestion or an agent recognises key sets only.
 pub(crate) fn placements(template: &Template, recipe: &EffectiveRecipe) -> Vec<Placement> {

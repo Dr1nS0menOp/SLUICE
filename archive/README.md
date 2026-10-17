@@ -15,8 +15,9 @@ itself. What is here did:
 | `crates/sluice-mcp` | `sluice mcp`: MCP server over the control plane and the archive |
 | `sluice-cli/src/live.rs`, `archive.rs`, `agent.rs`, `tests/mcp.rs` | The CLI commands `up`, `status`, `mcp`, `search`, `replay` and `agent` |
 | `sluice-vector/src/live.rs`, `connect.rs`, `tests/connect.rs` | The live Vector configuration and the destination blocks of `sluice connect` |
-| `deploy/helm`, `examples/up`, `examples/docker`, `Dockerfile` | Deployments of `sluice up` |
-| `scripts/` | Their checks: Helm, live smoke and load tests, filling a Sentinel workspace through `sluice up` |
+| `sluice-autopilot/src/live.rs`, `lifecycle.rs`, `tests/live.rs` | The live cycle and the shadow, promotion and rollback of recipes `sluice up` ran |
+| `deploy/helm`, `examples/up`, `examples/docker`, `Dockerfile`, `.dockerignore` | Deployments of `sluice up` |
+| `scripts/` | Their checks: Helm, live smoke, replay smoke and load tests, filling a Sentinel workspace through `sluice up`, and the diagrams of the live design (`docs/images`) |
 
 None of it is in the Cargo workspace (`members = ["crates/*"]`), so it is neither built nor
 tested. Its git history is intact (`git log --follow archive/<path>`). To bring a part back, move

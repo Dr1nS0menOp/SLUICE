@@ -1,4 +1,4 @@
-//! Events as seen by the control plane.
+//! Events of a sample, as the analysis reads them.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
