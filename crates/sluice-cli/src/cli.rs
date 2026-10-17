@@ -343,6 +343,10 @@ pub(crate) struct UpArgs {
     /// package), for destinations whose `sluice_rules` name `elastic` (ADR 0025).
     #[arg(long)]
     pub(crate) elastic_rules: Option<PathBuf>,
+    /// An Elasticsearch: the proof then runs the Elastic EQL and ES|QL rules themselves; without
+    /// it, their requirements still constrain every cut.
+    #[arg(long, value_name = "URL", requires = "elastic_rules")]
+    pub(crate) elasticsearch: Option<String>,
     /// The rule sets given are every rule and query their SIEMs run, so profiles may summarize
     /// (L2, L3). Sets fetched with `sluice rules fetch` count as complete without it (ADR 0021).
     #[arg(long)]
@@ -377,14 +381,21 @@ pub(crate) struct DemoArgs {
     /// Seed for the generated sample.
     #[arg(long, default_value_t = 1)]
     pub(crate) seed: u64,
-    /// Also prove and write Elasticsearch ingest pipelines, as `sluice analyze --elastic-native`.
+    /// An Elasticsearch, for `--elastic-native`.
     #[arg(long, value_name = "URL")]
-    pub(crate) elastic_native: Option<String>,
+    pub(crate) elasticsearch: Option<String>,
+    /// Also prove and write Elasticsearch ingest pipelines, as `sluice analyze --elastic-native`.
+    #[arg(long, requires = "elasticsearch")]
+    pub(crate) elastic_native: bool,
     #[command(flatten)]
     pub(crate) ai: AiArgs,
 }
 
 #[derive(Debug, Args)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a command-line switch of its own"
+)]
 pub(crate) struct AnalyzeArgs {
     /// Directory with one `<source-id>.ndjson` file per source.
     #[arg(long)]
@@ -437,12 +448,17 @@ pub(crate) struct AnalyzeArgs {
     /// written.
     #[arg(long, value_name = "FILE", requires = "sentinel_native")]
     pub(crate) sentinel_dcr: Option<PathBuf>,
-    /// Also write, per source, an Elasticsearch ingest pipeline (`elastic/SOURCE.pipeline.json`)
-    /// that makes the plan's field removals in Elastic's own ingestion, after proving it in the
-    /// Elasticsearch at URL (ADR 0024): it removes nothing Vector keeps, and the Sigma rules
-    /// raise the same alerts. Needs documents as the index stores them.
+    /// An Elasticsearch (`scripts/elastic-check.sh` starts one): the proof then runs the
+    /// `--elastic-rules` EQL and ES|QL rules themselves on full and forwarded documents (ADR
+    /// 0025), and `--elastic-native` proves its pipelines there.
     #[arg(long, value_name = "URL")]
-    pub(crate) elastic_native: Option<String>,
+    pub(crate) elasticsearch: Option<String>,
+    /// Also write, per source, an Elasticsearch ingest pipeline (`elastic/SOURCE.pipeline.json`)
+    /// that makes the plan's field removals in Elastic's own ingestion, after proving it in
+    /// `--elasticsearch` (ADR 0024): it removes nothing Vector keeps, and the rules raise the
+    /// same alerts. Needs documents as the index stores them.
+    #[arg(long, requires = "elasticsearch")]
+    pub(crate) elastic_native: bool,
     /// Wazuh manager API (for example `https://wazuh:55000`) to spot-check reductions with its
     /// real decoders and rules through `logtest`. The password is read from
     /// `WAZUH_API_PASSWORD`.

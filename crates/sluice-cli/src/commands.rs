@@ -58,7 +58,10 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
         RulesBasis::SelfContained,
         Vec::new(),
         Native {
-            elastic: args.elastic_native.as_deref(),
+            elastic: args
+                .elasticsearch
+                .as_deref()
+                .filter(|_| args.elastic_native),
             ..Native::default()
         },
     )?;
@@ -92,6 +95,10 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
         (Some(rules), Some(url)) => Some(input::kusto(url, rules, &args.sentinel_table)?),
         _ => None,
     };
+    let elasticsearch = match (&elastic_rules, &args.elasticsearch) {
+        (Some(rules), Some(url)) => Some(input::elasticsearch(url, rules)?),
+        _ => None,
+    };
     let basis = if args.rules_complete {
         RulesBasis::Claimed
     } else if fetched_only(args) {
@@ -118,7 +125,7 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
             }),
             elastic: elastic_rules.as_ref().map(|rules| Elastic {
                 rules,
-                engine: None,
+                engine: elasticsearch.as_ref().map(|e| e as &dyn RuleEngine),
             }),
         },
         &book,
@@ -139,7 +146,10 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
                     specs: &args.sentinel_table,
                     dcr: args.sentinel_dcr.as_deref(),
                 }),
-            elastic: args.elastic_native.as_deref(),
+            elastic: args
+                .elasticsearch
+                .as_deref()
+                .filter(|_| args.elastic_native),
         },
     )
 }
@@ -270,7 +280,7 @@ fn recipe_book(extra: Option<&Path>) -> Result<RecipeBook> {
 #[derive(Default)]
 struct Native<'a> {
     sentinel: Option<SentinelNative<'a>>,
-    /// `--elastic-native`: the Elasticsearch to prove ingest pipelines in.
+    /// `--elastic-native`: the Elasticsearch (`--elasticsearch`) to prove ingest pipelines in.
     elastic: Option<&'a str>,
 }
 

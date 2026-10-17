@@ -191,6 +191,66 @@ pub(crate) fn elastic(dir: Option<&Path>) -> Result<Option<sluice_rules::Elastic
     Ok(Some(rules))
 }
 
+/// Elasticsearch at `url`, running the EQL and ES|QL rules of `rules` on an index that maps
+/// every field they name (ADR 0025). KQL and Lucene rules need Kibana and are covered by their
+/// requirements only.
+pub(crate) fn elasticsearch(
+    url: &str,
+    rules: &sluice_rules::ElasticRules,
+) -> Result<sluice_elastic::ElasticEngine> {
+    use sluice_rules::ElasticQuery;
+    let queries: Vec<(sluice_core::ids::RuleId, sluice_elastic::RuleQuery)> = rules
+        .queries()
+        .iter()
+        .filter_map(|(id, query)| {
+            let query = match query {
+                ElasticQuery::Eql(q) => sluice_elastic::RuleQuery::Eql(q.clone()),
+                ElasticQuery::Esql(q) => sluice_elastic::RuleQuery::Esql(q.clone()),
+                ElasticQuery::Kql(_) | ElasticQuery::Lucene(_) => return None,
+            };
+            Some((id.clone(), query))
+        })
+        .collect();
+    let fields: std::collections::BTreeSet<sluice_core::field::FieldPath> = rules
+        .requirements()
+        .iter()
+        .filter_map(|r| match &r.fields {
+            sluice_core::rules::RequiredFields::Known(fields) => Some(fields.iter().cloned()),
+            sluice_core::rules::RequiredFields::Unknown => None,
+        })
+        .flatten()
+        .collect();
+    let engine = sluice_elastic::ElasticEngine::connect(url, &queries, &fields)
+        .with_context(|| format!("connecting to Elasticsearch at {url}"))?;
+    eprintln!(
+        "Elastic: {} rules run in Elasticsearch, {} refused there and {} in KQL or Lucene are \
+         covered by their requirements only",
+        engine.rules().count(),
+        engine.skipped().len(),
+        rules.queries().len() - queries.len()
+    );
+    let mut reasons: std::collections::BTreeMap<&str, (usize, &str)> =
+        std::collections::BTreeMap::new();
+    for (_, reason) in engine.skipped() {
+        // The reason without its position (`line 2:15: `) and the field or function it names
+        // (`[…]`), so alike ones count together.
+        let text = if reason.starts_with("line ") {
+            reason.splitn(3, ':').nth(2).unwrap_or(reason)
+        } else {
+            reason.as_str()
+        };
+        let kind = text.split('[').next().unwrap_or(text).trim();
+        reasons.entry(kind).or_insert((0, text.trim())).0 += 1;
+    }
+    let mut reasons: Vec<(usize, &str)> = reasons.into_values().collect();
+    reasons.sort_by_key(|(n, _)| std::cmp::Reverse(*n));
+    for (n, example) in reasons.iter().take(3) {
+        let example: String = example.chars().take(140).collect();
+        eprintln!("  {n:>5} refused, such as: {example}");
+    }
+    Ok(engine)
+}
+
 /// The Kusto emulator at `url`, running `rules` on the sources `--sentinel-table` names.
 pub(crate) fn kusto(
     url: &str,

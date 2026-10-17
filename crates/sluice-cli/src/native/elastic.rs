@@ -1,5 +1,6 @@
-//! `sluice analyze --elastic-native URL`: the plan's field removals as an Elasticsearch ingest
-//! pipeline per source (ADR 0024), proven in the Elasticsearch at `URL` with the Sigma rules.
+//! `sluice analyze --elastic-native`: the plan's field removals as an Elasticsearch ingest
+//! pipeline per source (ADR 0024), proven in `--elasticsearch` with the Sigma rules and, where
+//! they run there, Elastic's own (ADR 0025).
 //!
 //! The sample must be documents as the index stores them (`_source`, after any integration
 //! pipeline), because that is what a pipeline run last sees: Sluice's is meant for the
@@ -11,6 +12,7 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 use sluice_autopilot::{Analysis, Input};
+use sluice_core::alert::{Engines, RuleEngine};
 use sluice_core::event::Event;
 use sluice_core::reduce::{Outcome, Reducer};
 use sluice_elastic::{IngestPipeline, PipelinePlan, ingest_pipeline, simulate};
@@ -20,10 +22,14 @@ use super::{list, megabytes, saved, size};
 /// Proves an ingest pipeline for every source whose plan removes fields, and writes each one
 /// that removes something to `out/elastic/SOURCE.pipeline.json`.
 pub(crate) fn elastic(analysis: &Analysis, input: Input<'_>, url: &str, out: &Path) -> Result<()> {
-    let engine = input
+    let sigma = input
         .sigma
         .engine(input.sources)
         .context("compiling the Sigma rules")?;
+    // Elastic's own rules too, where they run in Elasticsearch (ADR 0025).
+    let mut engines: Vec<&dyn RuleEngine> = vec![&sigma];
+    engines.extend(input.elastic.and_then(|e| e.engine));
+    let engine = Engines(engines);
     let mut written = Vec::new();
     for source in input.sources {
         let source = source.id.as_str();

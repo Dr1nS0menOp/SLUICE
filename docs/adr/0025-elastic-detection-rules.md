@@ -1,6 +1,6 @@
 # ADR 0025: Elastic Security detection rules as requirements
 
-- Status: Accepted (requirements done; running the rules in Elasticsearch for the proof open)
+- Status: Accepted
 - Date: 2026-10-17
 
 ## Context
@@ -41,6 +41,16 @@ only).
    `logs-aws.*` is `aws`, `logs-endpoint.*` is `elastic_defend`, …), the rule applies to sources
    of that product only, one requirement per product. A pattern that may hold anything
    (`logs-*`, `filebeat-*`, an integration not listed) makes it apply everywhere.
+6. **The proof runs the rules in Elasticsearch** (`sluice_elastic::ElasticEngine`,
+   `--elasticsearch URL` for `analyze` and `up`): each evaluation loads the events into a fresh
+   index and runs every EQL rule (`_eql/search`; an alert per event, a sequence's on its last
+   event) and ES|QL rule (`_query` with its `FROM` replaced; an alert per row, by content). The
+   index maps every scalar as `keyword`, and every field the rules name as ECS would (`*.ip` as
+   `ip`, `keyword` with its `caseless` and `text` multi-fields), so a query is not refused for a
+   field no event carries. Rules Elasticsearch refuses even so are set aside when the engine is
+   built and covered by their requirements, as are KQL and Lucene rules, which Kibana translates
+   before Elasticsearch runs them. With `--elastic-native`, the pipelines are proven with these
+   rules too.
 
 ## Consequences
 
@@ -51,7 +61,9 @@ only).
   `SLUICE_ELASTIC_RULES` points at the package.
 - One rule that may read any field and applies everywhere blocks every saving on ECS data:
   fail closed, and listed in the report.
-- The proof does not run the rules yet; their requirements constrain every cut. Running them in
-  Elasticsearch (EQL and ES|QL natively; KQL needs Kibana's translation) is the next step.
+- Of the prebuilt rules, 1,189 of the 1,304 in EQL and ES|QL run in Elasticsearch 9.1.0 for
+  the proof (docs/notes/elasticsearch.md); the 755 in KQL do not. The proof index approximates
+  a real one: numbers are `keyword`, so a numeric comparison is on text, the same for full and
+  reduced documents.
 - The rules' licence (Elastic License 2.0) keeps them out of the repository; they are read from
   the user's export or cache.

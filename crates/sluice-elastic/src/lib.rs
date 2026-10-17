@@ -10,12 +10,18 @@
 //! whenever the VRL that the proof checks matches an event, the Painless matches it too, and a
 //! document can only keep more of its fields, never fewer. [`simulate`] runs a pipeline in a
 //! real Elasticsearch, which is how the result is proven before it is written.
+//!
+//! [`ElasticEngine`] runs Elastic Security's EQL and ES|QL rules themselves in Elasticsearch,
+//! so the proof for an Elastic destination compares what Elastic raises on full and on reduced
+//! documents (ADR 0025).
 
+mod engine;
 mod painless;
 mod pipeline;
 mod predicate;
 mod simulate;
 
+pub use crate::engine::{ElasticEngine, RuleQuery};
 pub use crate::pipeline::{
     IngestPipeline, MAX_SCRIPT, METADATA_FIELDS, PipelinePlan, ingest_pipeline,
 };

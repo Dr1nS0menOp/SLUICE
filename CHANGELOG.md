@@ -208,7 +208,7 @@ explains the terms.
   into a `Sluice<Table>Archive_CL` table on the Auxiliary plan, defined in a `.table.json`
   (contract rule 2). Only tables where something is removed change, and a rule Sluice wrote
   before gets its part replaced, not doubled.
-- `sluice analyze --elastic-native URL` (and `sluice demo`): per source, an Elasticsearch ingest
+- `sluice analyze --elasticsearch URL --elastic-native` (and `sluice demo`): per source, an Elasticsearch ingest
   pipeline (`elastic/SOURCE.pipeline.json`, one Painless script) that makes the plan's field
   removals in Elastic's own ingestion, nested fields included, written only after the
   Elasticsearch at URL shows it removes nothing the proven data plane keeps and the Sigma rules
@@ -218,7 +218,9 @@ explains the terms.
   requirements`; ADR 0025): Kibana's export or Elastic's prebuilt rules package, read for the
   ECS fields each rule names and a superset pre-filter from its KQL or EQL, scoped by its index
   patterns. ES|QL, Lucene and machine learning rules are read broadly; only enabled, current
-  versions count. Destinations can name `elastic` in `sluice_rules`.
+  versions count. Destinations can name `elastic` in `sluice_rules`. With `--elasticsearch
+  URL` the proof runs the EQL and ES|QL rules themselves in Elasticsearch, on full and on
+  forwarded documents; `--elastic-native` (now a switch) proves its pipelines there.
 - `sluice up` proposals carry the savings plan too: `plan-<profile>.json` per rule profile,
   exactly what the proposal enforces, named in `proposal.json`.
 - The report says per kind of event where its saving can run.

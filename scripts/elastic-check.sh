@@ -32,7 +32,7 @@ export SLUICE_ELASTIC_URL=$url
 cargo test --locked -p sluice-elastic -- --nocapture
 # End to end: the demo's pipelines, proven in Elasticsearch on the synthetic sample.
 out=$(mktemp -d)
-cargo run --locked -q -p sluice-cli -- demo --scale 5 --out "$out" --elastic-native "$url" \
+cargo run --locked -q -p sluice-cli -- demo --scale 5 --out "$out" --elasticsearch "$url" --elastic-native \
     | grep -E '^  (proof|elastic)'
 ls "$out"/elastic/*.pipeline.json >/dev/null
 rm -rf "$out"

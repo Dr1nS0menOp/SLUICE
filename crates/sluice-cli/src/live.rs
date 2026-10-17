@@ -36,10 +36,7 @@ pub(crate) fn up(args: &UpArgs) -> Result<()> {
         )?,
         wazuh: input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?,
         sentinel: sentinel(args, &config)?,
-        elastic: input::elastic(args.elastic_rules.as_deref())?.map(|rules| ElasticRuleSet {
-            rules,
-            engine: None,
-        }),
+        elastic: elastic(args)?,
         bases: rule_bases(args),
     };
     let analysis_sources: Vec<_> = config
@@ -188,6 +185,18 @@ fn utc(at: i64) -> String {
         || at.to_string(),
         |t| t.format("%Y-%m-%d %H:%M:%SZ").to_string(),
     )
+}
+
+/// The Elastic rules, with the Elasticsearch that runs them if `--elasticsearch` is given.
+fn elastic(args: &UpArgs) -> Result<Option<ElasticRuleSet>> {
+    let Some(rules) = input::elastic(args.elastic_rules.as_deref())? else {
+        return Ok(None);
+    };
+    let engine = match &args.elasticsearch {
+        Some(url) => Some(Box::new(input::elasticsearch(url, &rules)?) as Box<_>),
+        None => None,
+    };
+    Ok(Some(ElasticRuleSet { rules, engine }))
 }
 
 /// The Sentinel rules, with the emulator that runs them if `--kusto` is given. Each source's

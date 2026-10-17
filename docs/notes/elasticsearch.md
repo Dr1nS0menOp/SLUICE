@@ -36,6 +36,30 @@ installed pipeline. ADR 0024 uses these facts.
 - A script that does not compile is refused for the whole request (HTTP 400, `compile error`),
   whatever `ignore_failure` says.
 
+## Running detection rules (ADR 0025)
+
+- **A query on a field the index does not map is refused whole**: `verification_exception`,
+  `Unknown column [x]`, for EQL and ES|QL alike, even when another branch could match. A real
+  index has its ECS mapping whether or not documents carry a field, so the proof index maps
+  every field the rules name.
+- EQL's `process where …` tests `event.category`, which must be mapped even when no rule names
+  it; it matches the ECS array `["process"]`.
+- ECS multi-fields (`process.name.caseless`, `.text`) must be mapped as fields of their parent
+  `keyword`; mapped as a field of their own they make the parent an object, and every rule on
+  it is refused (`Cannot use field [process.name] type [object] only its subfields`).
+- `CIDR_MATCH` needs an `ip` field; on a `keyword` the rule is refused.
+- An index takes 1,000 fields by default (`index.mapping.total_fields.limit`); the prebuilt
+  rules name more.
+- EQL compares a `keyword` field with a number (`process.pid > 4`) without complaint; ES|QL
+  refuses it (`… is [keyword] so second argument must also be [keyword]`).
+- EQL returns sequences under `hits.sequences[].events`, with each event's `_id`; ES|QL
+  returns `columns` and `values`.
+- The prebuilt rules package 9.5.8 uses ES|QL functions 9.1.0 does not have (`mv_contains`).
+- With the prebuilt rules (no machine learning) on the demo sample: of 1,304 EQL and ES|QL
+  rules, 1,189 run and 115 are refused (34 numeric comparisons on `keyword`, 30 unknown
+  functions, 16 numeric `in` lists, …); 755 are KQL or Lucene, which Elasticsearch does not
+  run itself. An analysis then takes 44 s, most of it running the rules twice per round.
+
 ## Deploying
 
 - `PUT _ingest/pipeline/NAME` takes the generated file as it is; indexing with
