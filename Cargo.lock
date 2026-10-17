@@ -2827,6 +2827,7 @@ dependencies = [
  "sluice-rules",
  "sluice-sentinel",
  "sluice-server",
+ "sluice-splunk",
  "sluice-synth",
  "sluice-vector",
  "sluice-wazuh",
@@ -2948,6 +2949,17 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
+ "ureq",
+]
+
+[[package]]
+name = "sluice-splunk"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sluice-core",
+ "sluice-rules",
+ "thiserror",
  "ureq",
 ]
 

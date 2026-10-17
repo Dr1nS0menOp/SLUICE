@@ -72,6 +72,10 @@ pub(crate) fn fetch(args: &FetchArgs) -> Result<()> {
                 sluice_elastic::inventory::fetch(kibana, &auth, space.as_deref(), &fetched_at)?;
             (inventory, format!("--elastic-rules {}", out.display()))
         }
+        FetchTarget::Splunk { api, insecure } => (
+            splunk(api, *insecure, &fetched_at)?,
+            format!("--splunk-rules {}", out.display()),
+        ),
     };
     write(&inventory, out)?;
     let counts: Vec<String> = inventory
@@ -97,6 +101,25 @@ pub(crate) fn fetch(args: &FetchArgs) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Splunk's saved searches and macros, with `SPLUNK_TOKEN` or `SPLUNK_USER` and
+/// `SPLUNK_PASSWORD`.
+fn splunk(api: &str, insecure: bool, fetched_at: &str) -> Result<Inventory> {
+    use sluice_splunk::inventory::{Auth, Target};
+    let auth = match std::env::var("SPLUNK_TOKEN").ok().filter(|t| !t.is_empty()) {
+        Some(token) => Auth::Token(token),
+        None => Auth::Basic {
+            user: env("SPLUNK_USER")?,
+            password: env("SPLUNK_PASSWORD")?,
+        },
+    };
+    let target = Target {
+        url: api,
+        auth: &auth,
+        insecure,
+    };
+    Ok(sluice_splunk::inventory::fetch(&target, fetched_at)?)
 }
 
 /// Writes `inventory` to `out`: a new or empty directory, or an earlier fetch, which is

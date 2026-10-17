@@ -50,7 +50,14 @@ Terms accepted; that is the maintainer's decision and not taken. Reading them ne
    no aliases or calculated fields (`props.conf`) that rules read, as those names are in no
    record. On sources in another convention the searches are read as widely as can be (ADR
    0018). Searches are not scoped by `index` or `sourcetype`; their pre-filter bounds them.
-7. **No proof runs them.** Their requirements constrain the guardrails only, like Wazuh rules
+7. **`sluice rules fetch splunk --api URL [--insecure]`** (crate `sluice-splunk`) reads
+   `saved/searches` and `admin/macros` of every app the user sees (`servicesNS/-/-`), page by
+   page, with `SPLUNK_TOKEN` or `SPLUNK_USER`/`SPLUNK_PASSWORD`, into `saved-searches.json` and
+   `macros.json` with an `inventory.json` that is complete only when both counts match
+   Splunk's totals (ADR 0021). Entries of several apps may share a name: a search keeps every
+   copy (`name (app)`), and a macro the apps define differently makes every search calling it
+   one that may read anything, as which definition applies depends on the search's app.
+8. **No proof runs them.** Their requirements constrain the guardrails only, like Wazuh rules
    without `logtest`. A Splunk engine for the proof waits on the licence decision.
 
 ## Consequences
@@ -67,3 +74,5 @@ Terms accepted; that is the maintainer's decision and not taken. Reading them ne
 - Without the macros, nearly every search of Splunk's content uses one Sluice does not know:
   pass `macros.conf` (or `admin/macros`) along.
 - A Splunk destination's `sluice_rules` may name `splunk` (`sluice up`).
+- The fetch was tried against a stand-in that answers as the REST API documents (paging,
+  bearer token), not against a real Splunk, whose image needs the licence decision.

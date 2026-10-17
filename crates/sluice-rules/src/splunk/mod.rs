@@ -199,6 +199,11 @@ impl<'a> Macros<'a> {
             .by_name
             .get(key.as_str())
             .ok_or_else(|| format!("the macro `{key}`, which is not among the files"))?;
+        if settings.contains_key(conf::AMBIGUOUS) {
+            return Err(format!(
+                "the macro `{key}`, which several apps define differently"
+            ));
+        }
         if truthy(settings.get("iseval")) {
             return Err(format!(
                 "the macro `{key}`, whose definition is an expression"

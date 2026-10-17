@@ -47,8 +47,15 @@ pub(crate) fn conf(text: &str) -> Stanzas {
     stanzas
 }
 
+/// The setting that marks a macro several apps define differently: which definition a search
+/// gets depends on its app, so a call to it cannot be read.
+pub(crate) const AMBIGUOUS: &str = "sluice.ambiguous";
+
 /// Reads a REST answer: `{"entry": [{"name": …, "content": {…}}]}`. Booleans become `1` or
 /// `0`; other non-string values are left out. `None` when the text is no such answer.
+///
+/// Entries of different apps may share a name. A search keeps every copy, the later ones as
+/// `name (app)`; a macro defined differently is marked [`AMBIGUOUS`].
 pub(crate) fn rest(text: &str) -> Option<Stanzas> {
     let answer: Value = serde_json::from_str(text).ok()?;
     let entries = answer.get("entry")?.as_array()?;
@@ -72,9 +79,32 @@ pub(crate) fn rest(text: &str) -> Option<Stanzas> {
                 Some((key.clone(), value))
             })
             .collect();
-        stanzas.insert(name.to_owned(), settings);
+        insert(&mut stanzas, name, entry, settings);
     }
     Some(stanzas)
+}
+
+fn insert(stanzas: &mut Stanzas, name: &str, entry: &Value, settings: BTreeMap<String, String>) {
+    let Some(existing) = stanzas.get_mut(name) else {
+        stanzas.insert(name.to_owned(), settings);
+        return;
+    };
+    if *existing == settings {
+        return;
+    }
+    if existing.contains_key("definition") || settings.contains_key("definition") {
+        existing.insert(AMBIGUOUS.to_owned(), "1".to_owned());
+        return;
+    }
+    let app = entry
+        .pointer("/acl/app")
+        .and_then(Value::as_str)
+        .unwrap_or("another app");
+    let mut key = format!("{name} ({app})");
+    while stanzas.contains_key(&key) {
+        key.push('\'');
+    }
+    stanzas.insert(key, settings);
 }
 
 /// Whether a setting is true as Splunk reads booleans.
@@ -117,6 +147,24 @@ mod tests {
         assert_eq!(stanzas["x"]["is_scheduled"], "1");
         assert!(!stanzas["x"].contains_key("cron_schedule"));
         assert_eq!(rest("[]"), None);
+    }
+
+    #[test]
+    fn c3_entries_of_several_apps_with_one_name_are_all_kept() {
+        let stanzas = rest(
+            r#"{"entry": [
+                {"name": "s", "acl": {"app": "a"}, "content": {"search": "x=1"}},
+                {"name": "s", "acl": {"app": "b"}, "content": {"search": "y=1"}},
+                {"name": "m", "content": {"definition": "x=1"}},
+                {"name": "m", "content": {"definition": "y=1"}},
+                {"name": "same", "content": {"definition": "z=1"}},
+                {"name": "same", "content": {"definition": "z=1"}}]}"#,
+        )
+        .expect("a REST answer");
+        assert_eq!(stanzas["s"]["search"], "x=1");
+        assert_eq!(stanzas["s (b)"]["search"], "y=1");
+        assert_eq!(stanzas["m"][AMBIGUOUS], "1");
+        assert!(!stanzas["same"].contains_key(AMBIGUOUS));
     }
 
     #[test]

@@ -15,7 +15,12 @@ image needs the Splunk General Terms accepted (ADR 0026).
   and written `$arg$` in `definition`. `iseval = 1` makes the definition an expression.
 - The REST API (`/servicesNS/-/-/saved/searches`, `/servicesNS/-/-/admin/macros`, with
   `output_mode=json`) answers `{"entry": [{"name", "content": {…}}]}`, `content` holding the
-  same settings; booleans are JSON booleans (`is_scheduled`, `disabled`).
+  same settings; booleans are JSON booleans (`is_scheduled`, `disabled`). Paging:
+  `count` and `offset` in the request, `paging.total` in the answer (`count=0` means all).
+  `-/-` in `servicesNS` means every user and app, so names repeat across apps; `acl.app`
+  says whose an entry is. Authentication: `Authorization: Bearer <token>` for an
+  authentication token, or basic. The management port (8089) has a self-signed certificate
+  by default.
 
 ## SPL
 

@@ -24,6 +24,7 @@ sluice-mcp = { path = "crates/sluice-mcp" }
 sluice-rules = { path = "crates/sluice-rules" }
 sluice-sentinel = { path = "crates/sluice-sentinel" }
 sluice-server = { path = "crates/sluice-server" }
+sluice-splunk = { path = "crates/sluice-splunk" }
 sluice-vector = { path = "crates/sluice-vector" }
 sluice-wazuh = { path = "crates/sluice-wazuh" }
 sluice-synth = { path = "crates/sluice-synth" }

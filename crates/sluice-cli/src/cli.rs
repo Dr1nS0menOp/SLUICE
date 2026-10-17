@@ -259,6 +259,17 @@ pub(crate) enum FetchTarget {
         #[arg(long)]
         space: Option<String>,
     },
+    /// Splunk: the saved searches and macros of every app the user sees, enabled or not (only
+    /// scheduled, enabled ones count). Credentials: `SPLUNK_TOKEN` (an authentication token),
+    /// or `SPLUNK_USER` and `SPLUNK_PASSWORD`. Then `--splunk-rules OUT`.
+    Splunk {
+        /// The management port, such as `https://splunk:8089`.
+        #[arg(long)]
+        api: String,
+        /// Accept Splunk's self-signed certificate. Only on a trusted network path.
+        #[arg(long)]
+        insecure: bool,
+    },
 }
 
 #[derive(Debug, Args)]

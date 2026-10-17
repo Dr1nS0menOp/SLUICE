@@ -231,6 +231,8 @@ explains the terms.
   pre-filter, and every name in the pipeline may be a field the search reads. Subsearches,
   `tstats`, data models and unknown macros read everything. Fields are named as Splunk extracts
   them (new source `schema: splunk`). No engine runs them in the proof yet.
+- `sluice rules fetch splunk --api URL`: the saved searches and macros of every app, through
+  Splunk's REST API, as a complete inventory for `--splunk-rules` (ADR 0021, ADR 0026).
 - Recipes can name the field naming convention they are written in (`match.schema`, such as
   `ecs`); five ECS recipes drop the rendered `message` of Windows System, Application,
   Security and PowerShell events as Elastic stores them.
