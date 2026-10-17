@@ -8,9 +8,50 @@ All notable changes to Sluice are recorded here. The format follows
 
 First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
 
-Documentation: `docs/architecture.md` has diagrams of the data and decision paths
-(`docs/images/*.svg`) and one Windows event followed through every step; `docs/glossary.md`
-explains the terms.
+Documentation: `docs/architecture.md` has diagrams of the analysis and of what each configuration
+does, and one Windows event followed through every step; `docs/glossary.md` explains the terms.
+
+### Advice only
+
+- Sluice only looks, advises and writes the configurations. It never runs in the data path, so
+  it does not become the kind of pipeline platform it means to make unnecessary (ADR 0030).
+  What stays: `sluice rules fetch` and `rules requirements`, `sluice analyze` and `sluice demo`
+  with the report, `plan.json`, `vector.yaml` and the native generators, `sluice recipes`,
+  `sluice prove` with its GitHub Action, and `sluice connect sentinel`.
+- Moved to `archive/`, outside the Cargo workspace and kept to delete later: `sluice up` (crate
+  `sluice-server`, with its console, operator actions, single sign-on, proposals and
+  `--reload-rules`), `sluice status`, `sluice search` and `sluice replay` (crate
+  `sluice-archive`), `sluice mcp` (crate `sluice-mcp`), `sluice agent`, the `sluice up`
+  configuration keys (`shape`, `sluice_rules`, `sluice_records`, `sluice_formats`,
+  `sluice_sources`), the Helm chart, the container image, `examples/up`, `examples/docker`,
+  `scripts/helm-check.sh`, `scripts/live-smoke.sh`, `scripts/replay-smoke.sh`,
+  `scripts/load-test.sh`, `scripts/real-data/send-sentinel.sh`, the live cycle and recipe
+  lifecycle of `sluice-autopilot`, `sluice prove --profile` and the diagrams of the live design.
+- **Breaking:** `sluice connect` takes `sentinel` only and writes files only: `--sample` with
+  `--table`, `--standard-table` and `--summary-table`. It no longer prints a destination.
+- The entries below record what was built, the archived features included. The documentation
+  describes the advice-only product; `docs/architecture.md` now draws its diagrams in Mermaid,
+  since the SVGs show the live loop.
+
+### Fixed in the 2026-10-17 review
+
+- A rule file whose name ends in `inventory.json` (such as `rules-inventory.json`), at any
+  depth under `--elastic-rules` or `--splunk-rules`, was skipped as if it were the fetch
+  manifest, so its rules protected nothing. Only the manifest itself is skipped now.
+- What a fetch could not model (Kibana's or Splunk's counts, enabled ML rules, `KV_MODE`) is in
+  the report for Elastic and Splunk too, not only for Wazuh and Sentinel.
+- `sluice rules requirements --sigma-pipeline` prints the fields the cuts are checked against.
+- A Sentinel transformation no longer panics on a column name with a control character (the
+  records stay as they come), empties a boolean column with `bool(null)` instead of
+  `boolean(null)`, which data collection rules refuse, and leaves a column without a typed null
+  (`timespan`) out.
+- A rule that matches raw text (a bare Splunk term, `_raw`, `rex`) protected only the fields
+  discovery marks as text on a JSON record. Its raw text is the whole serialized record, so a
+  term can match any value: such a rule now protects every field of a JSON record, on the
+  events its pre-filter may match.
+- `sluice rules fetch elastic|splunk` without credentials names both ways to give them.
+- **Breaking:** `sluice prove --profile` and the Action's `profile` input are gone; rule profiles
+  were a `sluice up` setting.
 
 ### Offline autopilot
 

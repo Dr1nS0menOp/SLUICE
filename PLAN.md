@@ -733,8 +733,9 @@ own semantics.
 A read-only review of the whole workspace after the advice-only cut (ADR 0030). Fixed the same
 day: rule files named like `*inventory.json` were skipped; Elastic and Splunk inventory notes
 missed the report; `rules requirements` lacked `--sigma-pipeline`; KQL panicked on a column name
-with a control character and wrote `boolean(null)`; `prove --profile` was dead. Open, safety
-first. Each fix starts with a failing test named after the contract rule:
+with a control character and wrote `boolean(null)`; a raw-text rule (Splunk) protected only the
+text fields of a JSON record; `prove --profile` and the autopilot's live cycle were dead. Open,
+safety first. Each fix starts with a failing test named after the contract rule:
 
 1. **Generators fall through (fail open).** In Lua, Painless and OTTL, a discriminator the
    engine cannot render (a number 0, a fraction, one of 1e15 or more) makes the test false. The
