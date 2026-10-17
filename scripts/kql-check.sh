@@ -28,3 +28,5 @@ fi
 SLUICE_KUSTO_URL="$url" cargo test --locked -p sluice-kql --test emulator --test rules -- --nocapture
 # The generated DCR transformation, run in the engine (ADR 0013).
 SLUICE_KUSTO_URL="$url" cargo test --locked -p sluice-kql --lib transform -- --nocapture
+# A JSON source in a custom table, end to end (ADR 0013).
+SLUICE_KUSTO_URL="$url" bash scripts/sentinel-custom-check.sh

@@ -43,7 +43,7 @@ fn proven(flow: &Flow) -> Proven {
 }
 
 fn flow(rule: &Value) -> Flow {
-    Flow::of(Some(rule), Table::SecurityEvent).expect("the rule has a flow into the table")
+    Flow::of(Some(rule), &Table::SecurityEvent).expect("the rule has a flow into the table")
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn c2_a_rule_written_twice_keeps_one_archive_flow() {
 
 #[test]
 fn the_archive_table_has_the_stream_columns_and_a_time() {
-    let table = archive_table(Table::SecurityEvent, &flow(&rule()));
+    let table = archive_table(&Table::SecurityEvent, &flow(&rule()));
     assert_eq!(table["properties"]["plan"], "Auxiliary");
     let names: Vec<&str> = table["properties"]["schema"]["columns"]
         .as_array()
@@ -107,5 +107,62 @@ fn the_archive_table_has_the_stream_columns_and_a_time() {
 
 #[test]
 fn a_rule_without_a_flow_into_the_table_is_refused() {
-    assert!(Flow::of(Some(&rule()), Table::Syslog).is_err());
+    assert!(Flow::of(Some(&rule()), &Table::Syslog).is_err());
+}
+
+fn custom() -> Table {
+    let column = |name: &str, field: &str| sluice_kql::CustomColumn {
+        name: name.to_owned(),
+        kind: "string".to_owned(),
+        field: field.to_owned(),
+    };
+    Table::custom(
+        "Win_CL",
+        vec![
+            column("F_timestamp", "@timestamp"),
+            column("Message", "Message"),
+        ],
+    )
+    .expect("a custom table")
+}
+
+#[test]
+fn a_custom_tables_flow_runs_sluices_part_first_on_the_stream_names() {
+    let flow = Flow::of(None, &custom()).expect("a flow");
+    assert!(flow.first);
+    assert_eq!(
+        flow.stream,
+        [
+            ("@timestamp".to_owned(), "string".to_owned()),
+            ("Message".to_owned(), "string".to_owned())
+        ]
+    );
+    let flow = Flow {
+        before: "source | project-rename F_timestamp = ['@timestamp']".to_owned(),
+        ..flow
+    };
+    assert_eq!(
+        flow.then("source\n| extend x = 1"),
+        "source\n| extend x = 1 | project-rename F_timestamp = ['@timestamp']"
+    );
+    assert_eq!(flow.then("source"), flow.before);
+    assert_eq!(archive(&custom()), "SluiceWinArchive_CL");
+    assert_eq!(
+        archive(&Table::SecurityEvent),
+        "SluiceSecurityEventArchive_CL"
+    );
+}
+
+#[test]
+fn a_part_sluice_wrote_before_goes_wherever_it_is() {
+    let part = format!("{SLUICE_PART} = 1\n| extend y = 2\n{SLUICE_PART_END}");
+    assert_eq!(
+        without_sluice_part(&format!("source\n{part} | extend TimeGenerated = now()")),
+        "source | extend TimeGenerated = now()"
+    );
+    assert_eq!(
+        without_sluice_part(&format!("source | where a == 1\n{part}")),
+        "source | where a == 1"
+    );
+    assert_eq!(without_sluice_part("source | x"), "source | x");
 }

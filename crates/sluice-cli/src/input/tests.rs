@@ -215,16 +215,19 @@ fn sentinel_table_specs_are_checked_before_the_emulator_is_asked() {
     let rules = sluice_rules::SentinelRules::parse(std::iter::empty::<(&str, &str)>());
     // An address nothing listens on: the spec errors must come first.
     let url = "http://127.0.0.1:9";
-    let error = format!("{:#}", kusto(url, &rules, &["win".to_owned()]).unwrap_err());
+    let error = format!(
+        "{:#}",
+        kusto(url, &rules, &["win".to_owned()], &[]).unwrap_err()
+    );
     assert!(error.contains("expected SOURCE=TABLE"), "{error}");
     let error = format!(
         "{:#}",
-        kusto(url, &rules, &["win=Nope".to_owned()]).unwrap_err()
+        kusto(url, &rules, &["win=Nope".to_owned()], &[]).unwrap_err()
     );
     assert!(error.contains("cannot load table `Nope`"), "{error}");
     let error = format!(
         "{:#}",
-        kusto(url, &rules, &["win = SecurityEvent".to_owned()]).unwrap_err()
+        kusto(url, &rules, &["win = SecurityEvent".to_owned()], &[]).unwrap_err()
     );
     assert!(
         error.contains("connecting to the Kusto emulator"),

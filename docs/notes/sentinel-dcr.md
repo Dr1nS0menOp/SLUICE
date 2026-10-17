@@ -241,3 +241,17 @@ Security events shaped by `sluice up` arrived with `Account`, `AccountType`, `Su
 and `TargetAccount` filled (`NT AUTHORITY\SYSTEM`, `DESKTOP-…\ward`, `WORKGROUP\DESKTOP-…$`).
 The way Microsoft's rules read them works: `split(Account, @'\')[1]` gives the name and
 `AccountType == "User"` matches.
+
+## The emulator and custom tables (2026-10-17)
+
+- **The emulator's column names are narrower than a stream's.** `.create table` refuses
+  `BadRequest_EntityNameIsNotValid` for a name with `@`, `:` or `/` (`@timestamp`, even
+  bracket-quoted); letters, digits, `_`, `.`, `-` and spaces pass. A DCR stream declaration takes
+  `@timestamp` (see above), so `run_transformations` loads such a column under an alias and
+  rewrites `['@timestamp']` and `columnifexists('@timestamp'` in the transformation to it.
+- **`now()` differs between queries.** A custom table's rule sets `TimeGenerated = now()`, so the
+  records with and without Sluice's part must come from one query (`union kind=outer`, `now()`
+  is fixed within a query), or every row differs in `TimeGenerated` and every alert looks
+  changed.
+- A transformation written before the flow's own one can empty a column the flow then renames:
+  the rename keeps the emptied value.

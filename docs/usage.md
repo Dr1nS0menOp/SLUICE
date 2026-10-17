@@ -200,6 +200,19 @@ You get `Nginx_CL.table.json` (one typed column per field, invalid names made va
 `Nginx.dcr.json`. A data collection rule only passes the columns it declares, so use a sample
 that covers the source, and generate again when the source changes.
 
+To have that rule carry the savings itself, without Vector in the path, prove them in the
+emulator and let Sluice write the rule back (L1 only: whole top-level fields):
+
+```sh
+sluice analyze --input samples/ --sources sources.yaml --sentinel-rules sentinel-rules/ \
+  --kusto http://127.0.0.1:8090 --sentinel-table nginx=Nginx_CL \
+  --sentinel-native --sentinel-dcr dcr/Nginx.dcr.json --out out/
+```
+
+Use records read back from the table as the sample (an empty field and a missing one are the
+same there). `out/sentinel/dcr.json` is the rule with the proven transformation and an
+untransformed flow into an Auxiliary archive table, `out/sentinel/SluiceNginxArchive_CL.table.json`.
+
 ### Proving against Sentinel's own rules
 
 Give `sluice up` the analytics rules your workspace runs, and name `sentinel` in the

@@ -16,7 +16,7 @@ use sluice_core::alert::{Alert, EngineError, RuleEngine};
 use sluice_core::event::Event;
 use sluice_core::ids::{EventId, RuleId, SourceId};
 
-use crate::schema;
+use crate::table::Table;
 
 /// Events per inline ingestion command, well below the emulator's request size limit.
 const INGEST_BATCH: usize = 500;
@@ -29,96 +29,6 @@ type Rule = (RuleId, String);
 
 /// The database every management command that creates or drops a database runs in.
 const DEFAULT_DB: &str = "NetDefaultDB";
-
-/// A Sentinel table Sluice can load records into.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Table {
-    /// Windows Security channel events.
-    SecurityEvent,
-    /// Windows events from every other channel.
-    WindowsEvent,
-    /// Syslog from Linux hosts and network devices.
-    Syslog,
-    /// Firewall and network device events (CEF).
-    CommonSecurityLog,
-    /// Network sessions in the ASIM schema.
-    ASimNetworkSessionLogs,
-    /// DNS queries in the ASIM schema.
-    ASimDnsActivityLogs,
-    /// Web sessions in the ASIM schema.
-    ASimWebSessionLogs,
-}
-
-impl Table {
-    const ALL: [Self; 7] = [
-        Self::SecurityEvent,
-        Self::WindowsEvent,
-        Self::Syslog,
-        Self::CommonSecurityLog,
-        Self::ASimNetworkSessionLogs,
-        Self::ASimDnsActivityLogs,
-        Self::ASimWebSessionLogs,
-    ];
-
-    /// The table with this name in a Log Analytics workspace, if Sluice can load it.
-    #[must_use]
-    pub fn from_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|t| t.name() == name)
-    }
-
-    /// The table's name in a Log Analytics workspace.
-    #[must_use]
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::SecurityEvent => "SecurityEvent",
-            Self::WindowsEvent => "WindowsEvent",
-            Self::Syslog => "Syslog",
-            Self::CommonSecurityLog => "CommonSecurityLog",
-            Self::ASimNetworkSessionLogs => "ASimNetworkSessionLogs",
-            Self::ASimDnsActivityLogs => "ASimDnsActivityLogs",
-            Self::ASimWebSessionLogs => "ASimWebSessionLogs",
-        }
-    }
-
-    /// The table's columns, with the ones every workspace table has but the tables API does
-    /// not list; rules project `_ResourceId` for entity mapping.
-    fn columns(self) -> impl Iterator<Item = (&'static str, &'static str)> {
-        self.own_columns().chain(HIDDEN_COLUMNS.iter().copied())
-    }
-
-    /// The table's columns as the tables API lists them: what a data flow into the table
-    /// carries when it has no stream of its own.
-    #[must_use]
-    pub fn column_names(self) -> Vec<&'static str> {
-        self.own_columns().map(|(name, _)| name).collect()
-    }
-
-    /// [`Table::column_names`] with their types.
-    #[must_use]
-    pub fn column_types(self) -> Vec<(&'static str, &'static str)> {
-        self.own_columns().collect()
-    }
-
-    /// The columns the tables API lists, with their types.
-    pub(crate) fn own_columns(self) -> impl Iterator<Item = (&'static str, &'static str)> {
-        let own = match self {
-            Self::SecurityEvent => schema::SECURITY_EVENT,
-            Self::WindowsEvent => schema::WINDOWS_EVENT,
-            Self::Syslog => schema::SYSLOG,
-            Self::CommonSecurityLog => schema::COMMON_SECURITY_LOG,
-            Self::ASimNetworkSessionLogs => schema::ASIM_NETWORK_SESSION_LOGS,
-            Self::ASimDnsActivityLogs => schema::ASIM_DNS_ACTIVITY_LOGS,
-            Self::ASimWebSessionLogs => schema::ASIM_WEB_SESSION_LOGS,
-        };
-        own.iter().copied()
-    }
-}
-
-const HIDDEN_COLUMNS: &[(&str, &str)] = &[
-    ("Type", "string"),
-    ("_ResourceId", "string"),
-    ("_SubscriptionId", "string"),
-];
 
 /// The emulator could not be used.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -160,6 +70,8 @@ impl From<KustoError> for EngineError {
 pub struct KustoEngine {
     client: Client,
     tables: BTreeMap<SourceId, Table>,
+    /// The custom tables among `tables`, which every database gets as well.
+    custom: Vec<Table>,
     rules: Vec<(RuleId, String)>,
     skipped: Vec<(RuleId, String)>,
 }
@@ -179,8 +91,10 @@ impl KustoEngine {
         tables: BTreeMap<SourceId, Table>,
     ) -> Result<Self, KustoError> {
         let client = Client::new(url);
-        let (kept, skipped) = runnable(&client, rules)?;
+        let custom = custom_tables(tables.values());
+        let (kept, skipped) = runnable(&client, rules, &custom)?;
         Ok(Self {
+            custom,
             client,
             tables,
             rules: kept,
@@ -203,7 +117,7 @@ impl KustoEngine {
         let mut out: BTreeMap<Table, Vec<&Event>> = BTreeMap::new();
         for event in events {
             if let Some(table) = self.tables.get(&event.source) {
-                out.entry(*table).or_default().push(event);
+                out.entry(table.clone()).or_default().push(event);
             }
         }
         out
@@ -212,9 +126,9 @@ impl KustoEngine {
 
 impl RuleEngine for KustoEngine {
     fn alerts_refs(&self, events: &[&Event]) -> Result<BTreeSet<Alert>, EngineError> {
-        let database = Database::create(&self.client)?;
+        let database = Database::create(&self.client, &self.custom)?;
         for (table, events) in self.rows_per_table(events) {
-            database.load(table, &events)?;
+            database.load(&table, &events)?;
         }
         let mut alerts = BTreeSet::new();
         for (rule, query) in &self.rules {
@@ -225,13 +139,20 @@ impl RuleEngine for KustoEngine {
     }
 }
 
+/// Each custom table once.
+fn custom_tables<'t>(tables: impl Iterator<Item = &'t Table>) -> Vec<Table> {
+    let set: BTreeSet<&Table> = tables.filter(|t| matches!(t, Table::Custom(_))).collect();
+    set.into_iter().cloned().collect()
+}
+
 /// Splits the rules into those that run on empty tables and those that do not, with the
 /// emulator's reason.
 fn runnable(
     client: &Client,
     rules: &[(RuleId, String)],
+    custom: &[Table],
 ) -> Result<(Vec<Rule>, Vec<Rule>), KustoError> {
-    let database = Database::create(client)?;
+    let database = Database::create(client, custom)?;
     let mut kept = Vec::new();
     let mut skipped = Vec::new();
     for (id, query) in rules {
@@ -286,10 +207,20 @@ fn first_line(message: &str) -> String {
 
 /// The record a table receives for an event: its columns, plus `Type`, which Log Analytics
 /// sets from the table. Fields that are not columns are left out, as the workspace drops them.
-fn record(table: Table, event: &Event) -> Value {
+fn record(table: &Table, event: &Event) -> Value {
     let mut out = Map::new();
+    if let Table::Custom(custom) = table {
+        // A custom table holds each field under the column the rule renamed it to.
+        for column in custom.columns.iter() {
+            if let Some(value) = event.fields.get(&column.field) {
+                out.insert(column.name.clone(), value.clone());
+            }
+        }
+    }
     for (column, _) in table.columns() {
-        if let Some(value) = event.fields.get(column) {
+        if let Some(value) = event.fields.get(column)
+            && !out.contains_key(column)
+        {
             out.insert(column.to_owned(), value.clone());
         }
     }
@@ -304,7 +235,8 @@ pub(crate) struct Database<'c> {
 }
 
 impl<'c> Database<'c> {
-    pub(crate) fn create(client: &'c Client) -> Result<Self, KustoError> {
+    /// Creates a database with every standard table and `custom`.
+    pub(crate) fn create(client: &'c Client, custom: &[Table]) -> Result<Self, KustoError> {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let name = format!(
             "sluice_{}_{}",
@@ -313,7 +245,7 @@ impl<'c> Database<'c> {
         );
         client.mgmt(DEFAULT_DB, &format!(".create database {name} volatile"))?;
         let database = Self { client, name };
-        for table in Table::ALL {
+        for table in Table::STANDARD.iter().chain(custom) {
             let columns: Vec<String> = table
                 .columns()
                 .map(|(name, kind)| format!("['{name}']:{kind}"))
@@ -326,7 +258,7 @@ impl<'c> Database<'c> {
         Ok(database)
     }
 
-    pub(crate) fn load(&self, table: Table, events: &[&Event]) -> Result<(), KustoError> {
+    pub(crate) fn load(&self, table: &Table, events: &[&Event]) -> Result<(), KustoError> {
         for batch in events.chunks(INGEST_BATCH) {
             let lines: Vec<String> = batch
                 .iter()

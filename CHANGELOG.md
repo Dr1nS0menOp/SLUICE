@@ -234,6 +234,11 @@ explains the terms.
 - `sluice rules fetch splunk --api URL`: the saved searches, macros, props and transforms of
   every app, through Splunk's REST API, as a complete inventory for `--splunk-rules` (ADR 0021,
   ADR 0026).
+- `sluice analyze --sentinel-native` for JSON sources in a custom table: `--sentinel-table
+  SOURCE=<Name>_CL` with the rule `sluice connect sentinel --sample` wrote as `--sentinel-dcr`.
+  The emulator holds the table as that rule fills it (renamed columns included), Sentinel rules
+  on it run there, and Sluice's part runs before the rule's own renames (ADR 0013).
+  `scripts/sentinel-custom-check.sh` proves it end to end; `kql-check.sh` runs it.
 - `sluice up --reload-rules SECS`: rules fetched anew (`sluice rules fetch` on a timer) are
   loaded without a restart and guard from the next cycle on (ADR 0021). A fetch now replaces
   its directory in one rename, so no reader sees half of one.

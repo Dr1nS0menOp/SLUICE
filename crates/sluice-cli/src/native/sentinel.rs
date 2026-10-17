@@ -14,8 +14,8 @@ use sluice_autopilot::{Analysis, Input};
 use sluice_core::event::Event;
 use sluice_core::reduce::{Outcome, Reducer};
 use sluice_kql::{
-    MAX_TRANSFORM_KQL, SLUICE_PART, Table, TransformPlan, Transformation, disallowed_functions,
-    run_transformation, transformation,
+    MAX_TRANSFORM_KQL, SLUICE_PART, SLUICE_PART_END, Table, TransformPlan, Transformation,
+    disallowed_functions, run_transformations, transformation, transformation_on,
 };
 
 use super::{is_empty, list, megabytes, saved, size};
@@ -39,13 +39,9 @@ pub(crate) fn sentinel(
         .transpose()?;
     let mut proven = Vec::new();
     for spec in specs {
-        let (source, table) = spec
-            .split_once('=')
-            .with_context(|| format!("--sentinel-table {spec}: expected SOURCE=TABLE"))?;
-        let table = Table::from_name(table.trim())
-            .with_context(|| format!("--sentinel-table {spec}: unknown table"))?;
-        let flow = Flow::of(rule.as_ref(), table)?;
-        if let Some(one) = prove(analysis, input, url, source.trim(), table, &flow)?
+        let (source, table) = crate::input::sentinel_table(spec, input.events)?;
+        let flow = Flow::of(rule.as_ref(), &table)?;
+        if let Some(one) = prove(analysis, input, url, source.as_str(), table, &flow)?
             && !one.generated.columns.is_empty()
         {
             proven.push((one, flow));
@@ -71,24 +67,29 @@ struct Flow {
     /// Name and type of each column, as the stream declares it.
     stream: Vec<(String, String)>,
     before: String,
+    /// Sluice's part runs before the flow's own transformation, on the stream's names: a
+    /// custom table's flow renames fields that are no valid column names, and Vector removes
+    /// fields before the flow sees them too.
+    first: bool,
     /// The stream's name, when the records go through a rule of their own.
     name: Option<String>,
 }
 
 impl Flow {
-    fn of(rule: Option<&Value>, table: Table) -> Result<Self> {
+    fn of(rule: Option<&Value>, table: &Table) -> Result<Self> {
         let Some(rule) = rule else {
             return Ok(Self {
                 stream: table
-                    .column_types()
+                    .stream_columns()
                     .into_iter()
                     .map(|(name, kind)| (name.to_owned(), kind.to_owned()))
                     .collect(),
                 before: "source".to_owned(),
                 name: None,
+                first: matches!(table, Table::Custom(_)),
             });
         };
-        let output = output(table);
+        let output = table.output_stream();
         let properties = &rule["properties"];
         let flow = properties["dataFlows"]
             .as_array()
@@ -110,9 +111,8 @@ impl Flow {
             .collect();
         let before = flow["transformKql"].as_str().unwrap_or("source").trim();
         // A rule Sluice wrote before: its own part goes, so a new one replaces it.
-        let before = before
-            .find(SLUICE_PART)
-            .map_or(before, |at| before[..at].trim_end());
+        let before = without_sluice_part(before);
+        let before = before.as_str();
         if !before.starts_with("source") {
             bail!(
                 "the data flow into {output} has a transformation that does not start with `source`"
@@ -122,15 +122,20 @@ impl Flow {
             stream,
             before: before.to_owned(),
             name: Some(name.to_owned()),
+            first: matches!(table, Table::Custom(_)),
         })
     }
 
-    /// The flow's transformation followed by `kql` (which starts with `source`).
+    /// The flow's transformation and `kql` (both start with `source`), in the order they run.
     fn then(&self, kql: &str) -> String {
         if kql == "source" {
             return self.before.clone();
         }
-        format!("{}{}", self.before, &kql["source".len()..])
+        if self.first {
+            format!("{kql}{}", &self.before["source".len()..])
+        } else {
+            format!("{}{}", self.before, &kql["source".len()..])
+        }
     }
 
     fn declared(&self) -> Vec<(&str, &str)> {
@@ -141,12 +146,32 @@ impl Flow {
     }
 }
 
-fn output(table: Table) -> String {
-    format!("Microsoft-{}", table.name())
+/// `kql` without the part Sluice wrote into it before: from [`SLUICE_PART`] to the end of
+/// [`SLUICE_PART_END`] when the flow's own part follows it, else to the end.
+fn without_sluice_part(kql: &str) -> String {
+    let Some(at) = kql.find(SLUICE_PART) else {
+        return kql.to_owned();
+    };
+    let head = kql[..at].trim_end();
+    match kql[at..].find(SLUICE_PART_END) {
+        Some(end) => format!(
+            "{head} {}",
+            kql[at + end + SLUICE_PART_END.len()..].trim_start()
+        )
+        .trim_end()
+        .to_owned(),
+        None => head.to_owned(),
+    }
 }
 
-fn archive(table: Table) -> String {
-    format!("Sluice{}Archive_CL", table.name())
+/// The archive table of `table`: `Sluice<Table>Archive_CL`, a custom table's name without its
+/// `_CL`.
+fn archive(table: &Table) -> String {
+    let name = table.name();
+    format!(
+        "Sluice{}Archive_CL",
+        name.strip_suffix("_CL").unwrap_or(name)
+    )
 }
 
 /// A proven transformation.
@@ -192,7 +217,11 @@ fn prove(
         .map(|(template, recipe)| TransformPlan { template, recipe })
         .collect();
     let stream: Vec<&str> = flow.stream.iter().map(|(name, _)| name.as_str()).collect();
-    let generated = transformation(table, &stream, &plans);
+    let generated = if flow.first {
+        transformation_on(table.name(), &flow.declared(), &stream, &plans)
+    } else {
+        transformation(&table, &stream, &plans)
+    };
     let unsupported = disallowed_functions(&generated.kql);
     if !unsupported.is_empty() {
         bail!(
@@ -209,9 +238,20 @@ fn prove(
         return Ok(None);
     }
     let declared = flow.declared();
-    let after = run_transformation(url, &declared, &kql, &events)
+    // Both in one query: the flow's own transformation may read the clock (`now()`).
+    // Sluice's part alone too, where it runs first: there the columns have the stream's names.
+    let mut kqls = vec![flow.before.as_str(), kql.as_str()];
+    if flow.first {
+        kqls.push(&generated.kql);
+    }
+    let mut runs = run_transformations(url, &declared, &kqls, &events)
         .with_context(|| format!("{source}: running the transformation in the emulator"))?;
-    let violations = beyond_vector(analysis, &events, &after, &generated.columns)?;
+    let alone = if flow.first { runs.pop() } else { None };
+    let (Some(after), Some(untouched)) = (runs.pop(), runs.pop()) else {
+        bail!("{source}: the emulator returned no records");
+    };
+    let named_as_stream = alone.as_ref().unwrap_or(&after);
+    let violations = beyond_vector(analysis, &events, named_as_stream, &generated.columns)?;
     if let Some(first) = violations.first() {
         bail!(
             "{source}: the transformation empties {} column(s) the proven data plane keeps, \
@@ -219,14 +259,21 @@ fn prove(
             violations.len()
         );
     }
+    // The rules on the records as the table gets them, without Sluice's part and with it.
+    let stored: Vec<Event> = events
+        .iter()
+        .zip(&untouched)
+        .map(|(event, record)| Event {
+            fields: record.clone(),
+            ..(*event).clone()
+        })
+        .collect();
+    let stored: Vec<&Event> = stored.iter().collect();
     let alerts = input
         .sentinel
         .and_then(|s| s.engine)
-        .map(|engine| super::same_alerts(engine, source, &events, &after))
+        .map(|engine| super::same_alerts(engine, source, &stored, &after))
         .transpose()?;
-    // Both sides as the engine holds them: typed values, the stream's columns only.
-    let untouched = run_transformation(url, &declared, &flow.before, &events)
-        .with_context(|| format!("{source}: reading the records in the emulator"))?;
     let proven = Proven {
         source: source.to_owned(),
         table,
@@ -278,8 +325,8 @@ fn write(rule: Value, proven: &[(Proven, Flow)], dir: &Path) -> Result<()> {
     let rule = deployment(rule, proven)?;
     for (one, flow) in proven {
         crate::output::write(
-            &dir.join(format!("{}.table.json", archive(one.table))),
-            &(serde_json::to_string_pretty(&archive_table(one.table, flow))? + "\n"),
+            &dir.join(format!("{}.table.json", archive(&one.table))),
+            &(serde_json::to_string_pretty(&archive_table(&one.table, flow))? + "\n"),
         )?;
         crate::output::write(
             &dir.join(format!("{}.transform.kql", one.source)),
@@ -288,7 +335,7 @@ fn write(rule: Value, proven: &[(Proven, Flow)], dir: &Path) -> Result<()> {
     }
     let path = dir.join("dcr.json");
     crate::output::write(&path, &(serde_json::to_string_pretty(&rule)? + "\n"))?;
-    let tables: Vec<String> = proven.iter().map(|(one, _)| archive(one.table)).collect();
+    let tables: Vec<String> = proven.iter().map(|(one, _)| archive(&one.table)).collect();
     println!(
         "  native  wrote {}: first create {} from the .table.json next to it (Auxiliary plan, \
          every record kept whole), then update the rule with it",
@@ -315,8 +362,8 @@ fn deployment(mut rule: Value, proven: &[(Proven, Flow)]) -> Result<Value> {
         .as_array_mut()
         .context("the data collection rule has no data flows")?;
     for (one, flow) in proven {
-        let output = output(one.table);
-        let archived = format!("Custom-{}", archive(one.table));
+        let output = one.table.output_stream();
+        let archived = format!("Custom-{}", archive(&one.table));
         let destinations = flows
             .iter()
             .find(|f| f["outputStream"] == output.as_str())
@@ -339,7 +386,7 @@ fn deployment(mut rule: Value, proven: &[(Proven, Flow)]) -> Result<Value> {
 }
 
 /// The archive table for the tables API: the stream's columns, on the Auxiliary plan.
-fn archive_table(table: Table, flow: &Flow) -> Value {
+fn archive_table(table: &Table, flow: &Flow) -> Value {
     let mut columns: Vec<Value> = flow
         .stream
         .iter()

@@ -72,7 +72,7 @@ fn of(plans: &[(&Template, &EffectiveRecipe)]) -> Transformation {
         .map(|(template, recipe)| TransformPlan { template, recipe })
         .collect();
     transformation(
-        Table::SecurityEvent,
+        &Table::SecurityEvent,
         &Table::SecurityEvent.column_names(),
         &plans,
     )
@@ -357,9 +357,9 @@ fn c1_in_the_kql_engine_only_records_of_the_template_lose_the_column() {
         }),
     ];
     let client = crate::engine::Client::new(&url);
-    let database = crate::engine::Database::create(&client).expect("a database");
+    let database = crate::engine::Database::create(&client, &[]).expect("a database");
     database
-        .load(Table::SecurityEvent, &events.iter().collect::<Vec<_>>())
+        .load(&Table::SecurityEvent, &events.iter().collect::<Vec<_>>())
         .expect("loads");
     let query = out.kql.replacen("source", "SecurityEvent", 1) + "\n| project Activity, EventData";
     let rows = database.query(&query).expect("the transformation runs");
@@ -406,7 +406,7 @@ fn only_columns_of_the_stream_are_named_and_a_template_needing_another_is_left_a
             .filter(|c| *c != left)
             .collect()
     };
-    let out = transformation(Table::SecurityEvent, &without("SubjectUserName"), &plans);
+    let out = transformation(&Table::SecurityEvent, &without("SubjectUserName"), &plans);
     assert_ne!(out.kql, "source");
     assert!(
         !out.kql.contains("['SubjectUserName']"),
@@ -418,7 +418,7 @@ fn only_columns_of_the_stream_are_named_and_a_template_needing_another_is_left_a
         "every column read is in the stream"
     );
 
-    let out = transformation(Table::SecurityEvent, &without("PrivilegeList"), &plans);
+    let out = transformation(&Table::SecurityEvent, &without("PrivilegeList"), &plans);
     assert_eq!(out.kql, "source", "its records cannot arrive whole");
     assert!(
         out.left_out.iter().any(|r| r.contains("PrivilegeList")),

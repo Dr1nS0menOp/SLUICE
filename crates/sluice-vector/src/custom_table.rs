@@ -27,7 +27,9 @@ pub enum ColumnKind {
 }
 
 impl ColumnKind {
-    fn name(self) -> &'static str {
+    /// The type's name in Log Analytics.
+    #[must_use]
+    pub fn name(self) -> &'static str {
         match self {
             Self::String => "string",
             Self::Long => "long",

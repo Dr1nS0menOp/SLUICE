@@ -94,7 +94,9 @@ impl SentinelRules {
             .and_then(Value::as_str)
             .map_or_else(|| format!("unnamed:{place}"), str::to_owned);
         let reads = functions.reads(query);
-        let modeled = !reads.tables.is_empty() || reads.any_table;
+        // Custom tables count too: the emulator holds the ones sources are sent to.
+        let modeled =
+            !reads.tables.is_empty() || reads.any_table || !reads.custom_tables.is_empty();
         let requirement = requirement(&id, reads, &mut self.problems);
         if let Some(name) = ["name", "displayName"]
             .iter()

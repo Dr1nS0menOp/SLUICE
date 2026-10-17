@@ -279,23 +279,55 @@ pub(crate) fn elasticsearch(
     Ok(engine)
 }
 
+/// The source and table a `--sentinel-table SOURCE=TABLE` names: a standard table, or a
+/// custom one (`<Name>_CL`) with the columns `sluice connect sentinel --sample` gives the
+/// source's records in `events`.
+pub(crate) fn sentinel_table(
+    spec: &str,
+    events: &[Event],
+) -> Result<(sluice_core::ids::SourceId, sluice_kql::Table)> {
+    let (source, table) = spec
+        .split_once('=')
+        .with_context(|| format!("--sentinel-table {spec}: expected SOURCE=TABLE"))?;
+    let (source, table) = (source.trim(), table.trim());
+    let found = match table.strip_suffix("_CL") {
+        Some(name) => {
+            let records: Vec<_> = events
+                .iter()
+                .filter(|e| e.source.as_str() == source)
+                .map(|e| e.fields.clone())
+                .collect();
+            let inferred = sluice_vector::CustomTable::infer(name, &records)
+                .with_context(|| format!("--sentinel-table {spec}"))?;
+            let mut columns = vec![sluice_kql::CustomColumn {
+                name: "TimeGenerated".to_owned(),
+                kind: "datetime".to_owned(),
+                field: "TimeGenerated".to_owned(),
+            }];
+            columns.extend(inferred.columns().iter().map(|c| sluice_kql::CustomColumn {
+                name: c.name.clone(),
+                kind: c.kind.name().to_owned(),
+                field: c.field.clone(),
+            }));
+            sluice_kql::Table::custom(table, columns)
+        }
+        None => sluice_kql::Table::from_name(table),
+    };
+    let table = found
+        .with_context(|| format!("--sentinel-table {spec}: Sluice cannot load table `{table}`"))?;
+    Ok((sluice_core::ids::SourceId::new(source), table))
+}
+
 /// The Kusto emulator at `url`, running `rules` on the sources `--sentinel-table` names.
 pub(crate) fn kusto(
     url: &str,
     rules: &sluice_rules::SentinelRules,
     specs: &[String],
+    events: &[Event],
 ) -> Result<sluice_kql::KustoEngine> {
     let tables = specs
         .iter()
-        .map(|spec| {
-            let (source, table) = spec
-                .split_once('=')
-                .with_context(|| format!("--sentinel-table {spec}: expected SOURCE=TABLE"))?;
-            let table = sluice_kql::Table::from_name(table.trim()).with_context(|| {
-                format!("--sentinel-table {spec}: Sluice cannot load table `{table}`")
-            })?;
-            Ok((sluice_core::ids::SourceId::new(source.trim()), table))
-        })
+        .map(|spec| sentinel_table(spec, events))
         .collect::<Result<_>>()?;
     let engine = sluice_kql::KustoEngine::connect(url, rules.queries(), tables)
         .with_context(|| format!("connecting to the Kusto emulator at {url}"))?;

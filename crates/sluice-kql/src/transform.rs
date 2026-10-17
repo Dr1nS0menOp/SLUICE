@@ -26,9 +26,10 @@ use sluice_core::ids::TemplateId;
 use sluice_core::predicate::Predicate;
 use sluice_core::template::{Template, TemplateShape};
 
-use crate::engine::Table;
+pub use self::run::{run_transformation, run_transformations};
 use crate::predicate::compile_known;
 use crate::syntax;
+use crate::table::Table;
 
 /// Columns Azure Monitor sets on the record itself, which a DCR transformation may not see.
 pub const SERVICE_COLUMNS: [&str; 9] = [
@@ -77,6 +78,10 @@ pub const MAX_TRANSFORM_KQL: usize = 15_360;
 /// that contains it was written by Sluice before, and everything from it on is Sluice's.
 pub const SLUICE_PART: &str = "| extend __sluice_s";
 
+/// The line that ends what [`transformation`] adds. Where Sluice's part runs before a data
+/// flow's own transformation, the flow's part follows it.
+pub const SLUICE_PART_END: &str = "| project-away __sluice_s, __sluice_r, __sluice_t";
+
 /// One template and the recipe enforced on it.
 #[derive(Debug, Clone, Copy)]
 pub struct TransformPlan<'a> {
@@ -123,13 +128,31 @@ type Groups = BTreeMap<String, BTreeMap<Vec<(String, String)>, Group>>;
 /// flow into a standard table carries the table's columns: [`Table::column_names`].
 #[must_use]
 pub fn transformation(
-    table: Table,
+    table: &Table,
     stream: &[&str],
     plans: &[TransformPlan<'_>],
 ) -> Transformation {
     let columns: Vec<(&str, &str)> = table
         .own_columns()
-        .filter(|(name, _)| !SERVICE_COLUMNS.contains(name) && stream.contains(name))
+        .filter(|(name, _)| stream.contains(name))
+        .collect();
+    transformation_on(table.name(), &columns, stream, plans)
+}
+
+/// As [`transformation`], on `columns` (name and type, among `stream`) as they are where the
+/// transformation runs: a stream's, when it runs before the data flow's own transformation
+/// renames any. `table` only names the place in what is left out.
+#[must_use]
+pub fn transformation_on(
+    table: &str,
+    columns: &[(&str, &str)],
+    stream: &[&str],
+    plans: &[TransformPlan<'_>],
+) -> Transformation {
+    let columns: Vec<(&str, &str)> = columns
+        .iter()
+        .copied()
+        .filter(|(name, _)| !SERVICE_COLUMNS.contains(name))
         .collect();
     let types: BTreeMap<&str, &str> = columns.iter().copied().collect();
     let mut left_out = Vec::new();
@@ -247,7 +270,7 @@ fn removable(
     plan: &TransformPlan<'_>,
     discriminators: &BTreeMap<String, String>,
     types: &BTreeMap<&str, &str>,
-    table: Table,
+    table: &str,
     left_out: &mut Vec<String>,
 ) -> BTreeSet<String> {
     let id = &plan.template.id;
@@ -262,8 +285,7 @@ fn removable(
                 && !discriminators.contains_key(name);
             if !whole {
                 left_out.push(format!(
-                    "{id}: `{name}` is not a whole column of {} the transformation can empty",
-                    table.name()
+                    "{id}: `{name}` is not a whole column of {table} the transformation can empty"
                 ));
             }
             whole.then(|| name.to_owned())
@@ -418,7 +440,7 @@ fn render(
         ));
         transformation.columns.insert(name.clone());
     }
-    lines.push("| project-away __sluice_s, __sluice_r, __sluice_t".to_owned());
+    lines.push(SLUICE_PART_END.to_owned());
     transformation.kql = lines.join("\n");
     transformation
 }
@@ -452,76 +474,6 @@ fn empty_value(kind: &str) -> String {
     }
 }
 
-/// Runs a transformation's `kql` on `events` in the Kusto emulator at `url`, as a DCR runs it on
-/// a stream with `columns` (name and type, as a stream declaration gives them). Returns each
-/// event's record afterwards, in the order of `events`, with its non-empty columns only (an
-/// empty column and a missing one are the same to the table).
-///
-/// # Errors
-///
-/// Returns [`crate::KustoError`] if the emulator cannot be used or rejects the transformation.
-pub fn run_transformation(
-    url: &str,
-    columns: &[(&str, &str)],
-    kql: &str,
-    events: &[&sluice_core::event::Event],
-) -> Result<Vec<serde_json::Map<String, serde_json::Value>>, crate::KustoError> {
-    use serde_json::{Map, Value, json};
-
-    const ROW: &str = "__sluice_n";
-    let client = crate::engine::Client::new(url);
-    let database = crate::engine::Database::create(&client)?;
-    // Stream declarations say `boolean`; Kusto calls it `bool`.
-    let mut declared: Vec<(&str, &str)> = columns
-        .iter()
-        .map(|(name, kind)| (*name, if *kind == "boolean" { "bool" } else { *kind }))
-        .collect();
-    declared.push((ROW, "long"));
-    let records: Vec<Value> = events
-        .iter()
-        .enumerate()
-        .map(|(n, event)| {
-            let mut record: Map<String, Value> = columns
-                .iter()
-                .filter_map(|(name, _)| {
-                    event
-                        .fields
-                        .get(*name)
-                        .map(|v| ((*name).to_owned(), v.clone()))
-                })
-                .collect();
-            record.insert(ROW.to_owned(), json!(n));
-            Value::Object(record)
-        })
-        .collect();
-    database.load_table("SluiceInput", &declared, &records)?;
-    let query = format!(
-        "{}\n| order by {ROW} asc",
-        kql.replacen("source", "SluiceInput", 1)
-    );
-    database
-        .query(&query)?
-        .iter()
-        .map(|row| {
-            let row: Value = serde_json::from_str(row)
-                .map_err(|e| crate::KustoError::Response(e.to_string()))?;
-            let (Some(names), Some(values)) = (row[0].as_array(), row[1].as_array()) else {
-                return Err(crate::KustoError::Response(
-                    "a row without columns".to_owned(),
-                ));
-            };
-            Ok(names
-                .iter()
-                .zip(values)
-                .filter_map(|(name, value)| {
-                    let name = name.as_str()?;
-                    let empty = value.is_null() || value.as_str() == Some("");
-                    (name != ROW && !empty).then(|| (name.to_owned(), value.clone()))
-                })
-                .collect())
-        })
-        .collect()
-}
 /// The functions `kql` calls (an identifier right before `(`, outside string literals) that are
 /// not in [`ALLOWED_FUNCTIONS`]. Empty for every transformation Sluice generates.
 #[must_use]
@@ -556,5 +508,6 @@ pub fn disallowed_functions(kql: &str) -> BTreeSet<String> {
     found
 }
 
+mod run;
 #[cfg(test)]
 mod tests;

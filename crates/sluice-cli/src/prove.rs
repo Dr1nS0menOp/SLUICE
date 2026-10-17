@@ -58,7 +58,7 @@ pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
     let sigma_engine = sigma.engine(&sources)?;
     let sentinel = input::sentinel(args.sentinel_rules.as_deref())?;
     let kusto = match (&sentinel, &args.kusto) {
-        (Some(rules), Some(url)) => Some(input::kusto(url, rules, &args.sentinel_table)?),
+        (Some(rules), Some(url)) => Some(input::kusto(url, rules, &args.sentinel_table, &events)?),
         _ => None,
     };
     if sigma.requirements().is_empty() && kusto.is_none() {

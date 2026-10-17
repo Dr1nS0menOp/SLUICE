@@ -94,7 +94,7 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
     let elastic_rules = input::elastic(args.elastic_rules.as_deref())?;
     let splunk_rules = input::splunk(args.splunk_rules.as_deref())?;
     let kusto = match (&sentinel_rules, &args.kusto) {
-        (Some(rules), Some(url)) => Some(input::kusto(url, rules, &args.sentinel_table)?),
+        (Some(rules), Some(url)) => Some(input::kusto(url, rules, &args.sentinel_table, &events)?),
         _ => None,
     };
     let elasticsearch = match (&elastic_rules, &args.elasticsearch) {

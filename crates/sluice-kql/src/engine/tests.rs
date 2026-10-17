@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use super::*;
+use crate::table::CustomColumn;
 
 fn ids(rule: &str, rows: &[&str]) -> Vec<u64> {
     alerts_from_rows(
@@ -54,15 +55,15 @@ fn event(id: u64, source: &str, fields: &Value) -> Event {
 fn records_hold_columns_and_the_table_type() {
     let event = event(1, "win", &json!({"EventID": 4625, "NotAColumn": 1}));
     assert_eq!(
-        record(Table::SecurityEvent, &event),
+        record(&Table::SecurityEvent, &event),
         json!({ "EventID": 4625, "Type": "SecurityEvent" })
     );
 }
 
 #[test]
 fn every_table_is_found_by_its_name_and_only_by_it() {
-    for table in Table::ALL {
-        assert_eq!(Table::from_name(table.name()), Some(table));
+    for table in Table::STANDARD {
+        assert_eq!(Table::from_name(table.name()), Some(table.clone()));
         assert!(table.columns().any(|(c, _)| c == "_ResourceId"));
     }
     assert_eq!(Table::from_name("securityevent"), None);
@@ -196,7 +197,7 @@ fn rules_that_cannot_run_on_empty_tables_are_set_aside_with_the_reason() {
         .iter()
         .filter(|(_, d, c)| d == name && c.starts_with(".create table "))
         .count();
-    assert_eq!(tables, Table::ALL.len());
+    assert_eq!(tables, Table::STANDARD.len());
     assert_eq!(
         sent.last().unwrap().2,
         format!(".drop database {name} ifexists")
@@ -285,4 +286,93 @@ fn a_malformed_query_result_is_an_error_not_a_rule_set_aside() {
         );
         assert!(matches!(engine, Err(KustoError::Response(_))), "{engine:?}");
     }
+}
+
+fn custom() -> Table {
+    let column = |name: &str, kind: &str, field: &str| CustomColumn {
+        name: name.to_owned(),
+        kind: kind.to_owned(),
+        field: field.to_owned(),
+    };
+    Table::custom(
+        "MyApp_CL",
+        vec![
+            column("TimeGenerated", "datetime", "TimeGenerated"),
+            column("action", "string", "action"),
+            column("user_agent", "string", "user-agent"),
+        ],
+    )
+    .expect("a valid custom table")
+}
+
+#[test]
+fn a_custom_table_needs_a_valid_name_columns_and_types() {
+    let column = |name: &str, kind: &str| CustomColumn {
+        name: name.to_owned(),
+        kind: kind.to_owned(),
+        field: name.to_owned(),
+    };
+    assert!(Table::custom("MyApp", vec![column("a", "string")]).is_none());
+    assert!(Table::custom("My App_CL", vec![column("a", "string")]).is_none());
+    assert!(Table::custom("_CL", Vec::new()).is_none());
+    assert!(Table::custom("MyApp_CL", vec![column("a", "text")]).is_none());
+    assert!(Table::custom("MyApp_CL", vec![column("a']\n.drop", "string")]).is_none());
+    let table = custom();
+    assert_eq!(table.name(), "MyApp_CL");
+    assert_eq!(table.output_stream(), "Custom-MyApp_CL");
+    assert_eq!(
+        Table::SecurityEvent.output_stream(),
+        "Microsoft-SecurityEvent"
+    );
+    assert_eq!(
+        table.stream_columns(),
+        [
+            ("TimeGenerated", "datetime"),
+            ("action", "string"),
+            ("user-agent", "string")
+        ]
+    );
+    assert_eq!(
+        Table::from_name("MyApp_CL"),
+        None,
+        "only standard tables by name"
+    );
+}
+
+#[test]
+fn a_custom_table_holds_a_renamed_field_under_its_column() {
+    let event = event(
+        1,
+        "app",
+        &json!({"action": "deny", "user-agent": "curl", "extra": 1}),
+    );
+    assert_eq!(
+        record(&custom(), &event),
+        json!({"action": "deny", "user_agent": "curl", "Type": "MyApp_CL"})
+    );
+}
+
+#[test]
+fn custom_tables_are_created_in_every_database() {
+    let (url, sent) = emulator(usual);
+    let tables = BTreeMap::from([
+        (SourceId::new("app"), custom()),
+        (SourceId::new("app2"), custom()),
+    ]);
+    let engine = KustoEngine::connect(&url, &rules(&["MyApp_CL"]), tables).expect("connects");
+    let events = vec![event(1, "app", &json!({"action": "deny"}))];
+    engine.alerts(&events).expect("evaluates");
+    let sent = sent.lock().unwrap().clone();
+    let created = sent
+        .iter()
+        .filter(|(_, _, c)| c.starts_with(".create table MyApp_CL "))
+        .count();
+    assert_eq!(
+        created, 2,
+        "once when the rules are checked, once per evaluation"
+    );
+    assert!(
+        sent.iter()
+            .any(|(_, _, c)| c.starts_with(".ingest inline into table MyApp_CL"))
+    );
 }

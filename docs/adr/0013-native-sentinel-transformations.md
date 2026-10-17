@@ -1,6 +1,6 @@
 # ADR 0013: Native Sentinel transformations, proven like VRL
 
-- Status: Accepted (steps 1 to 4 done; `sluice connect sentinel --native` open)
+- Status: Accepted (steps 1 to 4 done, custom tables included)
 - Date: 2026-10-10
 
 ## Context
@@ -85,8 +85,20 @@ The constraints (docs/notes/sentinel-dcr.md) shape everything:
    Sluice wrote before has its part replaced (`SLUICE_PART`). Deployed in the test workspace
    (`scripts/real-data/deploy-dcr-native.sh`): every record arrived transformed in
    `SecurityEvent` and whole in the archive (docs/notes/sentinel-dcr.md). Without a rule,
-   nothing is written. Stream declarations for JSON sources (decision 1) and `sluice connect
-   sentinel --native` are open.
+   nothing is written. **Custom tables 2026-10-17** (decision 1): a JSON source that `sluice
+   connect sentinel --sample` sends to `<Name>_CL` takes `--sentinel-table SOURCE=<Name>_CL`
+   and that rule as `--sentinel-dcr`. The table's columns are inferred from the sample as
+   `connect` infers them, so the emulator holds each field under the column the rule renames it
+   to, and Sentinel rules on the table run there. Sluice's part runs *before* the flow's own
+   transformation, on the stream's names: the flow renames fields that are no valid column
+   names (`@timestamp`), and Vector, too, removes fields before the flow sees them. The proof
+   compares the rules on the records as the table gets them without Sluice's part and with it,
+   both from one emulator query, because the flow's transformation reads the clock (`now()`).
+   `scripts/sentinel-custom-check.sh` (run by `kql-check.sh`) does this end to end on the
+   synthetic Windows records sent as flat JSON: `Message` emptied, 54 % saved, 27 = 27 alerts,
+   and the same transformation again on the rule it wrote. Nested objects are dynamic columns
+   and stay with a pipeline tool. `sluice connect sentinel --native` is not needed: `connect`
+   writes the rule, `analyze --sentinel-native` adds the proven part.
 4. The proof gate on emulator output; a real-workspace measurement of `_BilledSize`. **Proof
    done 2026-10-17**: `--sentinel-native` runs the transformation on the sample in the emulator,
    checks that every column it empties on a record the proven data plane removes from it too,
