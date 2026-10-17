@@ -10,3 +10,10 @@ Sluice proves its reductions by running the same VRL that Vector runs. That only
 When bumping `vrl`, look up which Vector release pins that version (its `Cargo.toml`, workspace
 `vrl` entry) and update this table, `scripts/install-vector.sh`, the `Dockerfile` base image (tag
 and digest) and `Cargo.toml` in the same change.
+
+Code generated for a SIEM's own ingestion is proven in that SIEM's engine:
+
+| Target | Engine the proof runs in | Verified with |
+|--------|--------------------------|---------------|
+| Sentinel DCR `transformKql` (ADR 0013) | Kusto emulator (`kustainer-linux:latest`) | a real Log Analytics workspace, 2026-10-17 |
+| Elasticsearch ingest pipeline (ADR 0024) | Elasticsearch 9.1.0 (`scripts/elastic-check.sh`) | the same, single node, 2026-10-17 |

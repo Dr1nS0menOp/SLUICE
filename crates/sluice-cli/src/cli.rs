@@ -369,6 +369,9 @@ pub(crate) struct DemoArgs {
     /// Seed for the generated sample.
     #[arg(long, default_value_t = 1)]
     pub(crate) seed: u64,
+    /// Also prove and write Elasticsearch ingest pipelines, as `sluice analyze --elastic-native`.
+    #[arg(long, value_name = "URL")]
+    pub(crate) elastic_native: Option<String>,
     #[command(flatten)]
     pub(crate) ai: AiArgs,
 }
@@ -421,6 +424,12 @@ pub(crate) struct AnalyzeArgs {
     /// written.
     #[arg(long, value_name = "FILE", requires = "sentinel_native")]
     pub(crate) sentinel_dcr: Option<PathBuf>,
+    /// Also write, per source, an Elasticsearch ingest pipeline (`elastic/SOURCE.pipeline.json`)
+    /// that makes the plan's field removals in Elastic's own ingestion, after proving it in the
+    /// Elasticsearch at URL (ADR 0024): it removes nothing Vector keeps, and the Sigma rules
+    /// raise the same alerts. Needs documents as the index stores them.
+    #[arg(long, value_name = "URL")]
+    pub(crate) elastic_native: Option<String>,
     /// Wazuh manager API (for example `https://wazuh:55000`) to spot-check reductions with its
     /// real decoders and rules through `logtest`. The password is read from
     /// `WAZUH_API_PASSWORD`.

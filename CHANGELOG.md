@@ -208,6 +208,12 @@ explains the terms.
   into a `Sluice<Table>Archive_CL` table on the Auxiliary plan, defined in a `.table.json`
   (contract rule 2). Only tables where something is removed change, and a rule Sluice wrote
   before gets its part replaced, not doubled.
+- `sluice analyze --elastic-native URL` (and `sluice demo`): per source, an Elasticsearch ingest
+  pipeline (`elastic/SOURCE.pipeline.json`, one Painless script) that makes the plan's field
+  removals in Elastic's own ingestion, nested fields included, written only after the
+  Elasticsearch at URL shows it removes nothing the proven data plane keeps and the Sigma rules
+  raise the same alerts (ADR 0024, crate `sluice-elastic`). `scripts/elastic-check.sh` runs the
+  differential tests against a real Elasticsearch; `check.sh` and CI run it.
 - The report says per kind of event where its saving can run.
 - `scripts/real-data/`: collects real Windows, Linux and Sentinel events (kept outside the
   repository), sends Windows events through `sluice up` to a Sentinel workspace, and runs

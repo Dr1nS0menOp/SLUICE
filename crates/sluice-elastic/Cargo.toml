@@ -1,0 +1,22 @@
+[package]
+name = "sluice-elastic"
+description = "Elasticsearch ingest pipelines that carry out a savings plan's field removals, proven in a real Elasticsearch"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+sluice-core.workspace = true
+thiserror.workspace = true
+ureq.workspace = true
+
+[dev-dependencies]
+sluice-rules.workspace = true
+sluice-synth.workspace = true
+sluice-vector.workspace = true
+
+[lints]
+workspace = true

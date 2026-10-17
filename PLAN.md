@@ -650,7 +650,13 @@ planned when it starts; it includes at least:
   `--sentinel-native` proves each table's `transformKql` in the Kusto emulator, and
   `--sentinel-dcr RULE.json` writes the rule back with it and an untransformed flow into an
   Auxiliary archive table. Deployed in the test workspace: Azure emptied what the emulator did
-  and archived every record whole. The report shows `runs_in`. Next: Elastic ingest pipelines.
+  and archived every record whole. The report shows `runs_in`.
+
+  Status 2026-10-17 (ADR 0024): the Elasticsearch ingest pipeline generator is done and
+  *proven*: `--elastic-native URL` proves a Painless pipeline per source in a real
+  Elasticsearch (never more than Vector, same Sigma alerts); on the real Windows sample with
+  SigmaHQ, System −24.8 % and Application −39.3 %. Text templates and counting stay with a
+  pipeline tool. Next: Splunk.
 - Requirements extractors and, where an engine can run offline, proofs for each SIEM's own rule
   language, in this order (decided 2026-10-14): Elastic first (KQL, EQL, ES|QL, detection
   rules; OpenSearch and the SIEMs built on it follow), then Splunk SPL (correlation searches),

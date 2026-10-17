@@ -39,4 +39,12 @@ else
     printf '\n==> kql: skipped (pull mcr.microsoft.com/azuredataexplorer/kustainer-linux)\n'
 fi
 
+if [[ -n ${SLUICE_ELASTIC_URL:-} ]] || { command -v docker >/dev/null 2>&1 \
+    && docker image inspect docker.elastic.co/elasticsearch/elasticsearch:9.1.0 >/dev/null 2>&1; }; then
+    step "elastic (differential test against Elasticsearch)"
+    bash "$(dirname "$0")/elastic-check.sh"
+else
+    printf '\n==> elastic: skipped (docker pull docker.elastic.co/elasticsearch/elasticsearch:9.1.0)\n'
+fi
+
 printf '\nAll gates passed.\n'

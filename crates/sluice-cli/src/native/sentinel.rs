@@ -1,11 +1,5 @@
 //! `sluice analyze --sentinel-native`: the plan's field removals as a DCR transformation per
-//! Sentinel source (ADR 0013), proven in the Kusto emulator before anything is written.
-//!
-//! The proof has two parts, both on the sample:
-//! 1. **Never more than Vector.** Every column the transformation empties on a record is one the
-//!    proven data plane removes from it too (or the data plane counts the event instead).
-//! 2. **The same detections.** Microsoft's rules in the emulator raise the same alerts on the
-//!    transformed records as on the full ones.
+//! Sentinel source (ADR 0013), proven in the Kusto emulator with Microsoft's rules.
 //!
 //! What is written is one data collection rule: each proven transformation in its table's data
 //! flow, and next to it a flow of the same stream, untransformed, into an archive table of the
@@ -23,6 +17,8 @@ use sluice_kql::{
     MAX_TRANSFORM_KQL, SLUICE_PART, Table, TransformPlan, Transformation, disallowed_functions,
     run_transformation, transformation,
 };
+
+use super::{is_empty, list, megabytes, saved, size};
 
 /// Proves a transformation for each `SOURCE=TABLE` in `specs`, and writes those that remove
 /// something into `dcr`, the data collection rule the records go through.
@@ -223,7 +219,11 @@ fn prove(
             violations.len()
         );
     }
-    let alerts = same_alerts(input, source, &events, &after)?;
+    let alerts = input
+        .sentinel
+        .and_then(|s| s.engine)
+        .map(|engine| super::same_alerts(engine, source, &events, &after))
+        .transpose()?;
     // Both sides as the engine holds them: typed values, the stream's columns only.
     let untouched = run_transformation(url, &declared, &flow.before, &events)
         .with_context(|| format!("{source}: reading the records in the emulator"))?;
@@ -357,42 +357,6 @@ fn archive_table(table: Table, flow: &Flow) -> Value {
     })
 }
 
-/// The alerts Microsoft's rules raise on the full records, if they raise the same on the
-/// transformed ones; `None` without Sentinel rules to run.
-fn same_alerts(
-    input: Input<'_>,
-    source: &str,
-    events: &[&Event],
-    after: &[Map<String, Value>],
-) -> Result<Option<usize>> {
-    let Some(engine) = input.sentinel.and_then(|s| s.engine) else {
-        return Ok(None);
-    };
-    let transformed: Vec<Event> = events
-        .iter()
-        .zip(after)
-        .map(|(event, record)| Event {
-            fields: record.clone(),
-            ..(*event).clone()
-        })
-        .collect();
-    let full = engine
-        .alerts_refs(events)
-        .context("rules on the full records")?;
-    let changed = engine
-        .alerts(&transformed)
-        .context("rules on the transformed records")?;
-    if full != changed {
-        bail!(
-            "{source}: the transformation changes detections ({} alerts on full records, {} on \
-             transformed ones); nothing was written",
-            full.len(),
-            changed.len()
-        );
-    }
-    Ok(Some(full.len()))
-}
-
 /// Columns the transformation emptied on a record that the data plane keeps on it.
 fn beyond_vector(
     analysis: &Analysis,
@@ -420,155 +384,5 @@ fn beyond_vector(
     Ok(violations)
 }
 
-fn is_empty(value: &Value) -> bool {
-    match value {
-        Value::Null => true,
-        Value::String(s) => s.is_empty(),
-        Value::Object(map) => map.is_empty(),
-        _ => false,
-    }
-}
-
-fn size(fields: &Map<String, Value>) -> usize {
-    serde_json::to_string(fields).map_or(0, |s| s.len())
-}
-
-#[allow(
-    clippy::cast_precision_loss,
-    reason = "sample sizes stay far below 2^52 bytes"
-)]
-fn megabytes(bytes: usize) -> String {
-    format!("{:.1} MB", bytes as f64 / 1e6)
-}
-
-#[allow(
-    clippy::cast_precision_loss,
-    reason = "sample sizes stay far below 2^52 bytes"
-)]
-fn saved(before: usize, after: usize) -> String {
-    if before == 0 {
-        return "0.0% saved".to_owned();
-    }
-    format!(
-        "{:.1}% saved",
-        (before.saturating_sub(after)) as f64 * 100.0 / before as f64
-    )
-}
-
-fn list(columns: &BTreeSet<String>) -> String {
-    if columns.is_empty() {
-        "none".to_owned()
-    } else {
-        columns.iter().cloned().collect::<Vec<_>>().join(", ")
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn rule() -> Value {
-        json!({
-            "id": "/subscriptions/x/dataCollectionRules/r",
-            "location": "westeurope",
-            "properties": {
-                "immutableId": "dcr-1",
-                "streamDeclarations": { "Custom-S": { "columns": [
-                    { "name": "EventID", "type": "int" },
-                    { "name": "EventData", "type": "string" },
-                ] } },
-                "dataFlows": [
-                    { "streams": ["Custom-S"], "destinations": ["ws"],
-                      "transformKql": "source | extend X = 1",
-                      "outputStream": "Microsoft-SecurityEvent" },
-                    { "streams": ["Custom-W"], "destinations": ["ws"],
-                      "transformKql": "source", "outputStream": "Microsoft-WindowsEvent" },
-                ],
-            },
-        })
-    }
-
-    const GENERATED: &str = "source\n| extend __sluice_s = \"1\"\n| extend EventData = \"\"";
-
-    fn proven(flow: &Flow) -> Proven {
-        Proven {
-            source: "win".to_owned(),
-            table: Table::SecurityEvent,
-            generated: Transformation {
-                kql: GENERATED.to_owned(),
-                templates: BTreeSet::new(),
-                columns: BTreeSet::from(["EventData".to_owned()]),
-                left_out: Vec::new(),
-            },
-            kql: flow.then(GENERATED),
-        }
-    }
-
-    fn flow(rule: &Value) -> Flow {
-        Flow::of(Some(rule), Table::SecurityEvent).expect("the rule has a flow into the table")
-    }
-
-    #[test]
-    fn c2_every_transformed_stream_also_flows_whole_into_an_archive() {
-        let flow = flow(&rule());
-        let one = proven(&flow);
-        let written = deployment(rule(), &[(one, flow)]).expect("a deployable rule");
-        let flows = written["properties"]["dataFlows"]
-            .as_array()
-            .expect("flows");
-        assert_eq!(flows.len(), 3);
-        assert_eq!(
-            flows[0]["transformKql"],
-            "source | extend X = 1\n| extend __sluice_s = \"1\"\n| extend EventData = \"\""
-        );
-        assert_eq!(flows[1]["transformKql"], "source");
-        assert_eq!(
-            flows[2],
-            json!({
-                "streams": ["Custom-S"],
-                "destinations": ["ws"],
-                "transformKql": "source",
-                "outputStream": "Custom-SluiceSecurityEventArchive_CL",
-            })
-        );
-        assert!(written.get("id").is_none());
-        assert!(written["properties"].get("immutableId").is_none());
-    }
-
-    #[test]
-    fn c2_a_rule_written_twice_keeps_one_archive_flow() {
-        let first = flow(&rule());
-        let once = deployment(rule(), &[(proven(&first), first)]).expect("a deployable rule");
-        let second = flow(&once);
-        let twice = deployment(once.clone(), &[(proven(&second), second)]).expect("again");
-        let archives = twice["properties"]["dataFlows"]
-            .as_array()
-            .expect("flows")
-            .iter()
-            .filter(|f| f["outputStream"] == "Custom-SluiceSecurityEventArchive_CL")
-            .count();
-        assert_eq!(archives, 1);
-        assert_eq!(
-            twice, once,
-            "the second run replaces Sluice's part instead of adding one"
-        );
-    }
-
-    #[test]
-    fn the_archive_table_has_the_stream_columns_and_a_time() {
-        let table = archive_table(Table::SecurityEvent, &flow(&rule()));
-        assert_eq!(table["properties"]["plan"], "Auxiliary");
-        let names: Vec<&str> = table["properties"]["schema"]["columns"]
-            .as_array()
-            .expect("columns")
-            .iter()
-            .filter_map(|c| c["name"].as_str())
-            .collect();
-        assert_eq!(names, ["TimeGenerated", "EventID", "EventData"]);
-    }
-
-    #[test]
-    fn a_rule_without_a_flow_into_the_table_is_refused() {
-        assert!(Flow::of(Some(&rule()), Table::Syslog).is_err());
-    }
-}
+mod tests;

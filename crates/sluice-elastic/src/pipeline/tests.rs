@@ -1,0 +1,424 @@
+use std::collections::BTreeSet;
+use std::fmt::Write as _;
+
+use serde_json::{Map, Value, json};
+use sluice_core::event::{Event, Timestamp};
+use sluice_core::field::FieldPath;
+use sluice_core::guard::{EffectiveRecipe, Route};
+use sluice_core::ids::{EventId, SourceId};
+use sluice_core::predicate::{FieldTest, MatchOp, Predicate};
+use sluice_core::reduce::{Outcome, Reducer};
+use sluice_core::template::{LineHeader, Template, TemplateShape, TemplateStats};
+
+use super::*;
+
+const ENV: &str = "SLUICE_ELASTIC_URL";
+
+fn paths(names: &[&str]) -> BTreeSet<FieldPath> {
+    names.iter().map(|n| FieldPath::from(*n)).collect()
+}
+
+fn template(id: &str, discriminators: &[(&str, &str)], variants: &[&[&str]]) -> Template {
+    let variants: Vec<BTreeSet<FieldPath>> = variants.iter().map(|v| paths(v)).collect();
+    let all: BTreeSet<FieldPath> = variants.iter().flatten().cloned().collect();
+    Template {
+        id: id.into(),
+        source: "windows".into(),
+        logsource: sluice_core::logsource::LogSource::default(),
+        schema: sluice_core::schema::Schema::default(),
+        pattern: String::new(),
+        shape: TemplateShape::Keyset {
+            discriminators: discriminators
+                .iter()
+                .map(|(f, v)| (FieldPath::from(*f), (*v).to_owned()))
+                .collect(),
+            paths: all.clone(),
+            variants,
+        },
+        fields: all,
+        text_fields: BTreeSet::new(),
+        stats: TemplateStats::default(),
+    }
+}
+
+fn removing(id: &str, fields: &[&str], keep: Option<Predicate>) -> EffectiveRecipe {
+    EffectiveRecipe {
+        drop_fields: paths(fields),
+        keep_whole_when: keep,
+        ..EffectiveRecipe::passthrough(id.into())
+    }
+}
+
+fn eq(field: &str, value: &str) -> Predicate {
+    Predicate::Field(FieldTest {
+        field: field.into(),
+        op: MatchOp::Equals,
+        values: vec![value.into()],
+        case_sensitive: false,
+    })
+}
+
+fn of(plans: &[(&Template, &EffectiveRecipe)]) -> IngestPipeline {
+    let plans: Vec<PipelinePlan<'_>> = plans
+        .iter()
+        .map(|(template, recipe)| PipelinePlan { template, recipe })
+        .collect();
+    ingest_pipeline("test", &plans)
+}
+
+fn script(pipeline: &IngestPipeline) -> &str {
+    pipeline.body["processors"][0]["script"]["source"]
+        .as_str()
+        .expect("a script")
+}
+
+fn logon() -> Template {
+    template(
+        "windows:4624:a",
+        &[("EventID", "4624")],
+        &[
+            &["EventID", "Message", "User", "Host.name"],
+            &["EventID", "Message", "User", "Host.name", "Ip"],
+        ],
+    )
+}
+
+#[test]
+fn a_plan_that_removes_nothing_has_no_processors() {
+    let t = logon();
+    let unchanged = of(&[(&t, &EffectiveRecipe::passthrough(t.id.clone()))]);
+    assert_eq!(unchanged.body["processors"], json!([]));
+    assert!(unchanged.templates.is_empty() && unchanged.fields.is_empty());
+    assert_eq!(of(&[]).body["processors"], json!([]));
+}
+
+#[test]
+fn a_removal_is_one_script_that_decides_before_it_removes() {
+    let t = logon();
+    let recipe = removing(t.id.as_str(), &["Message"], Some(eq("User", "Admin")));
+    let out = of(&[(&t, &recipe)]);
+    assert_eq!(out.templates, [t.id.clone()].into());
+    assert_eq!(out.fields, paths(&["Message"]));
+    let processor = &out.body["processors"][0]["script"];
+    assert_eq!(processor["ignore_failure"], true);
+    let script = script(&out);
+    let classify = script.find("t = 0").expect("classifies");
+    let keep = script.find("if (!(sluiceTest").expect("tests keep-whole");
+    let remove = script
+        .find("sluiceRemove(ctx, ['Message'])")
+        .expect("removes");
+    assert!(classify < keep && keep < remove, "{script}");
+    assert!(
+        script.contains("keys.equals(new HashSet(['EventID', 'Host.name', 'Message', 'User']))")
+    );
+    assert!(script.contains("sluiceDisc(sluiceGet(ctx, ['EventID'])) == '4624'"));
+}
+
+/// Takes the documents with an IP of [`logon`] first: its id sorts before.
+fn overlapping() -> Template {
+    template(
+        "windows:1:a",
+        &[],
+        &[&["EventID", "Message", "User", "Host.name", "Ip"]],
+    )
+}
+
+#[test]
+fn c1_a_template_that_changes_nothing_still_claims_what_vector_gives_it() {
+    let counted = overlapping();
+    let removed = logon();
+    let unrelated = template("windows:0:a", &[], &[&["Other"]]);
+    let counting = EffectiveRecipe {
+        route: Route::ForwardMatching {
+            prefilter: eq("User", "x"),
+            summary_keys: vec!["User".into()],
+        },
+        ..removing(counted.id.as_str(), &["User"], None)
+    };
+    let recipe = removing(removed.id.as_str(), &["Message"], None);
+    let out = of(&[
+        (&removed, &recipe),
+        (&counted, &counting),
+        (
+            &unrelated,
+            &EffectiveRecipe::passthrough(unrelated.id.clone()),
+        ),
+    ]);
+    let script = script(&out);
+    assert!(
+        script.contains("t = 1"),
+        "both overlapping templates classify: {script}"
+    );
+    assert!(
+        !script.contains("t = 2"),
+        "the unrelated one is not needed: {script}"
+    );
+    assert!(
+        script.contains("if (t == 1)") && !script.contains("if (t == 0)"),
+        "{script}"
+    );
+    assert!(
+        out.left_out.iter().any(|r| r.contains("counting")),
+        "{:?}",
+        out.left_out
+    );
+    assert_eq!(out.templates, [removed.id.clone()].into());
+}
+
+#[test]
+fn c1_text_templates_and_metadata_names_are_left_to_a_pipeline_tool() {
+    let text = Template {
+        shape: TemplateShape::Text {
+            field: "message".into(),
+            header: LineHeader::None,
+            tokens: vec!["x".into()],
+        },
+        ..template("linux:a", &[], &[&["message"]])
+    };
+    let meta = template("windows:meta", &[], &[&["_id", "User"]]);
+    let out = of(&[
+        (&text, &removing(text.id.as_str(), &["message"], None)),
+        (&meta, &removing(meta.id.as_str(), &["User"], None)),
+    ]);
+    assert_eq!(out.body["processors"], json!([]));
+    assert_eq!(out.left_out.len(), 2, "{:?}", out.left_out);
+}
+
+#[test]
+fn empty_fields_are_removed_except_those_kept() {
+    let t = logon();
+    let recipe = EffectiveRecipe {
+        drop_empty_except: Some(paths(&["User"])),
+        ..EffectiveRecipe::passthrough(t.id.clone())
+    };
+    let out = of(&[(&t, &recipe)]);
+    let script = script(&out);
+    assert!(script.contains("sluiceRemoveEmptyExcept(ctx, keys, ['User'], [])"));
+    assert!(out.empty_fields && out.fields.is_empty());
+    assert_eq!(out.templates, [t.id.clone()].into());
+}
+
+#[test]
+fn a_script_too_large_to_compile_removes_nothing() {
+    let templates: Vec<Template> = (0..400)
+        .map(|n| {
+            template(
+                &format!("windows:{n}:a"),
+                &[("EventID", &n.to_string())],
+                &[&["EventID", "Message", "User", "Host.name", "Ip", "Port"]],
+            )
+        })
+        .collect();
+    let recipes: Vec<EffectiveRecipe> = templates
+        .iter()
+        .map(|t| {
+            removing(
+                t.id.as_str(),
+                &["Message"],
+                Some(eq("User", "Administrator")),
+            )
+        })
+        .collect();
+    let plans: Vec<(&Template, &EffectiveRecipe)> = templates.iter().zip(&recipes).collect();
+    let out = of(&plans);
+    assert_eq!(out.body["processors"], json!([]));
+    assert!(
+        out.left_out
+            .iter()
+            .any(|r| r.contains(&MAX_SCRIPT.to_string()))
+    );
+}
+
+fn event(fields: &Value) -> Event {
+    Event {
+        id: EventId(0),
+        timestamp: Timestamp(0),
+        source: SourceId::new("windows"),
+        fields: fields.as_object().expect("an object").clone(),
+    }
+}
+
+/// What Vector's VRL forwards of each event, for the same templates and recipes.
+fn vrl(plans: &[(&Template, &EffectiveRecipe)], events: &[Event]) -> Vec<Map<String, Value>> {
+    let reducer = sluice_vector::compile_reducer(
+        plans
+            .iter()
+            .map(|(template, recipe)| sluice_vector::Plan { template, recipe }),
+    )
+    .expect("VRL compiles");
+    events
+        .iter()
+        .map(|e| match reducer.reduce(e).expect("VRL runs").outcome {
+            Outcome::Forwarded(body) => body,
+            Outcome::Summarized => panic!("nothing is counted here"),
+        })
+        .collect()
+}
+
+/// In a real Elasticsearch (`SLUICE_ELASTIC_URL`, `scripts/elastic-check.sh`): every document
+/// leaves the pipeline exactly as it leaves Vector's VRL, across the edges of recognition.
+#[test]
+fn c1_in_elasticsearch_documents_lose_exactly_what_they_lose_in_vector() {
+    let Ok(url) = std::env::var(ENV) else {
+        return;
+    };
+    let t = logon();
+    let other = template(
+        "windows:4634:a",
+        &[("EventID", "4634")],
+        &[&["EventID", "User"]],
+    );
+    let recipe = EffectiveRecipe {
+        drop_empty_except: Some(paths(&["User"])),
+        ..removing(t.id.as_str(), &["Message"], Some(eq("User", "Admin")))
+    };
+    let other_recipe = removing(other.id.as_str(), &["User"], None);
+    let claiming = overlapping();
+    let unchanged = EffectiveRecipe::passthrough(claiming.id.clone());
+    let plans = [
+        (&t, &recipe),
+        (&other, &other_recipe),
+        (&claiming, &unchanged),
+    ];
+    let base = json!({"EventID": 4624, "Message": "An account logged on", "User": "bob",
+                      "Host": {"name": "ws1"}});
+    let with = |change: &dyn Fn(&mut Value)| {
+        let mut fields = base.clone();
+        change(&mut fields);
+        event(&fields)
+    };
+    let events = [
+        with(&|_| {}),
+        with(&|f| f["Ip"] = json!("10.0.0.1")),
+        with(&|f| f["Extra"] = json!(1)),
+        with(&|f| f["User"] = json!("ADMIN")),
+        with(&|f| f["User"] = json!("admİn")),
+        with(&|f| f["EventID"] = json!("4624")),
+        with(&|f| f["EventID"] = json!(4624.0)),
+        with(&|f| f["EventID"] = json!(4625)),
+        with(&|f| f["Host"] = json!({"name": "", "os": {}})),
+        with(&|f| f["Host"] = json!({"name": null})),
+        with(&|f| f["Host"] = json!("flat")),
+        with(&|f| f["User"] = json!(["a", "b"])),
+        with(&|f| f["Message"] = json!({"nested": "x"})),
+        with(&|f| {
+            f.as_object_mut().expect("an object").remove("User");
+        }),
+        event(&json!({"EventID": 4634, "User": "carol"})),
+        event(&json!({"EventID": 4634, "User": "carol", "Message": "x"})),
+        event(&json!({"EventID": "4634", "User": null})),
+    ];
+    let expected = vrl(&plans, &events);
+    let out = of(&plans);
+    let documents: Vec<&Map<String, Value>> = events.iter().map(|e| &e.fields).collect();
+    let actual = crate::simulate(&url, &out.body, &documents)
+        .unwrap_or_else(|e| panic!("{e}\n{}", script(&out)));
+    // Case folding of non-ASCII text widens to keeping the document whole.
+    let widened = 4;
+    for (n, ((event, vector), elastic)) in events.iter().zip(&expected).zip(&actual).enumerate() {
+        let shown = Value::Object(event.fields.clone());
+        if n == widened {
+            assert_eq!(elastic, &event.fields, "kept whole: {shown}");
+            assert_ne!(vector, &event.fields, "Vector removes: {shown}");
+        } else {
+            assert_eq!(elastic, vector, "event {shown}");
+        }
+    }
+    assert!(
+        expected.iter().zip(&events).any(|(v, e)| v != &e.fields),
+        "some event loses fields, or the test shows nothing"
+    );
+}
+
+/// Installed as a real pipeline and indexed through, documents are stored as `_simulate` showed.
+#[test]
+fn c1_an_installed_pipeline_stores_what_the_simulation_showed() {
+    let Ok(url) = std::env::var(ENV) else {
+        return;
+    };
+    let t = logon();
+    let recipe = removing(t.id.as_str(), &["Message"], Some(eq("User", "Admin")));
+    let out = of(&[(&t, &recipe)]);
+    let base = json!({"EventID": 4624, "Message": "x", "User": "bob", "Host": {"name": "ws1"}});
+    let mut admin = base.clone();
+    admin["User"] = json!("admin");
+    let mut drifted = base.clone();
+    drifted["New"] = json!(true);
+    let documents = [base, admin, drifted];
+    let sources: Vec<&Map<String, Value>> = documents
+        .iter()
+        .map(|d| d.as_object().expect("an object"))
+        .collect();
+    let simulated = crate::simulate(&url, &out.body, &sources).expect("simulates");
+
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .into();
+    let call = |method: &str, path: &str, body: Option<String>| -> Value {
+        let target = format!("{url}/{path}");
+        let mut answer = match (method, body) {
+            ("PUT", Some(body)) => agent
+                .put(&target)
+                .header("content-type", "application/json")
+                .send(&body),
+            ("POST", Some(body)) => agent
+                .post(&target)
+                .header("content-type", "application/x-ndjson")
+                .send(&body),
+            ("DELETE", _) => agent.delete(&target).call(),
+            _ => agent.get(&target).call(),
+        }
+        .expect("Elasticsearch answers");
+        let text = answer.body_mut().read_to_string().expect("a body");
+        serde_json::from_str(&text).unwrap_or(Value::String(text))
+    };
+    let index = "sluice-test-installed";
+    call("DELETE", index, None);
+    let put = call(
+        "PUT",
+        "_ingest/pipeline/sluice-test",
+        Some(out.body.to_string()),
+    );
+    assert_eq!(put["acknowledged"], true, "{put}");
+    let mut bulk = String::new();
+    for (n, d) in documents.iter().enumerate() {
+        writeln!(bulk, "{{\"index\":{{\"_id\":\"{n}\"}}}}\n{d}").expect("writes to a string");
+    }
+    let indexed = call(
+        "POST",
+        &format!("{index}/_bulk?pipeline=sluice-test&refresh=true"),
+        Some(bulk),
+    );
+    assert_eq!(indexed["errors"], false, "{indexed}");
+    for (n, expected) in simulated.iter().enumerate() {
+        let stored = call("GET", &format!("{index}/_doc/{n}"), None);
+        assert_eq!(&stored["_source"], &Value::Object(expected.clone()), "{n}");
+    }
+    assert!(
+        !simulated[0].contains_key("Message"),
+        "the template's document lost it"
+    );
+    assert!(simulated[1].contains_key("Message"), "kept whole");
+    assert!(
+        simulated[2].contains_key("Message"),
+        "drift is not recognised"
+    );
+    call("DELETE", index, None);
+    call("DELETE", "_ingest/pipeline/sluice-test", None);
+}
+
+/// A script Elasticsearch refuses is an error, not a pipeline that passes everything.
+#[test]
+fn a_script_that_does_not_compile_is_refused() {
+    let Ok(url) = std::env::var(ENV) else {
+        return;
+    };
+    let broken =
+        json!({"processors": [{"script": {"source": "ctx.x = ;", "ignore_failure": true}}]});
+    let doc = Map::new();
+    assert!(matches!(
+        crate::simulate(&url, &broken, &[&doc]),
+        Err(crate::ElasticError::Rejected { .. } | crate::ElasticError::Failed { .. })
+    ));
+}

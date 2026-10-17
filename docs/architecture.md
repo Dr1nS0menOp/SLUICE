@@ -266,6 +266,7 @@ Sluice is a Rust workspace with one crate per responsibility. Dependencies point
 |---|---|
 | Splunk HEC, Elasticsearch, Google SecOps, Wazuh, plain HTTP | Destinations, printed by `sluice connect` and validated against Vector. |
 | Azure Monitor Logs Ingestion API and data collection rules | Sending to Microsoft Sentinel: standard tables (`SecurityEvent`, `WindowsEvent`, `Syslog`, `CommonSecurityLog`, `ASimNetworkSessionLogs`, `ASimDnsActivityLogs`, `ASimWebSessionLogs`) or a custom `_CL` table derived from a sample. Verified in a real workspace ([notes](notes/sentinel-dcr.md)). |
+| Elasticsearch ingest pipelines (Painless) | The plan's field removals in Elastic's own ingestion, without Vector, proven in a real Elasticsearch ([ADR 0024](adr/0024-elastic-ingest-pipelines.md), [notes](notes/elasticsearch.md)). |
 
 ### AI (optional)
 

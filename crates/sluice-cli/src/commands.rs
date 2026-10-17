@@ -56,7 +56,10 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
         // The demo's rules are its own: complete by construction.
         RulesBasis::SelfContained,
         Vec::new(),
-        None,
+        Native {
+            elastic: args.elastic_native.as_deref(),
+            ..Native::default()
+        },
     )?;
     println!(
         "Re-run on the same data: sluice analyze --input {} --sources {} --rules <dir>",
@@ -120,14 +123,18 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
         &args.out,
         basis,
         inventory_notes,
-        args.kusto
-            .as_deref()
-            .filter(|_| args.sentinel_native)
-            .map(|url| Native {
-                url,
-                specs: &args.sentinel_table,
-                dcr: args.sentinel_dcr.as_deref(),
-            }),
+        Native {
+            sentinel: args
+                .kusto
+                .as_deref()
+                .filter(|_| args.sentinel_native)
+                .map(|url| SentinelNative {
+                    url,
+                    specs: &args.sentinel_table,
+                    dcr: args.sentinel_dcr.as_deref(),
+                }),
+            elastic: args.elastic_native.as_deref(),
+        },
     )
 }
 
@@ -239,8 +246,16 @@ fn recipe_book(extra: Option<&Path>) -> Result<RecipeBook> {
     )?)
 }
 
-/// What `--sentinel-native` asks for.
+/// The SIEMs' own ingestion to generate and prove code for.
+#[derive(Default)]
 struct Native<'a> {
+    sentinel: Option<SentinelNative<'a>>,
+    /// `--elastic-native`: the Elasticsearch to prove ingest pipelines in.
+    elastic: Option<&'a str>,
+}
+
+/// What `--sentinel-native` asks for.
+struct SentinelNative<'a> {
     url: &'a str,
     specs: &'a [String],
     dcr: Option<&'a Path>,
@@ -253,7 +268,7 @@ fn run(
     out: &Path,
     rules: RulesBasis,
     inventory_notes: Vec<String>,
-    native: Option<Native<'_>>,
+    native: Native<'_>,
 ) -> Result<()> {
     let Input {
         sources, events, ..
@@ -294,8 +309,18 @@ fn run(
         out.join("vector.yaml").display(),
         out.join("report.html").display()
     );
-    if let Some(native) = native {
-        crate::native::sentinel(&analysis, input, native.url, native.specs, native.dcr, out)?;
+    if let Some(sentinel) = native.sentinel {
+        crate::native::sentinel::sentinel(
+            &analysis,
+            input,
+            sentinel.url,
+            sentinel.specs,
+            sentinel.dcr,
+            out,
+        )?;
+    }
+    if let Some(url) = native.elastic {
+        crate::native::elastic::elastic(&analysis, input, url, out)?;
     }
     Ok(())
 }
