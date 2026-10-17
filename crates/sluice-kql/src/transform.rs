@@ -154,6 +154,21 @@ pub fn transformation_on(
         .copied()
         .filter(|(name, _)| !SERVICE_COLUMNS.contains(name))
         .collect();
+    // The transformation reads every column; one KQL cannot name leaves the records as they come.
+    if let Some((name, _)) = columns
+        .iter()
+        .find(|(name, _)| syntax::quoted_name(name).is_none())
+    {
+        return Transformation {
+            kql: "source".to_owned(),
+            templates: BTreeSet::new(),
+            columns: BTreeSet::new(),
+            left_out: vec![format!(
+                "{table}: the column {name:?} holds a character KQL cannot name, so nothing is \
+                 removed"
+            )],
+        };
+    }
     let types: BTreeMap<&str, &str> = columns.iter().copied().collect();
     let mut left_out = Vec::new();
     let recognised: Vec<(&TransformPlan<'_>, Recognition)> = plans
@@ -280,15 +295,23 @@ fn removable(
         .filter(|field| plan.template.fields.contains(*field))
         .filter_map(|field| {
             let name = field.as_str();
-            let whole = !name.contains('.')
-                && types.contains_key(name)
-                && !discriminators.contains_key(name);
-            if !whole {
+            let Some(kind) = types
+                .get(name)
+                .filter(|_| !name.contains('.') && !discriminators.contains_key(name))
+            else {
                 left_out.push(format!(
                     "{id}: `{name}` is not a whole column of {table} the transformation can empty"
                 ));
+                return None;
+            };
+            if empty_value(kind).is_none() {
+                left_out.push(format!(
+                    "{id}: `{name}` is a {kind} column, which has no null a transformation may \
+                     write"
+                ));
+                return None;
             }
-            whole.then(|| name.to_owned())
+            Some(name.to_owned())
         })
         .collect()
 }
@@ -379,7 +402,7 @@ fn render(
     let types: BTreeMap<&str, &str> = signed.iter().chain(rest).copied().collect();
     let bits: Vec<String> = signed
         .iter()
-        .map(|(name, kind)| format!(r#"iff({}, "0", "1")"#, empty(&read(name), kind)))
+        .map(|(name, kind)| format!(r#"iff({}, "0", "1")"#, empty(&column(name), kind)))
         .collect();
     // A dynamic `{}` counts as text here, so a record holding one keeps every column.
     let rest_empty = if rest.is_empty() {
@@ -387,7 +410,7 @@ fn render(
     } else {
         let texts: Vec<String> = rest
             .iter()
-            .map(|(name, _)| format!("tostring({})", read(name)))
+            .map(|(name, _)| format!("tostring({})", column(name)))
             .collect();
         format!("isempty({})", strcat(&texts))
     };
@@ -401,7 +424,7 @@ fn render(
             .map(|(name, value)| {
                 let literal = syntax::string(value)
                     .expect("recognition kept only values a literal can carry");
-                format!("tostring({}) == {literal}", read(name))
+                format!("tostring({}) == {literal}", column(name))
             })
             .collect();
         tests.push(format!("__sluice_s == \"{signature}\" and __sluice_r"));
@@ -435,8 +458,9 @@ fn render(
         lines.push(format!(
             "| extend {quoted} = iff({}, {}, {})",
             conditions.join(" or "),
-            empty_value(types.get(name.as_str()).copied().unwrap_or("string")),
-            read(name)
+            empty_value(types.get(name.as_str()).copied().unwrap_or("string"))
+                .expect("removable keeps only columns whose type has a null"),
+            quoted
         ));
         transformation.columns.insert(name.clone());
     }
@@ -445,14 +469,9 @@ fn render(
     transformation
 }
 
-/// A column as the target of `extend`.
+/// A column, read or as the target of `extend`.
 fn column(name: &str) -> String {
-    syntax::quoted_name(name).expect("table schema names hold no control characters")
-}
-
-/// A column read; every column read is one the stream has.
-fn read(name: &str) -> String {
-    column(name)
+    syntax::quoted_name(name).expect("transformation_on refuses columns KQL cannot name")
 }
 
 /// `parts` concatenated, nesting `strcat` where one call would take too many arguments.
@@ -465,12 +484,14 @@ fn strcat(parts: &[String]) -> String {
     }
 }
 
-/// What an emptied column holds: `""` for text, which is not billed, else a typed null.
-fn empty_value(kind: &str) -> String {
-    if kind == "string" {
-        r#""""#.to_owned()
-    } else {
-        format!("{kind}(null)")
+/// What an emptied column of type `kind` holds: `""` for text, which is not billed, else a
+/// typed null of [`ALLOWED_FUNCTIONS`]. `None` for a type without one, such as `timespan`.
+fn empty_value(kind: &str) -> Option<String> {
+    match kind {
+        "string" => Some(r#""""#.to_owned()),
+        "bool" | "boolean" => Some("bool(null)".to_owned()),
+        "int" | "long" | "real" | "datetime" | "dynamic" | "guid" => Some(format!("{kind}(null)")),
+        _ => None,
     }
 }
 

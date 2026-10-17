@@ -283,6 +283,72 @@ fn typed_columns_are_emptied_with_a_null_of_their_type() {
 }
 
 #[test]
+fn a_boolean_column_is_emptied_with_a_bool_null_and_a_type_without_one_is_left_out() {
+    let t = template(
+        "Custom:1:a",
+        &[("EventID", "1")],
+        &[&["EventID", "Flag", "Span"]],
+    );
+    let recipe = removing(t.id.as_str(), &["Flag", "Span"], None);
+    let plans = [TransformPlan {
+        template: &t,
+        recipe: &recipe,
+    }];
+    let out = transformation_on(
+        "Custom_CL",
+        &[
+            ("EventID", "int"),
+            ("Flag", "boolean"),
+            ("Span", "timespan"),
+        ],
+        &["EventID", "Flag", "Span"],
+        &plans,
+    );
+    assert!(out.kql.contains("bool(null), ['Flag'])"), "{}", out.kql);
+    assert_eq!(
+        disallowed_functions(&out.kql),
+        BTreeSet::new(),
+        "{}",
+        out.kql
+    );
+    assert_eq!(out.columns, ["Flag".to_owned()].into());
+    assert!(
+        out.left_out
+            .iter()
+            .any(|r| r.contains("`Span` is a timespan column")),
+        "{:?}",
+        out.left_out
+    );
+}
+
+#[test]
+fn no_panic_on_input_a_column_kql_cannot_name_leaves_the_records_as_they_come() {
+    let t = template(
+        "Custom:1:a",
+        &[("EventID", "1")],
+        &[&["EventID", "Bad\u{1}Name"]],
+    );
+    let recipe = removing(t.id.as_str(), &["Bad\u{1}Name"], None);
+    let plans = [TransformPlan {
+        template: &t,
+        recipe: &recipe,
+    }];
+    let out = transformation_on(
+        "Custom_CL",
+        &[("EventID", "int"), ("Bad\u{1}Name", "string")],
+        &["EventID", "Bad\u{1}Name"],
+        &plans,
+    );
+    assert_eq!(out.kql, "source");
+    assert!(out.columns.is_empty() && out.templates.is_empty());
+    assert!(
+        out.left_out[0].contains("cannot name"),
+        "{:?}",
+        out.left_out
+    );
+}
+
+#[test]
 fn every_function_a_transformation_calls_is_one_dcrs_accept() {
     let t = privileges();
     let keywords = Predicate::Keywords(sluice_core::predicate::KeywordTest {
