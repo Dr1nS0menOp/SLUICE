@@ -1,6 +1,7 @@
-//! The saved searches and macros a Splunk runs, read through its REST API (ADR 0021, ADR
-//! 0026): `saved/searches` and `admin/macros` of every app (`servicesNS/-/-`), page by page,
-//! written as the JSON answers `sluice_rules::SplunkRules` reads. Read-only.
+//! The saved searches and macros a Splunk runs, and the fields it derives, read through its
+//! REST API (ADR 0021, ADR 0026): `saved/searches`, `admin/macros`, `configs/conf-props` and
+//! `configs/conf-transforms` of every app (`servicesNS/-/-`), page by page, written as the
+//! JSON answers `sluice_rules::SplunkRules` reads. Read-only.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -39,9 +40,11 @@ pub struct Target<'a> {
 }
 
 /// The collections read, and the file each is written to.
-const COLLECTIONS: [(&str, &str, &str); 2] = [
+const COLLECTIONS: [(&str, &str, &str); 4] = [
     ("saved/searches", "saved-searches.json", "searches"),
     ("admin/macros", "macros.json", "macros"),
+    ("configs/conf-props", "props.json", "props stanzas"),
+    ("configs/conf-transforms", "transforms.json", "transforms"),
 ];
 
 /// Reads every saved search and macro visible to the user. The inventory is complete only
@@ -119,8 +122,8 @@ fn collect(
     }
     let complete = not_modeled.is_empty();
     not_modeled.push(
-        "search-time field aliases and calculated fields (props.conf) are not read: declare a \
-         source `schema: splunk` only when its sourcetype adds none that searches read"
+        "automatic extraction (`KV_MODE`) is not read: declare a source `schema: splunk` only \
+         when Splunk extracts its JSON keys as they are (`KV_MODE = json`)"
             .to_owned(),
     );
     Ok(Inventory {

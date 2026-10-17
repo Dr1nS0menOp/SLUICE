@@ -38,9 +38,8 @@ pub enum Schema {
     /// `CommonSecurityLog`).
     Sentinel,
     /// The fields as Splunk extracts them at search time: for a JSON event, its key paths
-    /// joined by dots (`KV_MODE = json`). Aliases and calculated fields of a sourcetype
-    /// (`props.conf`) are not part of the record, so a source declares this only when its
-    /// sourcetype adds none that rules read.
+    /// joined by dots (`KV_MODE = json`). Aliases and calculated fields (`props.conf`) are not
+    /// part of the record; given `props.conf`, Splunk searches are read through them.
     Splunk,
 }
 

@@ -236,7 +236,7 @@
           "const": "sentinel"
         },
         {
-          "description": "The fields as Splunk extracts them at search time: for a JSON event, its key paths\njoined by dots (`KV_MODE = json`). Aliases and calculated fields of a sourcetype\n(`props.conf`) are not part of the record, so a source declares this only when its\nsourcetype adds none that rules read.",
+          "description": "The fields as Splunk extracts them at search time: for a JSON event, its key paths\njoined by dots (`KV_MODE = json`). Aliases and calculated fields (`props.conf`) are not\npart of the record; given `props.conf`, Splunk searches are read through them.",
           "type": "string",
           "const": "splunk"
         }

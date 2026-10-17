@@ -9,6 +9,7 @@
 //! those names.
 
 mod conf;
+mod props;
 mod spl;
 #[cfg(test)]
 mod tests;
@@ -21,6 +22,7 @@ use sluice_core::rules::{RequiredFields, RuleRequirements};
 use sluice_core::schema::Schema;
 
 use self::conf::{Stanzas, truthy};
+use self::props::Derived;
 
 /// How deep macros may call macros before the search counts as unreadable.
 const MAX_MACRO_DEPTH: usize = 32;
@@ -39,11 +41,29 @@ impl SplunkRules {
     /// override settings of earlier ones, as `local` overrides `default`. A search that cannot be
     /// read becomes a rule that may read any field of any event (fail closed) and is reported in
     /// [`SplunkRules::problems`].
+    ///
+    /// Files whose name says `props` or `transforms` (`props.conf`, the REST API's
+    /// `conf-props`) are the fields Splunk derives at search time: a search's test
+    /// on an alias becomes a test on what it copies, one on a computed or extracted field
+    /// `true`, and the search reads what they are made from.
     #[must_use]
     pub fn parse<'a>(files: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
         let mut stanzas = Stanzas::new();
+        let mut props = Stanzas::new();
+        let mut transforms = Stanzas::new();
         let mut rules = Self::default();
         for (name, text) in files {
+            let file = std::path::Path::new(name)
+                .file_name()
+                .map(|f| f.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+            let into = if file.contains("props") {
+                &mut props
+            } else if file.contains("transforms") {
+                &mut transforms
+            } else {
+                &mut stanzas
+            };
             let text = text.strip_prefix('\u{feff}').unwrap_or(text);
             let json = std::path::Path::new(name)
                 .extension()
@@ -60,8 +80,15 @@ impl SplunkRules {
                 continue;
             };
             for (stanza, settings) in read {
-                stanzas.entry(stanza).or_default().extend(settings);
+                into.entry(stanza).or_default().extend(settings);
             }
+        }
+        let derived = Derived::new(&props, &transforms);
+        if let Some(why) = &derived.dynamic {
+            rules.problems.push(format!(
+                "Splunk derives {why}: any field may be derived, so every search's field tests \
+                 match every event"
+            ));
         }
         let macros = Macros::new(&stanzas);
         let defaults = stanzas.get("default").cloned().unwrap_or_default();
@@ -77,16 +104,16 @@ impl SplunkRules {
                 || truthy(setting("is_scheduled"))
                 || truthy(setting("action.correlationsearch.enabled"));
             if runs && !truthy(setting("disabled")) {
-                rules.add(name, search, &macros);
+                rules.add(name, search, &macros, &derived);
             }
         }
         rules
     }
 
-    fn add(&mut self, name: &str, search: &str, macros: &Macros<'_>) {
+    fn add(&mut self, name: &str, search: &str, macros: &Macros<'_>, derived: &Derived) {
         let rule = RuleId::new(format!("splunk:{name}"));
         let reads = match macros.expand(&without_comments(search), 0) {
-            Ok(search) => spl::read(&search),
+            Ok(search) => derived.apply(spl::read(&search)),
             Err(why) => {
                 // A generating search may read anything anyway; its macros are not the reason.
                 let why = if spl::generating(search) {

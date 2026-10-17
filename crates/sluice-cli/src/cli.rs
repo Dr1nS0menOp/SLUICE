@@ -466,8 +466,9 @@ pub(crate) struct AnalyzeArgs {
     #[arg(long)]
     pub(crate) elastic_rules: Option<PathBuf>,
     /// Directory of Splunk saved searches and macros: `savedsearches.conf` and `macros.conf`,
-    /// or the REST API's `saved/searches` and `admin/macros` JSON (ADR 0026). Their
-    /// requirements constrain every cut; no engine runs them in the proof.
+    /// or the REST API's `saved/searches` and `admin/macros` JSON, with `props.conf` and
+    /// `transforms.conf` for the fields Splunk derives (ADR 0026). Their requirements
+    /// constrain every cut; no engine runs them in the proof.
     #[arg(long)]
     pub(crate) splunk_rules: Option<PathBuf>,
     /// Also prove, per `--sentinel-table` source, a data collection rule transformation that

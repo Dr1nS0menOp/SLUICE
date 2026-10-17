@@ -46,18 +46,26 @@ Terms accepted; that is the maintainer's decision and not taken. Reading them ne
    `inputlookup`, …), a wildcard field name or a `*` after the base search, and an array path
    (`a{}.b`).
 6. **Fields are named as Splunk extracts them** (`field_names: splunk`, a new `Schema`): for a
-   JSON event, its key paths. A source declares `schema: splunk` only when its sourcetype adds
-   no aliases or calculated fields (`props.conf`) that rules read, as those names are in no
-   record. On sources in another convention the searches are read as widely as can be (ADR
-   0018). Searches are not scoped by `index` or `sourcetype`; their pre-filter bounds them.
-7. **`sluice rules fetch splunk --api URL [--insecure]`** (crate `sluice-splunk`) reads
-   `saved/searches` and `admin/macros` of every app the user sees (`servicesNS/-/-`), page by
-   page, with `SPLUNK_TOKEN` or `SPLUNK_USER`/`SPLUNK_PASSWORD`, into `saved-searches.json` and
-   `macros.json` with an `inventory.json` that is complete only when both counts match
-   Splunk's totals (ADR 0021). Entries of several apps may share a name: a search keeps every
+   JSON event, its key paths (`KV_MODE = json`). On sources in another convention the
+   searches are read as widely as can be (ADR 0018). Searches are not scoped by `index` or
+   `sourcetype`; their pre-filter bounds them.
+7. **Derived fields are read from `props.conf` and `transforms.conf`** (`splunk/props.rs`;
+   any file whose name says `props` or `transforms`), as a name a search tests may be in no
+   record: a test on it would match no event, and the guardrails would cut what the search
+   alerts on. A `FIELDALIAS` test becomes a test on the field itself or what it copies; a field
+   an `EVAL`, `LOOKUP`, `EXTRACT`, `REPORT` or `TRANSFORMS` makes is `true`, and the search
+   reads what it is made from (`_raw` for an extraction: the raw event). Stanzas are per
+   sourcetype, which a record does not carry, so every derivation counts for every record. A
+   name the data decides (`FORMAT = $1::$2`, `_KEY_1`, a lookup without `OUTPUT`, a transform
+   not among the files) may be any field: every field test widens. `KV_MODE` is not read.
+8. **`sluice rules fetch splunk --api URL [--insecure]`** (crate `sluice-splunk`) reads
+   `saved/searches`, `admin/macros`, `configs/conf-props` and `configs/conf-transforms` of
+   every app the user sees (`servicesNS/-/-`), page by page, with `SPLUNK_TOKEN` or
+   `SPLUNK_USER`/`SPLUNK_PASSWORD`, into JSON files with an `inventory.json` that is complete
+   only when every count matches Splunk's total (ADR 0021). Entries of several apps may share a name: a search keeps every
    copy (`name (app)`), and a macro the apps define differently makes every search calling it
    one that may read anything, as which definition applies depends on the search's app.
-8. **No proof runs them.** Their requirements constrain the guardrails only, like Wazuh rules
+9. **No proof runs them.** Their requirements constrain the guardrails only, like Wazuh rules
    without `logtest`. A Splunk engine for the proof waits on the licence decision.
 
 ## Consequences

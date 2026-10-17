@@ -250,7 +250,7 @@ fn commands(search: &str) -> Vec<String> {
 /// Every name in a command that may be a field: the words outside quotes that are not the
 /// command itself (when `command` is), a function's name or a number. Keywords stay in: a field
 /// may be called `count`.
-fn names(text: &str, command: bool) -> BTreeSet<FieldPath> {
+pub(crate) fn names(text: &str, command: bool) -> BTreeSet<FieldPath> {
     let mut out = BTreeSet::new();
     let text = outside_quotes(text);
     let chars: Vec<char> = text.chars().collect();

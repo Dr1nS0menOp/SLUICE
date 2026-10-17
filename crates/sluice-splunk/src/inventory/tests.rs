@@ -5,16 +5,19 @@ use super::*;
 struct Fake {
     searches: Vec<Value>,
     macros: Vec<Value>,
+    props: Vec<Value>,
     per_page: usize,
     total: Option<usize>,
 }
 
 impl Fake {
     fn get(&self, collection: &str, offset: usize) -> Value {
-        let all = if collection == "saved/searches" {
-            &self.searches
-        } else {
-            &self.macros
+        let none = Vec::new();
+        let all = match collection {
+            "saved/searches" => &self.searches,
+            "admin/macros" => &self.macros,
+            "configs/conf-props" => &self.props,
+            _ => &none,
         };
         let page: Vec<&Value> = all.iter().skip(offset).take(self.per_page).collect();
         json!({
@@ -39,6 +42,7 @@ fn fake() -> Fake {
             })
             .collect(),
         macros: vec![entry("m", &json!({"definition": "index=main"}))],
+        props: vec![entry("XmlWinEventLog", &json!({"FIELDALIAS-a": "orig AS a"}))],
         per_page: 2,
         total: None,
     }
@@ -52,7 +56,16 @@ fn every_page_of_both_collections_is_read() {
     assert_eq!(inventory.manifest.counts["searches"], 5);
     assert_eq!(inventory.manifest.counts["macros"], 1);
     let names: Vec<&str> = inventory.files.iter().map(|(n, _)| n.as_str()).collect();
-    assert_eq!(names, ["saved-searches.json", "macros.json"]);
+    assert_eq!(
+        names,
+        [
+            "saved-searches.json",
+            "macros.json",
+            "props.json",
+            "transforms.json"
+        ]
+    );
+    assert_eq!(inventory.manifest.counts["props stanzas"], 1);
 }
 
 #[test]
@@ -78,7 +91,12 @@ fn the_files_read_as_splunk_rules_with_their_macros() {
     );
     assert_eq!(rules.requirements().len(), 5);
     assert_eq!(rules.problems(), [] as [String; 0]);
-    assert!(!rules.requirements()[0].prefilter.is_always());
+    // `a` is an alias of `orig` in props.json.
+    assert!(
+        format!("{:?}", rules.requirements()[0].prefilter).contains("\"orig\""),
+        "{:?}",
+        rules.requirements()[0].prefilter
+    );
 }
 
 #[test]

@@ -22,6 +22,15 @@ image needs the Splunk General Terms accepted (ADR 0026).
   authentication token, or basic. The management port (8089) has a self-signed certificate
   by default.
 
+- `props.conf` derives fields at search time, per `[sourcetype]`, `[source::…]` or
+  `[host::…]`: `FIELDALIAS-x = orig AS new` (or `ASNEW`), `EVAL-new = expr`, `LOOKUP-x =
+  table in [AS field] OUTPUT|OUTPUTNEW out [AS field]` (without `OUTPUT`, every column),
+  `EXTRACT-x = regex [in field]` with named groups, `REPORT-x = t1, t2` naming
+  `transforms.conf` stanzas (`REGEX` with `FORMAT = name::$1`, or `DELIMS` with `FIELDS`;
+  `SOURCE_KEY` defaults to `_raw`). `FORMAT = $1::$2` and groups named `_KEY_n`/`_VAL_n` take
+  the field name from the data. Search-time order: extractions, `KV_MODE`, aliases, `EVAL`,
+  lookups. REST: `configs/conf-props` and `configs/conf-transforms`.
+
 ## SPL
 
 - Boolean operators are capitals only (`OR`, `AND`, `NOT`; lower case is a search term).
