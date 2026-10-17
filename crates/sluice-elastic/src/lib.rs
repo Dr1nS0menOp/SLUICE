@@ -16,6 +16,7 @@
 //! documents (ADR 0025).
 
 mod engine;
+pub mod inventory;
 mod painless;
 mod pipeline;
 mod predicate;

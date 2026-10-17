@@ -57,6 +57,21 @@ pub(crate) fn fetch(args: &FetchArgs) -> Result<()> {
                 ),
             )
         }
+        FetchTarget::Elastic { kibana, space } => {
+            let auth = match std::env::var("KIBANA_API_KEY")
+                .ok()
+                .filter(|k| !k.is_empty())
+            {
+                Some(key) => sluice_elastic::inventory::Auth::ApiKey(key),
+                None => sluice_elastic::inventory::Auth::Basic {
+                    user: env("KIBANA_USER")?,
+                    password: env("KIBANA_PASSWORD")?,
+                },
+            };
+            let inventory =
+                sluice_elastic::inventory::fetch(kibana, &auth, space.as_deref(), &fetched_at)?;
+            (inventory, format!("--elastic-rules {}", out.display()))
+        }
     };
     write(&inventory, out)?;
     let counts: Vec<String> = inventory

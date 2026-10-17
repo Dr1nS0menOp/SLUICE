@@ -65,7 +65,15 @@ only).
    the documents and groups keeps the counts. With `--elastic-native`, the pipelines are proven
    with these rules too.
 
+7. **`sluice rules fetch elastic --kibana URL [--space S]`** reads every rule of a Kibana space
+   through `GET /api/detection_engine/rules/_find`, page by page, into `rules.ndjson` with an
+   `inventory.json` that is complete only when the count matches Kibana's total (ADR 0021).
+   Enabled machine learning rules are noted as not modelled.
+
 ## Consequences
+
+- The fetch is tested on simulated pages only: the Security solution needs Elasticsearch with
+  security and encryption keys, which the test container does not run.
 
 - On Elastic's 2,165 prebuilt rules that run (package `security_detection_engine` 9.5.8, all
   enabled as a test): every one is read; 135 may read any field (106 machine learning jobs, 18

@@ -244,6 +244,17 @@ pub(crate) enum FetchTarget {
         #[arg(long)]
         insecure: bool,
     },
+    /// Elastic Security: the detection rules of a Kibana space, enabled or not (only enabled
+    /// ones count). Credentials: `KIBANA_API_KEY`, or `KIBANA_USER` and `KIBANA_PASSWORD` (a
+    /// role that may read detection rules). Then `--elastic-rules OUT`.
+    Elastic {
+        /// Kibana, such as `https://kibana:5601`.
+        #[arg(long)]
+        kibana: String,
+        /// The Kibana space; the default space without it.
+        #[arg(long)]
+        space: Option<String>,
+    },
 }
 
 #[derive(Debug, Args)]

@@ -75,10 +75,14 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
    # (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET; Microsoft Sentinel Reader)
    sluice rules fetch --out inventory/sentinel sentinel \
      --workspace /subscriptions/…/resourceGroups/…/providers/Microsoft.OperationalInsights/workspaces/…
+   # Elastic Security: the detection rules of a Kibana space (KIBANA_API_KEY, or KIBANA_USER
+   # and KIBANA_PASSWORD)
+   sluice rules fetch --out inventory/elastic elastic --kibana https://kibana:5601
    ```
 
-   Then pass `--wazuh-rules inventory/wazuh/rules --wazuh-decoders inventory/wazuh/decoders` or
-   `--sentinel-rules inventory/sentinel`. Sigma rules have no SIEM API to read them from: pass
+   Then pass `--wazuh-rules inventory/wazuh/rules --wazuh-decoders inventory/wazuh/decoders`,
+   `--sentinel-rules inventory/sentinel` or `--elastic-rules inventory/elastic` (with
+   `--elasticsearch URL` the proof runs them too). Sigma rules have no SIEM API to read them from: pass
    `--rules-complete` when the directory holds every Sigma rule your SIEM runs. Without either,
    Sluice makes lossless cuts only and says so (ADR 0021).
 

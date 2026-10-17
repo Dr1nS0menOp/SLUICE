@@ -222,6 +222,8 @@ explains the terms.
   URL` the proof runs the rules themselves in Elasticsearch (EQL, ES|QL, and KQL and Lucene as
   the query Kibana builds), on full and on
   forwarded documents; `--elastic-native` (now a switch) proves its pipelines there.
+- `sluice rules fetch elastic --kibana URL`: the detection rules of a Kibana space, as a
+  complete inventory for `--elastic-rules` (ADR 0021, ADR 0025).
 - Recipes can name the field naming convention they are written in (`match.schema`, such as
   `ecs`); five ECS recipes drop the rendered `message` of Windows System, Application,
   Security and PowerShell events as Elastic stores them.
