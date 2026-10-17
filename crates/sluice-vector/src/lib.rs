@@ -11,11 +11,9 @@ pub mod asim_web_session;
 mod classify;
 pub mod common_security_log;
 mod config;
-mod connect;
 mod custom_table;
 mod deployed;
 mod error;
-mod live;
 mod predicate;
 mod program;
 mod runtime;
@@ -30,14 +28,9 @@ use std::collections::BTreeMap;
 use sluice_core::ids::SourceId;
 
 pub use crate::config::{Paths, vector_config};
-pub use crate::connect::{AZURE_MAX_BATCH_BYTES, SECRET_BACKEND, Target};
 pub use crate::custom_table::{Column, ColumnKind, CustomTable};
 pub use crate::deployed::{Deployed, deployed};
 pub use crate::error::VectorError;
-pub use crate::live::{
-    FORMATS_KEY, LiveProfile, LiveSettings, LiveSource, RECORDS_KEY, RULES_KEY, SOURCES_KEY,
-    destination_profile, live_config,
-};
 pub use crate::program::{
     FORWARD, Plan, ROUTE_METADATA, SUMMARIZE, TEMPLATE_METADATA, source_program,
 };

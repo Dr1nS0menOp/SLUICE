@@ -271,62 +271,6 @@ fn unknown_llm_is_rejected_with_the_accepted_forms() {
     assert!(stderr.contains("ollama:MODEL"), "{stderr}");
 }
 
-#[test]
-fn search_prints_matching_archived_events() {
-    use std::io::Write;
-
-    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli-archive");
-    let _ = std::fs::remove_dir_all(&root);
-    let dir = root.join("windows-security/2026-10-09");
-    std::fs::create_dir_all(&dir).expect("creating the archive");
-    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
-    for id in [4624, 4625, 4624] {
-        writeln!(
-            gz,
-            r#"{{"EventID":{id},"timestamp":"2026-10-09T17:05:00Z"}}"#
-        )
-        .expect("gzip");
-    }
-    std::fs::write(dir.join("17.ndjson.gz"), gz.finish().expect("gzip")).expect("writing");
-
-    let archive = root.to_str().unwrap();
-    let count = sluice(&[
-        "search",
-        "--archive",
-        archive,
-        "--where",
-        "EventID=4624",
-        "--count",
-    ]);
-    assert_eq!(count, "2\n");
-    let events = sluice(&["search", "--archive", archive, "--where", "EventID!=4624"]);
-    assert_eq!(
-        events,
-        "{\"EventID\":4625,\"timestamp\":\"2026-10-09T17:05:00Z\"}\n"
-    );
-    let none = sluice(&[
-        "search",
-        "--archive",
-        archive,
-        "--from",
-        "2026-10-10",
-        "--count",
-    ]);
-    assert_eq!(none, "0\n");
-}
-
-#[test]
-fn connect_prints_a_destination_without_secrets() {
-    let out = sluice(&["connect", "splunk", "--endpoint", "https://splunk:8088"]);
-    assert!(out.contains("one file each in /run/secrets/siem"), "{out}");
-    let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).expect("valid YAML");
-    let sink = &yaml["destinations"]["splunk"];
-    assert_eq!(sink["type"], "splunk_hec_logs");
-    assert_eq!(sink["endpoint"], "https://splunk:8088");
-    assert_eq!(sink["default_token"], "SECRET[siem.splunk_hec_token]");
-    assert_eq!(yaml["vector_secrets"]["siem"]["type"], "directory");
-}
-
 /// Runs `sluice` expecting it to fail; returns what it wrote to stderr.
 fn sluice_fails(args: &[&str]) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_sluice"))
@@ -368,19 +312,17 @@ fn connect_sentinel_derives_a_custom_table_and_its_rule_from_a_sample() {
         "--workspace",
         workspace,
     ]);
-    assert!(out.contains("Replace the placeholder endpoint"), "{out}");
     assert!(out.contains("Create the table Firewall_CL"), "{out}");
-    let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).expect("valid YAML");
-    let stream = yaml["destinations"]["sentinel"]["stream_name"]
-        .as_str()
-        .expect("a stream");
-    assert_eq!(stream, "Custom-Firewall", "the rule's input stream");
     let table = read(&out_dir.join("Firewall_CL.table.json"));
     assert!(
         table.contains("\"action\"") && table.contains("\"bytes\""),
         "{table}"
     );
-    assert!(read(&out_dir.join("Firewall.dcr.json")).contains(workspace));
+    let dcr = read(&out_dir.join("Firewall.dcr.json"));
+    assert!(
+        dcr.contains(workspace) && dcr.contains("Custom-Firewall"),
+        "{dcr}"
+    );
 }
 
 #[test]
@@ -416,16 +358,8 @@ fn connect_sentinel_writes_the_rule_of_each_standard_table() {
             table,
             "--out",
             dir.to_str().unwrap(),
-            "--endpoint",
-            "https://dce.example",
         ]);
-        assert!(out.contains(&format!("shape: {shape}")), "{out}");
-        assert!(!out.contains("Replace the placeholder"), "{out}");
-        let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).expect("valid YAML");
-        assert!(
-            yaml["destinations"]["sentinel"]["stream_name"].is_string(),
-            "{table}"
-        );
+        assert!(out.contains(&format!("`{shape}`")), "{out}");
         let dcr: serde_json::Value =
             serde_json::from_str(&read(&dir.join(file))).expect("a JSON rule");
         assert!(dcr.is_object(), "{table}");
@@ -433,25 +367,16 @@ fn connect_sentinel_writes_the_rule_of_each_standard_table() {
 }
 
 #[test]
-fn connect_sentinel_sends_summaries_to_a_table_of_their_own() {
+fn connect_sentinel_writes_the_summary_table_and_its_function() {
     let dir = scratch("connect-summaries");
     let out = sluice(&[
         "connect",
         "sentinel",
-        "--standard-table",
-        "syslog",
         "--summary-table",
         "--out",
         dir.to_str().unwrap(),
-        "--endpoint",
-        "https://dce.example",
     ]);
-    let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).expect("valid YAML");
-    let events = &yaml["destinations"]["sentinel"];
-    let summaries = &yaml["destinations"]["sentinel_summaries"];
-    assert_eq!(events["sluice_records"][0], "events", "{out}");
-    assert_eq!(summaries["sluice_records"][0], "summaries", "{out}");
-    assert_eq!(summaries["stream_name"], "Custom-SluiceSummary");
+    assert!(out.contains("SluiceCounts"), "{out}");
     for file in [
         "SluiceSummary_CL.table.json",
         "SluiceSummary.dcr.json",
@@ -462,68 +387,21 @@ fn connect_sentinel_sends_summaries_to_a_table_of_their_own() {
 }
 
 #[test]
-fn connect_refuses_sentinel_options_elsewhere_and_samples_that_are_not_json() {
+fn connect_refuses_nothing_to_write_and_samples_that_are_not_json() {
     let dir = scratch("connect-refused");
     let out = dir.to_str().unwrap();
-    let error = sluice_fails(&[
-        "connect",
-        "elastic",
-        "--standard-table",
-        "syslog",
-        "--out",
-        out,
-    ]);
-    assert!(error.contains("only applies to `sentinel`"), "{error}");
+    let error = sluice_fails(&["connect", "sentinel", "--out", out]);
+    assert!(error.contains("nothing to write"), "{error}");
+    let error = sluice_fails(&["connect", "splunk", "--summary-table", "--out", out]);
+    assert!(error.contains("invalid value 'splunk'"), "{error}");
 
     let sample = dir.join("bad.ndjson");
     std::fs::write(&sample, "{\"a\":1}\nnot json\n").unwrap();
     let sample = sample.to_str().unwrap();
     let error = sluice_fails(&[
-        "connect", "splunk", "--sample", sample, "--table", "T", "--out", out,
-    ]);
-    assert!(error.contains("only applies to `sentinel`"), "{error}");
-    let error = sluice_fails(&[
         "connect", "sentinel", "--sample", sample, "--table", "T", "--out", out,
     ]);
     assert!(error.contains("line 2: not a JSON object"), "{error}");
-}
-
-#[test]
-fn agent_windows_prints_a_vector_config_and_writes_the_rule_on_request() {
-    let dir = scratch("agent");
-    let dcr = dir.join("windows.dcr.json");
-    let workspace =
-        "/subscriptions/s/resourceGroups/g/providers/Microsoft.OperationalInsights/workspaces/w";
-    let out = sluice(&[
-        "agent",
-        "windows",
-        "--to",
-        "http://sluice:8601",
-        "--events-to",
-        "http://sluice:8602",
-        "--channel",
-        "Security",
-        "--channel",
-        "System",
-        "--dcr",
-        dcr.to_str().unwrap(),
-        "--workspace",
-        workspace,
-    ]);
-    let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).expect("valid YAML");
-    let text = serde_json::to_string(&yaml).unwrap();
-    for wanted in [
-        "windows_event_log",
-        "http://sluice:8601",
-        "http://sluice:8602",
-        "System",
-    ] {
-        assert!(text.contains(wanted), "{wanted}: {out}");
-    }
-    assert!(read(&dcr).contains(workspace));
-
-    let error = sluice_fails(&["agent", "windows", "--to", "http://x", "--dcr", "d.json"]);
-    assert!(error.contains("--workspace"), "{error}");
 }
 
 /// Runs `sluice` without the credentials of the user running the tests; returns stderr.
@@ -577,32 +455,6 @@ fn rules_fetch_needs_a_directory_and_credentials_before_it_asks_anything() {
     ]);
     assert!(error.contains("AZURE_TENANT_ID is not set"), "{error}");
     assert!(!Path::new(out).exists(), "nothing written");
-}
-
-#[test]
-fn up_check_validates_without_starting() {
-    let config = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/up/sluice-up.yaml");
-    let rules = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/rules/sigma");
-    let vector = sluice(&[
-        "up",
-        "--config",
-        config.to_str().unwrap(),
-        "--rules",
-        rules.to_str().unwrap(),
-        "--check",
-    ]);
-    assert!(vector.contains("sluice_windows_security_tap"), "{vector}");
-
-    // The container example listens beyond loopback: without a token it is refused.
-    let docker = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/docker/sluice.yaml");
-    let output = Command::new(env!("CARGO_BIN_EXE_sluice"))
-        .args(["up", "--check", "--config"])
-        .arg(&docker)
-        .env_remove("SLUICE_CONTROL_TOKEN")
-        .output()
-        .expect("sluice runs");
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("refusing to start"));
 }
 
 #[test]

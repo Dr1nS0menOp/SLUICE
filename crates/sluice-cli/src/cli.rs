@@ -25,65 +25,18 @@ pub(crate) enum Command {
     /// Prove a generated Vector configuration on a sample, as it is: fails (exit 1) when the
     /// rules' alerts on what it forwards differ from their alerts on the full sample. For CI.
     Prove(ProveArgs),
-    /// Run the control plane and Vector live: shadow, promote, verify, roll back.
-    Up(UpArgs),
-    /// Show the live control plane's status.
-    Status(StatusArgs),
-    /// Print archived events as NDJSON (full fidelity, before any reduction).
-    Search(SearchArgs),
-    /// Send archived events to an HTTP endpoint, such as a Vector `http_server` source in front
-    /// of a SIEM.
-    Replay(ReplayArgs),
-    /// Print a destination for the `sluice up` configuration: the Vector sink for a SIEM and
-    /// what else to set up.
+    /// Write the Microsoft Sentinel tables and data collection rules a source needs: a custom
+    /// table for JSON records, the rule of a standard table, or the table for summaries.
     Connect(ConnectArgs),
-    /// Print the Vector configuration for a collection agent on a host, which sends its events
-    /// to `sluice up` shaped as the SIEM stores them.
-    Agent(AgentArgs),
-    /// Serve MCP on stdin/stdout, so an AI assistant can ask what was cut, why, and whether it
-    /// still holds (for example `claude mcp add sluice -- sluice mcp --archive DIR`).
-    Mcp(McpArgs),
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct McpArgs {
-    /// Address of the control plane (`sluice up`).
-    #[arg(long, default_value = "127.0.0.1:8686")]
-    pub(crate) listen: String,
-    /// The archive directory, to offer archive search.
-    #[arg(long)]
-    pub(crate) archive: Option<PathBuf>,
-    /// Also offer the `replay` tool, sending archived events only to this endpoint. Repeat for
-    /// several. The assistant cannot choose another: log text can carry instructions.
-    #[arg(long = "replay-to", value_name = "URL", requires = "archive")]
-    pub(crate) replay_to: Vec<String>,
-    /// Also offer the `operator_action` tool: hold, release, approve, keep fields and acknowledge
-    /// rollbacks, audited by the control plane (ADR 0016).
-    #[arg(long)]
-    pub(crate) allow_actions: bool,
-    /// Serve MCP over HTTP at `http://ADDRESS/mcp` instead of stdio. Clients must send
-    /// `Authorization: Bearer $SLUICE_MCP_TOKEN` (at least 32 characters).
-    #[arg(long, value_name = "ADDRESS")]
-    pub(crate) http: Option<std::net::SocketAddr>,
-    /// A host name clients use to reach the HTTP server, besides localhost. Repeat for several.
-    #[arg(long = "allowed-host", requires = "http")]
-    pub(crate) allowed_hosts: Vec<String>,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct ConnectArgs {
-    /// The SIEM or platform.
+    /// The SIEM: `sentinel`.
     pub(crate) target: ConnectTarget,
-    /// Its endpoint URL (for Wazuh: the file the manager or agent reads). Defaults to a
-    /// placeholder to replace.
-    #[arg(long)]
-    pub(crate) endpoint: Option<String>,
-    /// The destination's name in the configuration (default: the target's name).
-    #[arg(long)]
-    pub(crate) name: Option<String>,
     /// Sentinel: sample records of a source (NDJSON, as forwarded) to derive a custom table
     /// `<TABLE>_CL` and its data collection rule from.
-    #[arg(long, requires_all = ["table", "out"])]
+    #[arg(long, requires = "table")]
     pub(crate) sample: Option<PathBuf>,
     /// Sentinel: the custom table's name, without `_CL`.
     #[arg(long, requires = "sample")]
@@ -92,61 +45,23 @@ pub(crate) struct ConnectArgs {
     #[arg(long, requires = "sample")]
     pub(crate) time_field: Option<String>,
     /// Sentinel: also write the table summary records go to (`SluiceSummary_CL`), its data
-    /// collection rule and the `SluiceCounts` function, and a destination for them; the
-    /// destination for events then takes events only (ADR 0029).
-    #[arg(long, requires = "out")]
+    /// collection rule and the `SluiceCounts` function (ADR 0029).
+    #[arg(long)]
     pub(crate) summary_table: bool,
     /// Sentinel: the workspace's resource ID, for the data collection rule.
-    #[arg(long, requires = "out")]
+    #[arg(long)]
     pub(crate) workspace: Option<String>,
     /// Sentinel: the Azure region of the workspace.
-    #[arg(long, requires = "out", default_value = "westeurope")]
+    #[arg(long, default_value = "westeurope")]
     pub(crate) location: String,
     /// Sentinel: records shaped as a standard table (`shape: sentinel_syslog`,
     /// `sentinel_common_security_log`, `sentinel_asim_network_session`, `sentinel_asim_dns` or `sentinel_asim_web_session`): write the data
     /// collection rule that stores them there.
-    #[arg(long, value_enum, requires = "out", conflicts_with = "sample")]
+    #[arg(long, value_enum, conflicts_with = "sample")]
     pub(crate) standard_table: Option<StandardTable>,
-    /// Sentinel: directory to write the table and data collection rule JSON to.
+    /// Directory to write the tables and data collection rules to.
     #[arg(long)]
-    pub(crate) out: Option<PathBuf>,
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct AgentArgs {
-    /// The kind of host.
-    pub(crate) platform: AgentPlatform,
-    /// URL of the `http_server` source of `sluice up` that receives Security channel events,
-    /// shaped as `SecurityEvent`.
-    #[arg(long)]
-    pub(crate) to: String,
-    /// URL of the `http_server` source that receives every other channel, shaped as
-    /// `WindowsEvent`. Required when reading channels other than Security.
-    #[arg(long)]
-    pub(crate) events_to: Option<String>,
-    /// Event log channels to read. Repeat for several, such as `--channel Security --channel
-    /// System`. Security needs Vector to run elevated or as a service.
-    #[arg(long = "channel", default_values_t = ["Security".to_owned()])]
-    pub(crate) channels: Vec<String>,
-    /// Vector's data directory on the host (read checkpoints and the send buffer).
-    #[arg(long, default_value = "C:/ProgramData/Vector/data")]
-    pub(crate) data_dir: String,
-    /// Also write the Sentinel data collection rule (JSON) that stores the records in
-    /// `SecurityEvent`, for this workspace resource id.
-    #[arg(long, value_name = "FILE", requires = "workspace")]
-    pub(crate) dcr: Option<PathBuf>,
-    /// The Log Analytics workspace resource id, for `--dcr`.
-    #[arg(long)]
-    pub(crate) workspace: Option<String>,
-    /// The Azure region of the workspace, for `--dcr`.
-    #[arg(long, default_value = "westeurope")]
-    pub(crate) location: String,
-}
-
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
-pub(crate) enum AgentPlatform {
-    /// Windows Event Log, shaped as Microsoft Sentinel's `SecurityEvent`.
-    Windows,
+    pub(crate) out: PathBuf,
 }
 
 /// A standard Sentinel table Sluice can shape records for.
@@ -166,12 +81,8 @@ pub(crate) enum StandardTable {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum ConnectTarget {
-    Splunk,
-    Elastic,
+    /// Microsoft Sentinel.
     Sentinel,
-    Chronicle,
-    Wazuh,
-    Http,
 }
 
 #[derive(Debug, Args)]
@@ -305,120 +216,6 @@ pub(crate) enum RecipesCommand {
         #[arg(long)]
         into: PathBuf,
     },
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct SelectArgs {
-    /// The archive directory (`archive_dir` in the `sluice up` configuration).
-    #[arg(long)]
-    pub(crate) archive: PathBuf,
-    /// Only events of this source. Repeat for several.
-    #[arg(long = "source")]
-    pub(crate) sources: Vec<String>,
-    /// Events Vector received at or after this time: RFC 3339 or `YYYY-MM-DD` (UTC midnight).
-    #[arg(long)]
-    pub(crate) from: Option<String>,
-    /// Events Vector received before this time: RFC 3339 or `YYYY-MM-DD` (UTC midnight).
-    #[arg(long)]
-    pub(crate) to: Option<String>,
-    /// A condition every event must meet: `field=value`, `field!=value` or `field~text`
-    /// (contains, ignoring case). Repeat for several.
-    #[arg(long = "where")]
-    pub(crate) conditions: Vec<String>,
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct SearchArgs {
-    #[command(flatten)]
-    pub(crate) select: SelectArgs,
-    /// Stop after this many events.
-    #[arg(long)]
-    pub(crate) limit: Option<u64>,
-    /// Print only the number of matching events.
-    #[arg(long)]
-    pub(crate) count: bool,
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct ReplayArgs {
-    #[command(flatten)]
-    pub(crate) select: SelectArgs,
-    /// Endpoint that receives the events as newline-delimited JSON.
-    #[arg(long)]
-    pub(crate) url: String,
-    /// Events per request.
-    #[arg(long, default_value_t = 500, value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..=100_000))]
-    pub(crate) batch: usize,
-}
-
-#[derive(Debug, Clone, Args)]
-pub(crate) struct UpArgs {
-    /// The `sluice up` configuration (sources with their Vector sources, destinations, paths).
-    #[arg(long)]
-    pub(crate) config: PathBuf,
-    /// Directory of Sigma rules (`*.yml`, `*.yaml`), searched recursively.
-    #[arg(long)]
-    pub(crate) rules: Option<PathBuf>,
-    /// Map the Sigma rules onto another field naming convention, as the SIEM's own conversion
-    /// does: `SCHEMA=PIPELINE`, such as `ecs=ecs_windows` (built in) or `ecs=my-pipeline.yml`
-    /// (pySigma's format). Sources that declare that `schema` are then compared with the
-    /// mapped rules. Repeatable, one per convention.
-    #[arg(long, value_name = "SCHEMA=PIPELINE")]
-    pub(crate) sigma_pipeline: Vec<String>,
-    /// Directory of Wazuh rule files (`*.xml`), searched recursively.
-    #[arg(long)]
-    pub(crate) wazuh_rules: Option<PathBuf>,
-    /// Directory of Wazuh decoder files (`*.xml`), to bound rules by `<decoded_as>`
-    /// (for example a copy of `/var/ossec/ruleset/decoders` and `/var/ossec/etc/decoders`).
-    #[arg(long, requires = "wazuh_rules")]
-    pub(crate) wazuh_decoders: Option<PathBuf>,
-    /// Directory of Microsoft Sentinel analytics rules (`*.yaml` with a KQL `query`), searched
-    /// recursively, for destinations whose `sluice_rules` name `sentinel`.
-    #[arg(long)]
-    pub(crate) sentinel_rules: Option<PathBuf>,
-    /// URL of a Kusto emulator (`scripts/kql-check.sh` starts one). The proof then runs the
-    /// Sentinel rules themselves on full and forwarded records; without it, their requirements
-    /// still constrain every cut, but the proof covers the other rule sets only.
-    #[arg(long, requires = "sentinel_rules")]
-    pub(crate) kusto: Option<String>,
-    /// Directory of Elastic Security detection rules (Kibana's export or the prebuilt rules
-    /// package), for destinations whose `sluice_rules` name `elastic` (ADR 0025).
-    #[arg(long)]
-    pub(crate) elastic_rules: Option<PathBuf>,
-    /// An Elasticsearch: the proof then runs the Elastic EQL and ES|QL rules themselves; without
-    /// it, their requirements still constrain every cut.
-    #[arg(long, value_name = "URL", requires = "elastic_rules")]
-    pub(crate) elasticsearch: Option<String>,
-    /// Directory of Splunk saved searches and macros (`savedsearches.conf`, `macros.conf` or
-    /// the REST API's JSON), for destinations whose `sluice_rules` name `splunk` (ADR 0026).
-    #[arg(long)]
-    pub(crate) splunk_rules: Option<PathBuf>,
-    /// The rule sets given are every rule and query their SIEMs run, so profiles may summarize
-    /// (L2, L3). Sets fetched with `sluice rules fetch` count as complete without it (ADR 0021).
-    #[arg(long)]
-    pub(crate) rules_complete: bool,
-    /// Feed synthetic traffic into the configured `http_server` sources (for trying it out).
-    #[arg(long)]
-    pub(crate) demo_traffic: bool,
-    /// Look at the rule directories again every SECS seconds, and load them again when a
-    /// `sluice rules fetch` has rewritten one (run it on a timer). A new rule is guarded from
-    /// the next cycle on. Only fetched inventories (with `inventory.json`) are watched.
-    #[arg(long, value_name = "SECS", value_parser = clap::value_parser!(u64).range(10..))]
-    pub(crate) reload_rules: Option<u64>,
-    /// Check the configuration and rules and print the Vector configuration `up` would start
-    /// with, without starting anything (pipe it to `vector validate`).
-    #[arg(long, conflicts_with = "demo_traffic")]
-    pub(crate) check: bool,
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct StatusArgs {
-    /// Address of the control plane.
-    #[arg(long, default_value = "127.0.0.1:8686")]
-    pub(crate) listen: String,
-    /// The rule profile to show, such as `sigma` or `sigma+wazuh` (default: the first).
-    #[arg(long)]
-    pub(crate) profile: Option<String>,
 }
 
 #[derive(Debug, Args)]

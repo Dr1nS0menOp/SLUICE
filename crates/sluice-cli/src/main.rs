@@ -1,17 +1,15 @@
-//! `sluice`: open-source autopilot for security data.
+//! `sluice`: finds what a SIEM can stop ingesting without changing a detection, and writes the
+//! configuration that does it.
 
 // Printing to the terminal is this binary's job.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
-mod agent;
 mod ai;
-mod archive;
 mod cli;
 mod commands;
 mod connect;
 mod input;
 mod inventory;
-mod live;
 mod native;
 mod output;
 mod prove;
@@ -30,13 +28,7 @@ fn main() -> ExitCode {
         Command::Recipes(args) => commands::recipes(&args),
         Command::Rules(args) => commands::rules(&args),
         Command::Prove(args) => prove::prove(&args),
-        Command::Up(args) => live::up(&args),
-        Command::Status(args) => live::status(&args),
-        Command::Search(args) => archive::search(&args),
-        Command::Replay(args) => archive::replay(&args),
         Command::Connect(args) => connect::connect(&args),
-        Command::Agent(args) => agent::agent(&args),
-        Command::Mcp(args) => live::mcp(args),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
