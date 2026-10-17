@@ -198,3 +198,25 @@ fn the_leading_search_command_is_the_base_search() {
         test("a", MatchOp::Equals, &["x"])
     );
 }
+
+#[test]
+fn pipes_and_brackets_in_quotes_are_text() {
+    assert_eq!(commands(r#"a="x|y" | b"#), [r#"a="x|y" "#, " b"]);
+    assert_eq!(commands(r#"a="x\"|y" | b"#), [r#"a="x\"|y" "#, " b"]);
+    assert_eq!(commands(r"a=x\|y | b"), [r"a=x\|y ", " b"]);
+    assert_eq!(outside_quotes(r#"a "b[c" d"#), "a  d");
+    assert_eq!(outside_quotes(r#"a "x\"[" b"#), "a  b");
+    assert_eq!(outside_quotes(r"a \[ b"), r"a  b");
+    // A bracket in a quoted value is no subsearch.
+    assert_eq!(read(r#"a="[x]""#).any_field, None);
+}
+
+#[test]
+fn every_command_that_parses_the_raw_event_reads_it() {
+    for command in [
+        "rex", "regex", "spath", "kv", "extract", "xmlkv", "multikv", "erex",
+    ] {
+        assert!(read(&format!("a=1 | {command} field=b")).raw, "{command}");
+    }
+    assert!(!read("a=1 | eval b=c").raw);
+}

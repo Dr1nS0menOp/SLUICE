@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use sluice_core::field::FieldPath;
 use sluice_core::predicate::{FieldTest, MatchOp, Predicate};
 
@@ -187,4 +189,45 @@ fn macro_arguments_split_outside_quotes_and_parentheses() {
         ["a", "\"b, c\"", "f(d, e)"]
     );
     assert_eq!(arguments(""), Vec::<String>::new());
+}
+
+/// Saved search `s` calling `m0`, which calls `m1`, … `m{n-1}`, which is `a=1`.
+fn macro_chain(n: usize) -> SplunkRules {
+    let mut conf = String::from("[s]\nsearch = `m0`\nenableSched = 1\n");
+    for i in 0..n {
+        let definition = if i + 1 == n {
+            "a=1".to_owned()
+        } else {
+            format!("`m{}`", i + 1)
+        };
+        let _ = write!(conf, "[m{i}]\ndefinition = {definition}\n");
+    }
+    SplunkRules::parse([("x.conf", conf.as_str())])
+}
+
+#[test]
+fn macros_nest_up_to_the_limit() {
+    let within = macro_chain(MAX_MACRO_DEPTH + 1);
+    assert_eq!(within.problems(), [] as [String; 0]);
+    let beyond = macro_chain(MAX_MACRO_DEPTH + 2);
+    assert!(
+        beyond.problems()[0].contains("deeper"),
+        "{:?}",
+        beyond.problems()
+    );
+}
+
+#[test]
+fn a_search_that_may_read_any_field_reads_the_raw_event() {
+    let rules = SplunkRules::parse([("x.conf", "[s]\nsearch = Event*=1\nenableSched = 1\n")]);
+    let r = rule(&rules, "s").expect("the search");
+    assert_eq!(r.fields, RequiredFields::Unknown);
+    assert!(r.matches_raw_text);
+}
+
+#[test]
+fn macro_arguments_keep_parentheses_and_quotes_together() {
+    assert_eq!(arguments(r#""(", ")", z"#), [r#""(""#, r#"")""#, "z"]);
+    assert_eq!(arguments("f(a, b), c"), ["f(a, b)", "c"]);
+    assert_eq!(arguments(r#"")", x"#), [r#"")""#, "x"]);
 }

@@ -168,6 +168,26 @@ mod tests {
     }
 
     #[test]
+    fn a_comment_with_an_equals_sign_is_no_setting() {
+        let stanzas = conf("[s]\n# search = nothing\n  # x = y\nsearch = a=1\n");
+        assert_eq!(stanzas["s"].len(), 1);
+        assert_eq!(stanzas["s"]["search"], "a=1");
+    }
+
+    #[test]
+    fn rest_numbers_are_settings_and_a_macro_shadowing_a_search_is_ambiguous() {
+        let stanzas = rest(
+            r#"{"entry": [
+                {"name": "x", "content": {"dispatch.ttl": 600}},
+                {"name": "y", "content": {"search": "a=1"}},
+                {"name": "y", "content": {"definition": "b=1"}}]}"#,
+        )
+        .expect("a REST answer");
+        assert_eq!(stanzas["x"]["dispatch.ttl"], "600");
+        assert_eq!(stanzas["y"][AMBIGUOUS], "1");
+    }
+
+    #[test]
     fn booleans_read_as_splunk_reads_them() {
         assert!(truthy(Some(&"True".to_owned())));
         assert!(truthy(Some(&" 1".to_owned())));

@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use sluice_core::predicate::MatchOp;
 
 use super::*;
@@ -118,4 +120,82 @@ fn delimited_transforms_name_their_fields() {
 fn without_props_a_search_is_read_as_it_is() {
     let reads = spl::read("a=1 | stats count by b");
     assert_eq!(Derived::default().apply(reads.clone()), reads);
+}
+
+#[test]
+fn words_keep_quoted_spaces_and_commas_together() {
+    assert_eq!(words(r#""Sub Name" AS x, y"#), ["Sub Name", "AS", "x", "y"]);
+    assert_eq!(words(r#"a,"b, c""#), ["a", "b, c"]);
+    assert_eq!(words("  a   b "), ["a", "b"]);
+}
+
+#[test]
+fn a_lookup_makes_only_its_outputs_from_its_inputs() {
+    let derived = derived(
+        "[s]\nLOOKUP-v = products product_id AS ProviderGuid OUTPUT vendor AS vendor_product \
+         category\n",
+        "",
+    );
+    let made: Vec<&str> = derived.made.keys().map(String::as_str).collect();
+    assert_eq!(made, ["category", "vendor_product"]);
+    assert!(derived.made["category"].contains("ProviderGuid"));
+    // An input is read as it is.
+    assert_eq!(
+        derived.apply(spl::read("ProviderGuid=x")).prefilter,
+        equals("ProviderGuid", "x")
+    );
+}
+
+#[test]
+fn an_extraction_names_its_groups_and_only_one_word_after_in() {
+    let derived = derived(
+        "[s]\nEXTRACT-a = pid=(?<pid>\\d+)(?<=x)(?<!y) in two words\n",
+        "",
+    );
+    let made: Vec<&str> = derived.made.keys().map(String::as_str).collect();
+    assert_eq!(made, ["pid"]);
+    assert!(
+        !derived.made["pid"].contains("two words"),
+        "` in ` with more words after it is part of the regex"
+    );
+}
+
+#[test]
+fn a_transform_from_metadata_reads_the_raw_event_and_named_formats_are_not_dynamic() {
+    let derived = derived(
+        "[s]\nREPORT-m = m\n",
+        "[m]\nSOURCE_KEY = _meta\nREGEX = (\\w+)\nFORMAT = user::$1 host::$1\n",
+    );
+    assert_eq!(derived.dynamic, None);
+    let made: Vec<&str> = derived.made.keys().map(String::as_str).collect();
+    assert_eq!(made, ["host", "user"]);
+    assert!(derived.made["user"].contains("_raw"));
+    let reads = derived.apply(spl::read("x=1 | table user"));
+    assert!(reads.raw);
+}
+
+/// `FIELDALIAS`es `a0 AS a1`, … `a{n-1} AS a{n}`: `a{n}` copies through `n` hops.
+fn chain(n: usize) -> Derived {
+    let mut props = String::new();
+    for i in 0..n {
+        let _ = writeln!(props, "FIELDALIAS-{i} = a{i} AS a{}", i + 1);
+    }
+    derived(&format!("[s]\n{props}"), "")
+}
+
+#[test]
+fn alias_chains_are_followed_to_a_limit_and_cycles_end() {
+    let within = chain(MAX_DEPTH).apply(spl::read(&format!("a{MAX_DEPTH}=1")));
+    assert_ne!(within.prefilter, Predicate::Always, "{within:?}");
+    assert!(!within.raw);
+    assert!(within.fields.contains(&FieldPath::new("a0")));
+    let beyond = chain(MAX_DEPTH + 1).apply(spl::read(&format!("a{}=1", MAX_DEPTH + 1)));
+    assert_eq!(beyond.prefilter, Predicate::Always);
+    assert!(
+        beyond.raw,
+        "a chain too long counts as reading the raw event"
+    );
+    let cycle = derived("[s]\nFIELDALIAS-a = x AS y\nFIELDALIAS-b = y AS x\n", "");
+    let reads = cycle.apply(spl::read("x=1"));
+    assert_eq!(reads.prefilter, Predicate::Always);
 }
