@@ -203,6 +203,11 @@ explains the terms.
   keeps and changes no alert of Microsoft's rules (ADR 0013). `--sentinel-dcr RULE.json`
   gives the data flow's stream and its own transformation; the result stays within the 15,360
   characters a rule takes. Tried in a real rule: Azure emptied exactly what the emulator did.
+  With `--sentinel-dcr`, Sluice writes `sentinel/dcr.json`: that rule with every proven
+  transformation in its table's flow and, next to each, an untransformed flow of the same stream
+  into a `Sluice<Table>Archive_CL` table on the Auxiliary plan, defined in a `.table.json`
+  (contract rule 2). Only tables where something is removed change, and a rule Sluice wrote
+  before gets its part replaced, not doubled.
 - The report says per kind of event where its saving can run.
 - `scripts/real-data/`: collects real Windows, Linux and Sentinel events (kept outside the
   repository), sends Windows events through `sluice up` to a Sentinel workspace, and runs

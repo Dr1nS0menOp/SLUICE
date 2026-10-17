@@ -645,6 +645,12 @@ planned when it starts; it includes at least:
   (`sluice.plan/1`) with the proof, and per source and kind of event its shape, removals,
   keep-whole condition, counting, reasons and `runs_in` (step 4's "where it can run" is in the
   plan; the report shows it next). The report still renders from its own model.
+
+  Status 2026-10-17 (ADR 0013): the Sentinel DCR generator is done and *proven*:
+  `--sentinel-native` proves each table's `transformKql` in the Kusto emulator, and
+  `--sentinel-dcr RULE.json` writes the rule back with it and an untransformed flow into an
+  Auxiliary archive table. Deployed in the test workspace: Azure emptied what the emulator did
+  and archived every record whole. The report shows `runs_in`. Next: Elastic ingest pipelines.
 - Requirements extractors and, where an engine can run offline, proofs for each SIEM's own rule
   language, in this order (decided 2026-10-14): Elastic first (KQL, EQL, ES|QL, detection
   rules; OpenSearch and the SIEMs built on it follow), then Splunk SPL (correlation searches),

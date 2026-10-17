@@ -45,6 +45,31 @@ Kusto emulator (`mcr.microsoft.com/azuredataexplorer/kustainer-linux:latest`, di
   an `EventRecordId` changed for that broke recognition, and nothing was emptied. Azure's own
   `TimeGenerated` works.
 
+## The archive flow (2026-10-17)
+
+The rule `sluice analyze --sentinel-native --sentinel-dcr` writes has, next to the transformed
+flow into `SecurityEvent`, an untransformed flow of the same stream into
+`SluiceSecurityEventArchive_CL` on the Auxiliary plan (`scripts/real-data/deploy-dcr-native.sh`).
+
+- **Create the table first, and wait.** The tables API (`2023-01-01-preview`, `"plan":
+  "Auxiliary"`) answers before the table is ready: its `provisioningState` is `Updating` for a
+  while, and a rule naming it is refused until then (`InvalidOutputTable: Table for output
+  stream … is not available`). A table that is `Updating` cannot be deleted either.
+- An Auxiliary table took the 218 columns of the stream, `guid` types included.
+- **A changed rule with a new output table took more than two minutes to apply.** Records sent
+  two minutes after the `PUT` still went through the old rule: nothing emptied, nothing
+  archived. Ten minutes was enough.
+- **Read an Auxiliary table through `/search`, not `/query`.** `POST
+  /v1/workspaces/{id}/query` answers a query on it with no rows and no error;
+  `/search?timespan=PT6H` returns them.
+- Records with a three- or nine-decimal `TimeGenerated` (Vector writes nine) arrived in the
+  Auxiliary table, although the table documentation asks for six. **An Auxiliary table keeps
+  the time to the microsecond** (`…09.456789123Z` is stored as `…09.4567890Z`), an Analytics
+  table to 100 ns, so the same record cannot be matched across the two on `TimeGenerated ==`.
+- Result: of 150 real Security records, all 150 arrived in `SecurityEvent` with `EventData`
+  emptied on 7 of 50 4672 and 16 of 50 4798 (as with the transformation alone), and all 150
+  arrived whole in the archive table, in each of four runs.
+
 ## KQL semantics checked in the emulator
 
 | Expression | Result | Consequence |

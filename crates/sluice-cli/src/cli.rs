@@ -408,16 +408,17 @@ pub(crate) struct AnalyzeArgs {
     /// `windows-security=SecurityEvent`). Repeatable.
     #[arg(long, value_name = "SOURCE=TABLE", requires = "kusto")]
     pub(crate) sentinel_table: Vec<String>,
-    /// Also write, per `--sentinel-table` source, a data collection rule transformation
-    /// (`sentinel/SOURCE.transform.kql`) that makes the plan's field removals in Sentinel's own
-    /// ingestion, after proving it in the emulator (ADR 0013). Needs a sample read from the
-    /// table, where empty and missing columns are the same.
+    /// Also prove, per `--sentinel-table` source, a data collection rule transformation that
+    /// makes the plan's field removals in Sentinel's own ingestion, in the emulator (ADR 0013).
+    /// Needs a sample read from the table, where empty and missing columns are the same.
     #[arg(long, requires = "sentinel_table")]
     pub(crate) sentinel_native: bool,
     /// The data collection rule (JSON, as Azure or `sluice agent windows --dcr` gives it) the
     /// records go through, for `--sentinel-native`: its stream's columns are what the
-    /// transformation sees, and it runs after the data flow's own transformation. Without it,
-    /// the table's columns.
+    /// transformation sees, and it runs after the data flow's own transformation. Sluice writes
+    /// it back as `sentinel/dcr.json` with the proven transformations and an untransformed flow
+    /// into an archive table per changed table (`sentinel/*.table.json`). Without it, nothing is
+    /// written.
     #[arg(long, value_name = "FILE", requires = "sentinel_native")]
     pub(crate) sentinel_dcr: Option<PathBuf>,
     /// Wazuh manager API (for example `https://wazuh:55000`) to spot-check reductions with its

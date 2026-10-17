@@ -1,6 +1,6 @@
 # ADR 0013: Native Sentinel transformations, proven like VRL
 
-- Status: Accepted (steps 1, 2 and 4 done; 3 open)
+- Status: Accepted (steps 1 to 4 done; `sluice connect sentinel --native` open)
 - Date: 2026-10-10
 
 ## Context
@@ -76,11 +76,22 @@ The constraints (docs/notes/sentinel-dcr.md) shape everything:
    text templates stay with a pipeline tool and are listed. Empty-field removal is left out: an
    empty column is not billed.
 3. Stream declaration and DCR JSON with the archive flow; `sluice connect sentinel --native`.
+   **DCR done 2026-10-17**: with `--sentinel-dcr RULE.json`, `sluice analyze --sentinel-native`
+   writes `sentinel/dcr.json`, that rule with each proven transformation in its table's data
+   flow and, for each changed table, an untransformed flow of the same stream into
+   `Sluice<Table>Archive_CL`, plus `sentinel/Sluice<Table>Archive_CL.table.json`, the table on
+   the Auxiliary plan with the stream's columns (decision 5). One file for all tables, because
+   a rule is updated as a whole; tables where nothing is removed keep their flow, and a rule
+   Sluice wrote before has its part replaced (`SLUICE_PART`). Deployed in the test workspace
+   (`scripts/real-data/deploy-dcr-native.sh`): every record arrived transformed in
+   `SecurityEvent` and whole in the archive (docs/notes/sentinel-dcr.md). Without a rule,
+   nothing is written. Stream declarations for JSON sources (decision 1) and `sluice connect
+   sentinel --native` are open.
 4. The proof gate on emulator output; a real-workspace measurement of `_BilledSize`. **Proof
    done 2026-10-17**: `--sentinel-native` runs the transformation on the sample in the emulator,
    checks that every column it empties on a record the proven data plane removes from it too,
    and that Microsoft's rules raise the same alerts on the transformed records; only then is
-   `sentinel/SOURCE.transform.kql` written. The transformation names only columns of the data
+   anything written. The transformation names only columns of the data
    flow's stream (from `--sentinel-dcr RULE.json`, else the table's), runs after the flow's own
    transformation, and is refused above the 15,360 characters a rule takes
    (docs/notes/sentinel-dcr.md). On the 40,590 records of the test workspace (Windows

@@ -116,6 +116,11 @@ fn a_column_is_emptied_only_on_records_of_its_template_outside_keep_whole() {
             .ends_with("| project-away __sluice_s, __sluice_r, __sluice_t")
     );
     assert!(out.left_out.is_empty(), "{:?}", out.left_out);
+    assert!(
+        out.kql.starts_with(&format!("source\n{SLUICE_PART} = ")),
+        "where a later run finds Sluice's part: {}",
+        out.kql
+    );
 }
 
 #[test]

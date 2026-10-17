@@ -73,6 +73,10 @@ const STRCAT_MAX: usize = 60;
 /// `InvalidTransform` (checked 2026-10-17).
 pub const MAX_TRANSFORM_KQL: usize = 15_360;
 
+/// The line that begins what [`transformation`] adds after `source`. A data flow's transformation
+/// that contains it was written by Sluice before, and everything from it on is Sluice's.
+pub const SLUICE_PART: &str = "| extend __sluice_s";
+
 /// One template and the recipe enforced on it.
 #[derive(Debug, Clone, Copy)]
 pub struct TransformPlan<'a> {
@@ -399,7 +403,7 @@ fn render(
     let mut lines = vec![
         "source".to_owned(),
         format!(
-            "| extend __sluice_s = {}, __sluice_r = {rest_empty}",
+            "{SLUICE_PART} = {}, __sluice_r = {rest_empty}",
             strcat(&bits)
         ),
         format!("| extend __sluice_t = case({}, \"\")", cases.join(", ")),

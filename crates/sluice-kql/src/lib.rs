@@ -23,6 +23,6 @@ mod transform;
 pub use crate::engine::{KustoEngine, KustoError, Table};
 pub use crate::predicate::compile;
 pub use crate::transform::{
-    ALLOWED_FUNCTIONS, MAX_TRANSFORM_KQL, SERVICE_COLUMNS, TransformPlan, Transformation,
-    disallowed_functions, run_transformation, transformation,
+    ALLOWED_FUNCTIONS, MAX_TRANSFORM_KQL, SERVICE_COLUMNS, SLUICE_PART, TransformPlan,
+    Transformation, disallowed_functions, run_transformation, transformation,
 };
