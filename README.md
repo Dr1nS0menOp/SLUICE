@@ -115,7 +115,7 @@ events) with all 3,152 SigmaHQ rules declared complete, that gives 24.2 % less i
 `sluice up` runs Vector and a control plane next to it. Vector archives every event and sends a
 sample to Sluice. Sluice proves its proposals on that sample, keeps each in shadow until it has
 held long enough, and writes the configuration as a proposal (`vector.yaml` with
-`proposal.json`) under `data_dir/proposals`. You review it and deploy it by copying it over
+`proposal.json` and the savings plan, `plan-<profile>.json`) under `data_dir/proposals`. You review it and deploy it by copying it over
 `vector_config`; every cycle Sluice proves what runs and switches to the safe configuration if
 the proof fails.
 

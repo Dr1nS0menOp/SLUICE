@@ -293,6 +293,33 @@ async fn c5_with_a_proposals_directory_the_proven_config_is_proposed_not_applied
         shared.profile(None).unwrap().status.read().unwrap().mode,
         "proposing"
     );
+
+    // The savings plan of exactly what the proposal enforces, for any tool (ADR 0023).
+    let name = profile["plan"].as_str().expect("the plan's file");
+    let plan: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("proposals").join(name)).unwrap())
+            .unwrap();
+    assert_eq!(plan["format"], sluice_autopilot::PLAN_FORMAT);
+    assert_eq!(plan["proof"]["holds"], true);
+    assert_eq!(
+        plan["proof"]["alerts_full"],
+        profile["proof"]["alerts_full"]
+    );
+    let saving: std::collections::BTreeSet<&str> = plan["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|s| s["templates"].as_array().unwrap())
+        .filter(|t| t["runs_in"] != json!([]))
+        .filter_map(|t| t["id"].as_str())
+        .collect();
+    let enforced: std::collections::BTreeSet<&str> = profile["enforced_templates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert_eq!(saving, enforced, "the plan is what the proposal enforces");
 }
 
 #[tokio::test]

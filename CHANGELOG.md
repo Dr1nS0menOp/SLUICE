@@ -214,6 +214,8 @@ explains the terms.
   Elasticsearch at URL shows it removes nothing the proven data plane keeps and the Sigma rules
   raise the same alerts (ADR 0024, crate `sluice-elastic`). `scripts/elastic-check.sh` runs the
   differential tests against a real Elasticsearch; `check.sh` and CI run it.
+- `sluice up` proposals carry the savings plan too: `plan-<profile>.json` per rule profile,
+  exactly what the proposal enforces, named in `proposal.json`.
 - The report says per kind of event where its saving can run.
 - `scripts/real-data/`: collects real Windows, Linux and Sentinel events (kept outside the
   repository), sends Windows events through `sluice up` to a Sentinel workspace, and runs

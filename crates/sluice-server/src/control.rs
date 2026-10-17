@@ -7,8 +7,8 @@ use std::sync::{Mutex, PoisonError, RwLock};
 
 use serde_json::{Value, json};
 use sluice_autopilot::{
-    EMPTY_PROOF, Helpers, Input, Lifecycle, RecipeBook, Report, RulesBasis, Sentinel, Settings,
-    Transition, cycle,
+    EMPTY_PROOF, Helpers, Input, Lifecycle, RecipeBook, Report, RulesBasis, SavingsPlan, Sentinel,
+    Settings, Transition, cycle,
 };
 use sluice_core::alert::RuleEngine;
 use sluice_core::event::{Event, Timestamp};
@@ -317,7 +317,8 @@ impl Shared {
             Some(dir) => {
                 let bases: Vec<RulesBasis> = self.profiles.iter().map(|p| self.basis(p)).collect();
                 let proposal = proposal(now, &live, &results, &bases);
-                self.write_proposal(&dir, &yaml, &proposal)?;
+                let plans = self.plans(events, &results)?;
+                self.write_proposal(&dir, &yaml, &proposal, &plans)?;
                 self.guard_running(events, now)?
             }
             None => self.write_if_changed(&yaml)?,
@@ -430,16 +431,46 @@ impl Shared {
             .map_err(|e| ServerError::Config(e.to_string()))
     }
 
-    /// Writes a proposal (`vector.yaml` and `proposal.json`) into `dir` if the configuration
-    /// changed. Each file is replaced atomically, the configuration last, so a reader that sees
-    /// a new `vector.yaml` also sees its proof.
-    fn write_proposal(&self, dir: &Path, yaml: &str, proposal: &Value) -> Result<(), ServerError> {
+    /// The savings plan of what each profile's proposal deploys (ADR 0023), as file name and
+    /// JSON.
+    fn plans(
+        &self,
+        events: &[Event],
+        results: &[sluice_autopilot::Cycle],
+    ) -> Result<Vec<(String, String)>, ServerError> {
+        self.profiles
+            .iter()
+            .zip(results)
+            .map(|(profile, result)| {
+                let report = Report::new(&result.analysis, self.input(profile, events));
+                let plan = SavingsPlan::deployed(result, &report, &self.sources);
+                let json = plan
+                    .to_json()
+                    .map_err(|e| ServerError::Io(format!("serializing the plan: {e}")))?;
+                Ok((plan_file(&profile.name), json))
+            })
+            .collect()
+    }
+
+    /// Writes a proposal (`vector.yaml`, `proposal.json` and a `plan-<profile>.json` per rule
+    /// profile) into `dir` if the configuration changed. Each file is replaced atomically, the
+    /// configuration last, so a reader that sees a new `vector.yaml` also sees its proof.
+    fn write_proposal(
+        &self,
+        dir: &Path,
+        yaml: &str,
+        proposal: &Value,
+        plans: &[(String, String)],
+    ) -> Result<(), ServerError> {
         let mut last = lock(&self.last_config);
         if *last == yaml {
             return Ok(());
         }
         let json = serde_json::to_string_pretty(proposal)
             .map_err(|e| ServerError::Io(format!("serializing the proposal: {e}")))?;
+        for (name, plan) in plans {
+            write_atomic(&dir.join(name), plan)?;
+        }
         write_atomic(&dir.join("proposal.json"), &(json + "\n"))?;
         write_atomic(&dir.join("vector.yaml"), yaml)?;
         yaml.clone_into(&mut last);
@@ -493,6 +524,7 @@ fn proposal(
                 .collect();
             json!({
                 "profile": profile.name,
+                "plan": plan_file(profile.name),
                 "proof": {
                     "holds": proof.holds(),
                     "alerts_full": proof.full_alerts.len(),
@@ -507,6 +539,11 @@ fn proposal(
         })
         .collect();
     json!({ "generated_at": now, "profiles": profiles })
+}
+
+/// The file a profile's savings plan is proposed in.
+fn plan_file(profile: &str) -> String {
+    format!("plan-{profile}.json")
 }
 
 /// The rule sets a destination can name: Sigma always (it may be empty), Wazuh and Sentinel

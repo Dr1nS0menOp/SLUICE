@@ -42,5 +42,7 @@ one plan, many generators.
 - The format is versioned; a change in meaning bumps `sluice.plan/N`.
 - `report.html` still renders from the report; turning it into a rendering of the plan is left
   for later, so both stay in step through the shared selection.
-- `sluice up` in proposal mode still writes `proposal.json`; giving it a plan per profile follows
-  with the DCR generator.
+- `sluice up` in proposal mode writes `plan-<profile>.json` per rule profile next to
+  `proposal.json` (which names it under `plan`), built from what the proposal deploys
+  (`SavingsPlan::deployed`: the enforced recipes and their proof), before `vector.yaml` is
+  replaced (2026-10-17).

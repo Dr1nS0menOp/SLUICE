@@ -299,7 +299,9 @@ Sluice's product is a configuration and its proof ([ADR 0022](adr/0022-configs-a
 `sluice up` proposes; it does not apply. Each newly proven configuration lands in
 `<data_dir>/proposals` (or `proposals_dir`, such as a checkout your tooling commits from) as
 `vector.yaml` with `proposal.json`: the proof of exactly what it saves, whether that proof is
-empty, what the rules' completeness rests on, bytes in and out. Vector keeps running the safe
+empty, what the rules' completeness rests on, bytes in and out. Next to them, a
+`plan-<profile>.json` per rule profile is the savings plan of exactly what the proposal enforces
+(`sluice.plan/1`, [ADR 0023](adr/0023-savings-plan.md)), for tools other than Vector. Vector keeps running the safe
 configuration, which sends everything unchanged, until you deploy a proposal by writing its
 `vector.yaml` over `vector_config`. On the next cycle Sluice proves what you deployed, loads it
 into Vector, and keeps proving it every cycle; the moment a proof fails, it switches Vector back

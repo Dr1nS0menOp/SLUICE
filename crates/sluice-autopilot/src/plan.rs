@@ -9,15 +9,18 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use sluice_core::field::FieldPath;
 use sluice_core::guard::{EffectiveRecipe, Route};
+use sluice_core::ids::TemplateId;
 use sluice_core::logsource::LogSource;
 use sluice_core::predicate::Predicate;
-use sluice_core::proof::Volume;
+use sluice_core::proof::{Selection, Volume};
+use sluice_core::recipe::Recipe;
 use sluice_core::schema::Schema;
 use sluice_core::source::Source;
 use sluice_core::template::{Template, TemplateShape};
 
 use crate::analyze::Analysis;
 use crate::basis::RulesBasis;
+use crate::live::Cycle;
 use crate::report::{Report, text};
 
 /// The format of [`SavingsPlan`], changed whenever its meaning changes.
@@ -124,17 +127,49 @@ impl SavingsPlan {
     /// The plan of `analysis`, whose `report` gives the proof and rule counts, over `sources`.
     #[must_use]
     pub fn new(analysis: &Analysis, report: &Report, sources: &[Source]) -> Self {
+        Self::build(
+            &analysis.discovery.templates,
+            &analysis.selection,
+            &analysis.proposals,
+            report,
+            sources,
+        )
+    }
+
+    /// The plan of what a live cycle deploys (`cycle.deployed`, the enforced recipes only), as
+    /// `sluice up` proposes it; `report` (of the cycle's analysis) gives the rule counts.
+    #[must_use]
+    pub fn deployed(cycle: &Cycle, report: &Report, sources: &[Source]) -> Self {
+        let proof = &cycle.deployed.proof;
+        let deployed = Report {
+            total: proof.total,
+            alerts_full: proof.full_alerts.len(),
+            alerts_forwarded: proof.forwarded_alerts.len(),
+            proven: proof.holds(),
+            ..report.clone()
+        };
+        Self::build(
+            &cycle.templates,
+            &cycle.deployed,
+            &cycle.analysis.proposals,
+            &deployed,
+            sources,
+        )
+    }
+
+    fn build(
+        templates: &[Template],
+        selection: &Selection,
+        proposals: &BTreeMap<TemplateId, Recipe>,
+        report: &Report,
+        sources: &[Source],
+    ) -> Self {
         let mut by_source: BTreeMap<&str, Vec<TemplatePlan>> = BTreeMap::new();
-        for (template, recipe) in analysis
-            .discovery
-            .templates
-            .iter()
-            .zip(&analysis.selection.recipes)
-        {
+        for (template, recipe) in templates.iter().zip(&selection.recipes) {
             by_source
                 .entry(template.source.as_str())
                 .or_default()
-                .push(template_plan(analysis, template, recipe));
+                .push(template_plan(selection, proposals, template, recipe));
         }
         let sources = sources
             .iter()
@@ -191,7 +226,8 @@ pub(crate) fn placements(recipe: &EffectiveRecipe) -> Vec<Placement> {
 }
 
 fn template_plan(
-    analysis: &Analysis,
+    selection: &Selection,
+    proposals: &BTreeMap<TemplateId, Recipe>,
     template: &Template,
     recipe: &EffectiveRecipe,
 ) -> TemplatePlan {
@@ -210,8 +246,7 @@ fn template_plan(
         id: template.id.to_string(),
         pattern: template.pattern.clone(),
         shape: template.shape.clone(),
-        volume: analysis
-            .selection
+        volume: selection
             .proof
             .per_template
             .get(&Some(template.id.clone()))
@@ -226,8 +261,7 @@ fn template_plan(
         count_instead,
         runs_in,
         reasons: recipe.adjustments.iter().map(text::adjustment).collect(),
-        provenance: analysis
-            .proposals
+        provenance: proposals
             .get(&template.id)
             .map(|p| text::provenance(p.provenance())),
     }
