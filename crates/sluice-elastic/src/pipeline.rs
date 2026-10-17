@@ -18,12 +18,13 @@
 //! Text templates (a Drain pattern over a line) are left to a pipeline tool: Java's regexes are
 //! not Rust's. So is counting, which needs state across documents.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value, json};
 use sluice_core::field::FieldPath;
 use sluice_core::guard::{EffectiveRecipe, Route};
 use sluice_core::ids::TemplateId;
+use sluice_core::predicate::Predicate;
 use sluice_core::template::{Template, TemplateShape};
 
 use crate::painless;
@@ -85,11 +86,12 @@ pub fn ingest_pipeline(description: &str, plans: &[PipelinePlan<'_>]) -> IngestP
     let mut ordered: Vec<&PipelinePlan<'_>> = plans.iter().collect();
     ordered.sort_by(|a, b| a.template.id.cmp(&b.template.id));
     let mut left_out = Vec::new();
+    let mut conditions = Conditions::default();
     let recognised: Vec<(&PipelinePlan<'_>, String, Option<Action>)> = ordered
         .into_iter()
         .filter_map(|plan| {
             let condition = recognition(plan.template, &mut left_out)?;
-            let action = action(plan, &mut left_out);
+            let action = action(plan, &mut conditions, &mut left_out);
             Some((plan, condition, action))
         })
         .collect();
@@ -128,8 +130,9 @@ pub fn ingest_pipeline(description: &str, plans: &[PipelinePlan<'_>]) -> IngestP
         return pipeline;
     }
     let script = format!(
-        "{}Set keys = sluiceKeys(ctx);\nint t = -1;\n{}\n{}\n",
+        "{}{}Set keys = sluiceKeys(ctx);\nint t = -1;\n{}\n{}\n",
         painless::FUNCTIONS,
+        conditions.functions.concat(),
         branches.join("\nelse "),
         actions.join("\n")
     );
@@ -239,8 +242,49 @@ fn recognition(template: &Template, left_out: &mut Vec<String>) -> Option<String
     Some(parts.join(" && "))
 }
 
+/// The keep-whole conditions of a pipeline's templates. Those of one source repeat the same
+/// rules' pre-filters, so each distinct alternative is a function once, which every template's
+/// condition calls: Elasticsearch compiles at most 65,535 bytes of script.
+#[derive(Default)]
+struct Conditions {
+    functions: Vec<String>,
+    ids: BTreeMap<String, usize>,
+}
+
+impl Conditions {
+    /// The Painless of `predicate`, as calls of the functions of its alternatives.
+    fn call(&mut self, predicate: &Predicate) -> String {
+        let parts: &[Predicate] = match predicate {
+            Predicate::Any(parts) => parts,
+            other => std::slice::from_ref(other),
+        };
+        if parts.is_empty() {
+            return "false".to_owned();
+        }
+        let calls: Vec<String> = parts
+            .iter()
+            .map(|part| {
+                let code = compile(part);
+                let next = self.ids.len();
+                let id = *self.ids.entry(code.clone()).or_insert(next);
+                if id == next {
+                    self.functions.push(format!(
+                        "boolean sluiceKeep{id}(Map ctx) {{\n  return {code};\n}}\n"
+                    ));
+                }
+                format!("sluiceKeep{id}(ctx)")
+            })
+            .collect();
+        calls.join(" || ")
+    }
+}
+
 /// What a recognised document of the template loses; `None` when nothing.
-fn action(plan: &PipelinePlan<'_>, left_out: &mut Vec<String>) -> Option<Action> {
+fn action(
+    plan: &PipelinePlan<'_>,
+    conditions: &mut Conditions,
+    left_out: &mut Vec<String>,
+) -> Option<Action> {
     let recipe = plan.recipe;
     if recipe.is_passthrough() {
         return None;
@@ -267,10 +311,17 @@ fn action(plan: &PipelinePlan<'_>, left_out: &mut Vec<String>) -> Option<Action>
             .any(|field| !keep(field) && !recipe.drop_fields.contains(field))
         {
             // The document is exactly one of the template's key sets, so its leaves are the
-            // template's fields VRL goes through.
+            // template's fields VRL goes through, and only exceptions that touch one of them
+            // can matter.
+            let relevant = except.iter().filter(|e| {
+                plan.template
+                    .fields
+                    .iter()
+                    .any(|f| e.covers(f) || f.covers(e))
+            });
             lines.push(format!(
                 "  sluiceRemoveEmptyExcept(ctx, keys, {}, {});",
-                painless::list(except.iter().map(FieldPath::as_str)),
+                painless::list(relevant.map(FieldPath::as_str)),
                 painless::list(recipe.drop_fields.iter().map(FieldPath::as_str))
             ));
             empty_fields = true;
@@ -281,7 +332,7 @@ fn action(plan: &PipelinePlan<'_>, left_out: &mut Vec<String>) -> Option<Action>
     }
     let body = lines.join("\n");
     let code = match &recipe.keep_whole_when {
-        Some(keep) => format!("  if (!({})) {{\n{body}\n  }}", compile(keep)),
+        Some(keep) => format!("  if (!({})) {{\n{body}\n  }}", conditions.call(keep)),
         None => body,
     };
     Some(Action {

@@ -103,7 +103,10 @@ fn a_removal_is_one_script_that_decides_before_it_removes() {
     assert_eq!(processor["ignore_failure"], true);
     let script = script(&out);
     let classify = script.find("t = 0").expect("classifies");
-    let keep = script.find("if (!(sluiceTest").expect("tests keep-whole");
+    let keep = script
+        .find("if (!(sluiceKeep0(ctx)))")
+        .expect("tests keep-whole");
+    assert!(script.contains("boolean sluiceKeep0(Map ctx) {\n  return sluiceTest("));
     let remove = script
         .find("sluiceRemove(ctx, ['Message'])")
         .expect("removes");
@@ -182,6 +185,26 @@ fn c1_text_templates_and_metadata_names_are_left_to_a_pipeline_tool() {
     ]);
     assert_eq!(out.body["processors"], json!([]));
     assert_eq!(out.left_out.len(), 2, "{:?}", out.left_out);
+}
+
+#[test]
+fn templates_share_the_functions_of_their_keep_whole_alternatives() {
+    let a = logon();
+    let b = template(
+        "windows:4634:a",
+        &[("EventID", "4634")],
+        &[&["EventID", "Message", "User"]],
+    );
+    let both = Predicate::Any(vec![eq("User", "Admin"), eq("User", "root")]);
+    let one = eq("User", "root");
+    let out = of(&[
+        (&a, &removing(a.id.as_str(), &["Message"], Some(both))),
+        (&b, &removing(b.id.as_str(), &["Message"], Some(one))),
+    ]);
+    let script = script(&out);
+    assert_eq!(script.matches("boolean sluiceKeep").count(), 2, "{script}");
+    assert!(script.contains("if (!(sluiceKeep0(ctx) || sluiceKeep1(ctx)))"));
+    assert!(script.contains("if (!(sluiceKeep1(ctx)))"));
 }
 
 #[test]

@@ -5,7 +5,7 @@
 //! missing or null field, as in VRL, and otherwise compares the value's text (`String.valueOf`
 //! renders strings, integers and booleans as VRL's `to_string` does). These widen to `true`:
 //!
-//! - `exists`, and a test without values (VRL takes that as `true` too);
+//! - a test without values (VRL takes that as `true` too);
 //! - regular expressions: Java's engine is not Rust's, and Painless limits regexes;
 //! - case-insensitive tests on non-ASCII text or values: Java and Rust fold case differently.
 //!
@@ -34,7 +34,11 @@ fn field(test: &FieldTest) -> String {
         MatchOp::Contains => 1,
         MatchOp::StartsWith => 2,
         MatchOp::EndsWith => 3,
-        MatchOp::Regex | MatchOp::Exists => return "true".to_owned(),
+        // VRL's `exists`: the path is there, null or not.
+        MatchOp::Exists => {
+            return format!("sluiceHas(ctx, {})", painless::segments(&test.field));
+        }
+        MatchOp::Regex => return "true".to_owned(),
     };
     let Some(values) = values(&test.values, test.case_sensitive) else {
         return "true".to_owned();
@@ -131,7 +135,6 @@ mod tests {
     fn superset_what_painless_cannot_decide_like_vrl_is_true() {
         for widened in [
             test("a", MatchOp::Regex, &["x.*"], true),
-            test("a", MatchOp::Exists, &[], true),
             test("a", MatchOp::Equals, &[], false),
             test("a", MatchOp::Equals, &["Straße"], false),
             Predicate::Keywords(KeywordTest {
@@ -145,6 +148,14 @@ mod tests {
             compile(&test("a", MatchOp::Equals, &["Straße"], true)),
             "sluiceTest(sluiceGet(ctx, ['a']), 0, true, ['Straße'])",
             "case-sensitive non-ASCII compares exactly"
+        );
+    }
+
+    #[test]
+    fn exists_is_the_path_being_there() {
+        assert_eq!(
+            compile(&test("file.hash", MatchOp::Exists, &[], false)),
+            "sluiceHas(ctx, ['file', 'hash'])"
         );
     }
 

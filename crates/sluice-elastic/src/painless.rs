@@ -26,6 +26,8 @@ pub(crate) fn list<'a>(items: impl IntoIterator<Item = &'a str>) -> String {
 /// - `sluiceLeaves(v, p, out)`: the leaf paths below `v`, as VRL's `flatten` makes them: nested
 ///   objects joined with `.`, arrays and scalars (null included) as leaves, empty objects absent.
 /// - `sluiceGet(root, segments)`: the value at a path, or null when a step is not an object.
+/// - `sluiceHas(root, segments)`: whether the path is there, its value null or not, as VRL's
+///   `exists`.
 /// - `sluiceDisc(v)`: a discriminator's text, as `to_string(v) ?? ""` renders it in VRL; null
 ///   for a float that is not a whole number below 10^15, whose text may differ, so it matches
 ///   no recorded value and the document is not recognised.
@@ -59,6 +61,14 @@ def sluiceGet(def root, List path) {
     v = ((Map) v).get(s);
   }
   return v;
+}
+boolean sluiceHas(def root, List path) {
+  def v = root;
+  for (int i = 0; i < path.size() - 1; ++i) {
+    if (!(v instanceof Map)) { return false; }
+    v = ((Map) v).get(path.get(i));
+  }
+  return v instanceof Map && ((Map) v).containsKey(path.get(path.size() - 1));
 }
 String sluiceDisc(def v) {
   if (v == null || v instanceof Map || v instanceof List) { return ''; }

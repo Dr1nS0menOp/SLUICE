@@ -225,6 +225,9 @@ explains the terms.
 - Recipes can name the field naming convention they are written in (`match.schema`, such as
   `ecs`); five ECS recipes drop the rendered `message` of Windows System, Application,
   Security and PowerShell events as Elastic stores them.
+- Elasticsearch pipelines share keep-whole conditions across a source's templates and test
+  `exists` exactly, so they fit Elasticsearch's script limit with large rule sets and save
+  about what Vector saves.
 - Empty-field removal keeps a field a rule names on every event instead of keeping every event
   the rule may match whole (ADR 0009, decision 6).
 - `sluice up` proposals carry the savings plan too: `plan-<profile>.json` per rule profile,

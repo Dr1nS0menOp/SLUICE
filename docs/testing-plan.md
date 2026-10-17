@@ -283,9 +283,12 @@ pre-filter for wildcard field names in KQL (`file.hash.*:*` became `exists` of a
 `file.hash.*`, never true; now `exists(file.hash)`), a guardrail that kept every event of a
 rule naming a field whole for empty-field removal (ADR 0009, decision 6), ES|QL `*` as
 multiplication read as "any field", and ES|QL options maps (`{ "fuzziness": 1 }`) the parser
-refused. Elasticsearch's own pipelines for System and Application would need 484 KB and 366 KB
-of script with these rules, above the 65,535 bytes it compiles, so there the savings run in
-Vector only.
+refused. Elasticsearch's own pipelines first needed 484 KB and 366 KB of script with these
+rules, above the 65,535 bytes it compiles; with each keep-whole alternative a function once and
+only the empty-field exceptions that touch a template's fields, they fit, and with `exists`
+exact in Painless (it widened to `true`, which kept every document whole) they save System
+16.5 % and Application 29.7 % in Elasticsearch, next to Vector's 17.5 % and 30.0 %
+(20,020 = 20,020 and 20,176 = 20,176 alerts).
 
 All reproduce. Findings:
 - Linux needs `complete: true` on its sources, as the earlier run had: without it, rules for any

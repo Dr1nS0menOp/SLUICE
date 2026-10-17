@@ -32,9 +32,13 @@ Painless, a full language, so templates can be recognised exactly as VRL recogni
    key set with compatible discriminators), so no document is claimed by another template than
    in Vector.
 3. **Superset predicates** (`sluice_elastic::compile`), as for KQL: what Painless cannot decide
-   like VRL widens to `true` (regular expressions, `exists`, case-insensitive tests on non-ASCII
-   text, where Java's case folding is not Rust's). Arrays, objects and floats are `true` and
-   nulls `false`, as in VRL.
+   like VRL widens to `true` (regular expressions, case-insensitive tests on non-ASCII text,
+   where Java's case folding is not Rust's). Arrays, objects and floats are `true` and nulls
+   `false`, as in VRL; `exists` is the path being there, as VRL's. The templates of a source
+   repeat the same rules' pre-filters in their keep-whole conditions, so each distinct
+   alternative is a Painless function once, and a template's empty-field exceptions are only
+   those that touch its fields: with Elastic's prebuilt rules that took a real System pipeline
+   from 484 KB to below the limit.
 4. **Left to a pipeline tool:** text templates (recognised by a Rust regex), counting, templates
    with a field named like Elasticsearch metadata (`_id`, `_index`, …), and a pipeline whose
    script would exceed the 65,535 bytes Elasticsearch compiles. Each is listed.

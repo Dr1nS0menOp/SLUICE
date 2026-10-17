@@ -149,6 +149,19 @@ fn predicates(events: &[Map<String, Value>]) -> Vec<Predicate> {
                 values: vec![head.to_uppercase()],
                 case_sensitive: false,
             }));
+            // `exists` on the path, on its parent, and on a path below it that is not there.
+            let parent = key.rsplit_once('.').map(|(p, _)| p.to_owned());
+            for path in [Some(key.clone()), parent, Some(format!("{key}.missing"))]
+                .into_iter()
+                .flatten()
+            {
+                out.push(Predicate::Field(FieldTest {
+                    field: path.as_str().into(),
+                    op: MatchOp::Exists,
+                    values: Vec::new(),
+                    case_sensitive: false,
+                }));
+            }
         }
     }
     let sigma = sluice_rules::SigmaRules::parse([include_str!(
