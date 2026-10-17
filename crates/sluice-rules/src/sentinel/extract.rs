@@ -44,6 +44,11 @@ const TEXT_COLUMNS: [&str; 6] = [
     "SeverityLevel",
 ];
 
+/// Whether `name` is a custom table, which a data collection rule fills from any source.
+pub(super) fn is_custom_table(name: &str) -> bool {
+    name.len() > 3 && name.ends_with("_CL")
+}
+
 /// A test that `field` is present.
 pub(super) fn present(field: &str) -> Predicate {
     Predicate::Field(FieldTest {
@@ -71,6 +76,8 @@ const STATEFUL: [&str; 8] = [
 pub(super) struct Reads {
     /// The Windows tables it references.
     pub(super) tables: BTreeSet<String>,
+    /// The custom tables (`<Name>_CL`) it references.
+    pub(super) custom_tables: BTreeSet<String>,
     /// Every identifier it names, and every column it names as a string
     /// (`column_ifexists('X', …)`, `['X']`): a superset of the columns it reads.
     pub(super) fields: BTreeSet<FieldPath>,
@@ -92,6 +99,7 @@ pub(super) struct Reads {
 pub(super) fn reads(tokens: &[Token], known: &dyn Fn(&str) -> bool) -> Reads {
     let mut reads = Reads {
         tables: BTreeSet::new(),
+        custom_tables: BTreeSet::new(),
         fields: BTreeSet::new(),
         any_field: None,
         any_table: false,
@@ -131,6 +139,12 @@ pub(super) fn reads(tokens: &[Token], known: &dyn Fn(&str) -> bool) -> Reads {
                 None => rows,
             });
         }
+        if is_custom_table(name) && !is_symbol(next, "(") && !is_symbol(next, ":") {
+            // Any source may be sent to a custom table (`sluice connect sentinel --sample`),
+            // and a data collection rule may rename its columns: its rows are not bounded.
+            reads.custom_tables.insert(name.clone());
+            prefilters.push(Predicate::Always);
+        }
         if STATEFUL.contains(&name.as_str()) && is_symbol(previous, "|") {
             reads.stateful = true;
         }
@@ -161,6 +175,7 @@ impl Reads {
     pub(super) fn unknown(why: String) -> Self {
         Self {
             tables: BTreeSet::new(),
+            custom_tables: BTreeSet::new(),
             fields: BTreeSet::new(),
             any_field: Some(why),
             any_table: true,
@@ -173,6 +188,7 @@ impl Reads {
     /// Adds what a function the query uses reads: rows reach the query through it as well.
     pub(super) fn merge(&mut self, callee: Reads) {
         self.tables.extend(callee.tables);
+        self.custom_tables.extend(callee.custom_tables);
         self.fields.extend(callee.fields);
         if self.any_field.is_none() {
             self.any_field = callee.any_field;

@@ -144,7 +144,10 @@ fn requirement(id: &str, reads: extract::Reads, problems: &mut Vec<String>) -> R
     }
     let modeled = !reads.tables.is_empty() || reads.any_table;
     RuleRequirements {
-        logsource: logsource(&reads.tables, reads.any_table),
+        logsource: logsource(
+            &reads.tables,
+            reads.any_table || !reads.custom_tables.is_empty(),
+        ),
         // The columns of the tables Sluice shapes records for, which no other schema names.
         field_names: None,
         fields: if reads.any_field.is_some() {

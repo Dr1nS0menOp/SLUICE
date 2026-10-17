@@ -153,6 +153,26 @@ fn parsers_and_workspace_functions_may_read_every_windows_table() {
 }
 
 #[test]
+fn c3_a_rule_on_a_custom_table_applies_to_every_source_and_keeps_its_rows() {
+    for query in [
+        "MyApp_CL | where action == 'deny' | project user",
+        "union SecurityEvent, MyApp_CL | where EventID == 4625",
+    ] {
+        let r = rule(query);
+        assert_eq!(r.logsource.product, None, "{query}");
+        assert_eq!(r.prefilter, Predicate::Always, "{query}");
+        let RequiredFields::Known(fields) = &r.fields else {
+            panic!("{query}: fields are known");
+        };
+        let named = |f: &str| fields.contains(&sluice_core::field::FieldPath::new(f));
+        assert!(
+            named("EventID") || (named("action") && named("user")),
+            "{query}"
+        );
+    }
+}
+
+#[test]
 fn rules_on_other_tables_do_not_apply_to_windows_sources() {
     let r = rule("SigninLogs | where ResultType != 0");
     assert_eq!(

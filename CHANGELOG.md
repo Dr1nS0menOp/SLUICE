@@ -234,6 +234,10 @@ explains the terms.
 - `sluice rules fetch splunk --api URL`: the saved searches, macros, props and transforms of
   every app, through Splunk's REST API, as a complete inventory for `--splunk-rules` (ADR 0021,
   ADR 0026).
+- A Sentinel rule on a custom table (`<Name>_CL`) applies to every source and keeps every
+  record its query reads (ADR 0015). Before, it counted as a rule on tables no source has, so
+  a JSON source sent to that table with `sluice connect sentinel --sample` was not protected
+  by it.
 - Splunk's derived fields (`props.conf`, `transforms.conf`): a search's test on an alias tests
   what it copies, one on a computed, looked-up or extracted field matches every event, and the
   search reads what those fields are made from. Before, a test on such a field, which no record

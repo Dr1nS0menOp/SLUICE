@@ -129,3 +129,10 @@ not. 63 rules call ASIM parsers, which read the tables indirectly.
    sound but less precise. Authentication and process events get no table of their own:
    Microsoft's ASIM parsers already read them from `Syslog` (`ASimAuthenticationSshd`),
    `SecurityEvent` and Sysmon's `WindowsEvent`, so a second copy would only duplicate data.
+6. **Custom tables (`<Name>_CL`), 2026-10-17.** `sluice connect sentinel --sample` sends any
+   JSON source to a custom table, so a rule on one applies to every product, reads the columns
+   it names, and may match any row: a data collection rule may rename columns, so a `where` on
+   them bounds no record. Before, such a rule counted as a rule on other tables, which no
+   source has, and the fields it reads were not protected. Other tables Azure fills itself
+   (`SigninLogs`, `AuditLogs`) stay rules on other tables. Columns of the retired HTTP Data
+   Collector API (`name_s`, flattened nested names) are not mapped back to the record.
