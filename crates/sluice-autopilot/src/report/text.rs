@@ -99,8 +99,8 @@ pub(crate) fn placements(placements: &[crate::plan::Placement]) -> Option<String
     use crate::plan::Placement;
     match placements {
         [] => None,
-        [Placement::Pipeline] => Some("needs a pipeline tool such as Vector (counting)".to_owned()),
-        _ => Some("a pipeline tool, or the SIEM's own ingestion".to_owned()),
+        [Placement::Pipeline] => Some("needs a pipeline tool such as Vector".to_owned()),
+        _ => Some("a pipeline tool, the SIEM's own ingestion, or the agent".to_owned()),
     }
 }
 

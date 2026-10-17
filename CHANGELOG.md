@@ -234,6 +234,9 @@ explains the terms.
 - `sluice rules fetch splunk --api URL`: the saved searches, macros, props and transforms of
   every app, through Splunk's REST API, as a complete inventory for `--splunk-rules` (ADR 0021,
   ADR 0026).
+- `runs_in` in `plan.json` and the report names the collection agent (`agent`: Fluent Bit, the
+  OpenTelemetry Collector) next to the pipeline tool and the SIEM's ingestion, and no longer
+  claims a text template's saving can run outside a pipeline tool (ADR 0023).
 - OpenTelemetry Collector `transform` statements (`--otel-native` with `--otel-collector CMD`
   for `analyze` and `demo`; ADR 0028, crate `sluice-otel`): per source, OTTL statements that
   make the plan's field removals in the collector, for records whose body is the parsed JSON.

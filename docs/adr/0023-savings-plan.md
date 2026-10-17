@@ -25,9 +25,11 @@ one plan, many generators.
      `keep_whole_when` (events a rule could match keep every field, contract rule 3),
      `count_instead` (`forward_when` and the summary `keys`), why proposals were narrowed or
      refused, and where the proposal came from.
-2. **`runs_in` says where each saving can run.** Removing fields can run in a pipeline tool or
-   in the SIEM's own ingestion (`pipeline`, `siem_ingest`); counting needs state across events,
-   so it is `pipeline` only. A kind of event sent unchanged has none.
+2. **`runs_in` says where each saving can run.** Removing fields from a key-set template can
+   run in a pipeline tool, in the SIEM's own ingestion or in the collection agent (`pipeline`,
+   `siem_ingest`, `agent`; the agent since ADR 0027 and ADR 0028). Counting needs state across
+   events, and a text template is recognised by a regex over its line, which only a pipeline
+   tool does, so those are `pipeline` only. A kind of event sent unchanged has none.
 3. **The plan is a view of the proof, not a second decision.** It is built from the same
    selection `vector.yaml` is compiled from, so what a generator reads is exactly what was
    proven. A generator that cannot express part of a template's plan must leave that template

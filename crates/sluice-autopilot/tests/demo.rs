@@ -136,7 +136,7 @@ fn counting_runs_only_in_a_pipeline_and_removing_fields_also_in_the_siem() {
         .expect("a template that only removes fields");
     assert_eq!(
         removed.runs_in,
-        [Placement::Pipeline, Placement::SiemIngest]
+        [Placement::Pipeline, Placement::SiemIngest, Placement::Agent]
     );
 
     let rare = planned(&plan, "windows-security:4720:");

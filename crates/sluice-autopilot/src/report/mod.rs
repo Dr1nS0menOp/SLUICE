@@ -182,7 +182,7 @@ fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> Te
             .proposals
             .get(&template.id)
             .map(|p| text::provenance(p.provenance())),
-        runs_in: text::placements(&crate::plan::placements(recipe)),
+        runs_in: text::placements(&crate::plan::placements(template, recipe)),
     }
 }
 

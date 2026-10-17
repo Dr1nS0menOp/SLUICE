@@ -118,9 +118,13 @@ pub struct CountInstead {
 pub enum Placement {
     /// A pipeline tool in front of the SIEM, such as Vector: every saving.
     Pipeline,
-    /// The SIEM's own ingestion, such as a Sentinel DCR transformation: removing fields only,
-    /// since counting needs state across events that ingestion-time transformations lack.
+    /// The SIEM's own ingestion, such as a Sentinel DCR transformation or an Elasticsearch
+    /// ingest pipeline: removing fields only, since counting needs state across events that
+    /// ingestion-time transformations lack.
     SiemIngest,
+    /// The collection agent, such as Fluent Bit or the OpenTelemetry Collector: removing fields
+    /// only, as in the SIEM's ingestion.
+    Agent,
 }
 
 impl SavingsPlan {
@@ -215,11 +219,18 @@ impl SavingsPlan {
 }
 
 /// Where `recipe`'s saving can run; none when it changes nothing.
-pub(crate) fn placements(recipe: &EffectiveRecipe) -> Vec<Placement> {
+/// Where `recipe`'s saving on `template` can run. Only a pipeline tool counts, and only it
+/// recognises a text template (by a regex over the line): every generator for a SIEM's
+/// ingestion or an agent recognises key sets only.
+pub(crate) fn placements(template: &Template, recipe: &EffectiveRecipe) -> Vec<Placement> {
+    let keyset = matches!(
+        template.shape,
+        sluice_core::template::TemplateShape::Keyset { .. }
+    );
     if recipe.is_passthrough() {
         Vec::new()
-    } else if recipe.route == Route::ForwardAll {
-        vec![Placement::Pipeline, Placement::SiemIngest]
+    } else if recipe.route == Route::ForwardAll && keyset {
+        vec![Placement::Pipeline, Placement::SiemIngest, Placement::Agent]
     } else {
         vec![Placement::Pipeline]
     }
@@ -241,7 +252,7 @@ fn template_plan(
             keys: summary_keys.clone(),
         }),
     };
-    let runs_in = placements(recipe);
+    let runs_in = placements(template, recipe);
     TemplatePlan {
         id: template.id.to_string(),
         pattern: template.pattern.clone(),
@@ -264,5 +275,63 @@ fn template_plan(
         provenance: proposals
             .get(&template.id)
             .map(|p| text::provenance(p.provenance())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use sluice_core::template::{LineHeader, TemplateShape, TemplateStats};
+
+    use super::*;
+
+    fn template(shape: TemplateShape) -> Template {
+        Template {
+            id: "t".into(),
+            source: "s".into(),
+            logsource: sluice_core::logsource::LogSource::default(),
+            schema: sluice_core::schema::Schema::default(),
+            pattern: String::new(),
+            shape,
+            fields: ["Message".into()].into(),
+            text_fields: BTreeSet::new(),
+            stats: TemplateStats::default(),
+        }
+    }
+
+    #[test]
+    fn only_a_pipeline_tool_counts_or_recognises_a_line() {
+        let removing = EffectiveRecipe {
+            drop_fields: ["Message".into()].into(),
+            ..EffectiveRecipe::passthrough("t".into())
+        };
+        let keyset = template(TemplateShape::Keyset {
+            discriminators: Vec::new(),
+            paths: ["Message".into()].into(),
+            variants: vec![["Message".into()].into()],
+        });
+        let text = template(TemplateShape::Text {
+            field: "message".into(),
+            header: LineHeader::None,
+            tokens: vec!["x".into()],
+        });
+        assert_eq!(
+            placements(&keyset, &removing),
+            [Placement::Pipeline, Placement::SiemIngest, Placement::Agent]
+        );
+        assert_eq!(placements(&text, &removing), [Placement::Pipeline]);
+        let counting = EffectiveRecipe {
+            route: Route::ForwardMatching {
+                prefilter: Predicate::Always,
+                summary_keys: Vec::new(),
+            },
+            ..removing.clone()
+        };
+        assert_eq!(placements(&keyset, &counting), [Placement::Pipeline]);
+        assert_eq!(
+            placements(&keyset, &EffectiveRecipe::passthrough("t".into())),
+            Vec::<Placement>::new()
+        );
     }
 }
