@@ -42,8 +42,9 @@ pub enum RuleQuery {
     },
 }
 
-/// Most hits one EQL query may return before the comparison would be incomplete.
-const MAX_HITS: usize = 10_000;
+/// Most hits one query may return before the comparison would be incomplete; the proof index's
+/// `index.max_result_window`.
+const MAX_HITS: usize = 1_000_000;
 
 /// Documents per bulk request.
 const BULK: usize = 1_000;
@@ -119,6 +120,7 @@ impl ElasticEngine {
         let body = json!({
             "settings": {
                 "index.mapping.total_fields.limit": 100_000,
+                "index.max_result_window": MAX_HITS,
                 "analysis": { "normalizer": { "sluice_lowercase": {
                     "type": "custom", "filter": ["lowercase"],
                 } } },
@@ -172,7 +174,10 @@ impl ElasticEngine {
             RuleQuery::Eql(q) => {
                 let answer = self.client.call(
                     "POST",
-                    &format!("{index}/_eql/search"),
+                    // Only the ids: the documents themselves would make the answer large.
+                    &format!(
+                        "{index}/_eql/search?filter_path=hits.events._id,hits.sequences.events._id"
+                    ),
                     &json!({ "query": q, "size": MAX_HITS }).to_string(),
                 )?;
                 eql_alerts(rule, &answer)
@@ -189,7 +194,13 @@ impl ElasticEngine {
                 let answer = self.client.call(
                     "POST",
                     &format!("{index}/_search"),
-                    &json!({ "query": query, "size": MAX_HITS }).to_string(),
+                    &json!({
+                        "query": query,
+                        "size": MAX_HITS,
+                        "_source": keys.iter().map(FieldPath::as_str).collect::<Vec<_>>(),
+                        "track_total_hits": false,
+                    })
+                    .to_string(),
                 )?;
                 search_alerts(rule, &answer, keys)
             }

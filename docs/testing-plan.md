@@ -260,6 +260,14 @@ Linux saves nothing there: all its templates are text templates. Before only tem
 remove something were recognised, System's script was 83 KB, above the 65,535 bytes
 Elasticsearch compiles, and nothing was removed (docs/notes/elasticsearch.md).
 
+As Elastic stores them (2026-10-17, `scripts/real-data/to-ecs.sh`: the same Windows events as
+Elastic Agent's winlog input sends them, through the ingest pipelines of Elastic's System 3.0.0
+and Windows 3.10.0 integrations in Elasticsearch 9.1.0; 42,335 documents, 53.7 MB), SigmaHQ
+through the built-in `ecs_windows` mapping saves 0.3 % (System) and 1.2 % (Application): the
+community recipes name Sigma's fields (`Message`), and in ECS the rendered text is `message`.
+With Elastic's 2,059 prebuilt rules (no machine learning) too, 1,944 of them run in
+Elasticsearch and the proof holds (42,531 = 42,531 alerts, 92 s); nothing is saved.
+
 All reproduce. Findings:
 - Linux needs `complete: true` on its sources, as the earlier run had: without it, rules for any
   Linux category apply and nothing is summarized (`run.sh` now declares it).
