@@ -193,6 +193,31 @@ pub(crate) fn elastic(dir: Option<&Path>) -> Result<Option<sluice_rules::Elastic
     Ok(Some(rules))
 }
 
+/// The Splunk saved searches and macros in `dir` (`.conf` files or REST JSON answers), if
+/// given; the first problems are printed as warnings, all of them are in the report.
+pub(crate) fn splunk(dir: Option<&Path>) -> Result<Option<sluice_rules::SplunkRules>> {
+    let Some(dir) = dir else {
+        return Ok(None);
+    };
+    let files = files(dir, &["conf", "json"])?;
+    let rules = sluice_rules::SplunkRules::parse(
+        files
+            .iter()
+            .filter(|(path, _)| !path.ends_with(sluice_core::inventory::MANIFEST_FILE))
+            .map(|(path, text)| (path.as_str(), text.as_str())),
+    );
+    for problem in rules.problems().iter().take(5) {
+        eprintln!("warning: {problem}");
+    }
+    if rules.problems().len() > 5 {
+        eprintln!(
+            "warning: … and {} more Splunk searches read broadly (listed in the report)",
+            rules.problems().len() - 5
+        );
+    }
+    Ok(Some(rules))
+}
+
 /// Elasticsearch at `url`, running the rules of `rules` on an index that maps every field they
 /// name (ADR 0025): EQL and ES|QL as they are, KQL as the query Kibana builds from it.
 pub(crate) fn elasticsearch(

@@ -118,6 +118,7 @@ fn any_proposals_yield_an_alert_preserving_data_plane() {
                 wazuh: None,
                 sentinel: None,
                 elastic: None,
+                splunk: None,
             };
             let analysis = analyze_proposals(
                 input,

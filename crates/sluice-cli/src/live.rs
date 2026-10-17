@@ -37,6 +37,7 @@ pub(crate) fn up(args: &UpArgs) -> Result<()> {
         wazuh: input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?,
         sentinel: sentinel(args, &config)?,
         elastic: elastic(args)?,
+        splunk: input::splunk(args.splunk_rules.as_deref())?,
         bases: rule_bases(args),
     };
     let analysis_sources: Vec<_> = config
@@ -266,6 +267,11 @@ fn rule_bases(args: &UpArgs) -> BTreeMap<String, RulesBasis> {
             "elastic",
             args.elastic_rules.as_deref(),
             fetched(args.elastic_rules.as_deref()),
+        ),
+        (
+            "splunk",
+            args.splunk_rules.as_deref(),
+            fetched(args.splunk_rules.as_deref()),
         ),
     ];
     let mut by_set = BTreeMap::new();

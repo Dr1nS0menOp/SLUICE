@@ -36,7 +36,7 @@ impl RuleStatus {
 /// One rule or query, and what Sluice made of it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RuleRow {
-    /// `Sigma`, `Wazuh`, `Sentinel` or `Elastic`.
+    /// `Sigma`, `Wazuh`, `Sentinel`, `Elastic` or `Splunk`.
     pub set: String,
     /// The rule's id.
     pub rule: String,
@@ -75,6 +75,9 @@ pub(crate) fn rows(input: Input<'_>) -> Vec<RuleRow> {
             elastic.rules.requirements(),
             elastic.rules.names(),
         );
+    }
+    if let Some(splunk) = input.splunk {
+        set_rows(&mut rows, "Splunk", splunk.requirements(), splunk.names());
     }
     rows
 }

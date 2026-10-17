@@ -30,7 +30,8 @@ explains the terms.
   the rule could match, and support complete log sources (ADR 0009). `sluice analyze` hints at
   sources whose description keeps extra rules in scope.
 - Field names are part of the safety contract (ADR 0018): a source declares the convention its
-  records follow with `schema` (`sigma`, `ecs`, `cim`, `asim`, `ocsf`, `udm`, `sentinel`). A Sigma
+  records follow with `schema` (`sigma`, `ecs`, `cim`, `asim`, `ocsf`, `udm`, `sentinel`,
+  `splunk`). A Sigma
   rule is compared with a JSON source only when it declares `sigma`; for any other value, or none,
   the rule is read as reading every field of every event of its log source, so nothing it could
   read is cut (`names its fields as sigma does, the records use ecs`). Before, such a rule was
@@ -224,6 +225,12 @@ explains the terms.
   forwarded documents; `--elastic-native` (now a switch) proves its pipelines there.
 - `sluice rules fetch elastic --kibana URL`: the detection rules of a Kibana space, as a
   complete inventory for `--elastic-rules` (ADR 0021, ADR 0025).
+- Splunk saved searches (`--splunk-rules DIR` for `analyze`, `up` and `rules requirements`;
+  ADR 0026): `savedsearches.conf` and `macros.conf`, or the REST API's JSON. Scheduled searches
+  and correlation searches count; macros are expanded, the base search becomes a superset
+  pre-filter, and every name in the pipeline may be a field the search reads. Subsearches,
+  `tstats`, data models and unknown macros read everything. Fields are named as Splunk extracts
+  them (new source `schema: splunk`). No engine runs them in the proof yet.
 - Recipes can name the field naming convention they are written in (`match.schema`, such as
   `ecs`); five ECS recipes drop the rendered `message` of Windows System, Application,
   Security and PowerShell events as Elastic stores them.

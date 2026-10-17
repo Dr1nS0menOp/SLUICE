@@ -198,6 +198,10 @@ pub(crate) enum RulesCommand {
         /// `*.json`, or the prebuilt rules package), searched recursively.
         #[arg(long)]
         elastic_rules: Option<PathBuf>,
+        /// Directory of Splunk configuration (`savedsearches.conf`, `macros.conf`, or the REST
+        /// API's JSON answers), searched recursively.
+        #[arg(long)]
+        splunk_rules: Option<PathBuf>,
     },
     /// Read the rules a SIEM runs from its API (read-only) into a directory, with an
     /// `inventory.json` that marks them complete (ADR 0021). Fetching again replaces it.
@@ -358,6 +362,10 @@ pub(crate) struct UpArgs {
     /// it, their requirements still constrain every cut.
     #[arg(long, value_name = "URL", requires = "elastic_rules")]
     pub(crate) elasticsearch: Option<String>,
+    /// Directory of Splunk saved searches and macros (`savedsearches.conf`, `macros.conf` or
+    /// the REST API's JSON), for destinations whose `sluice_rules` name `splunk` (ADR 0026).
+    #[arg(long)]
+    pub(crate) splunk_rules: Option<PathBuf>,
     /// The rule sets given are every rule and query their SIEMs run, so profiles may summarize
     /// (L2, L3). Sets fetched with `sluice rules fetch` count as complete without it (ADR 0021).
     #[arg(long)]
@@ -446,6 +454,11 @@ pub(crate) struct AnalyzeArgs {
     /// constrain every cut.
     #[arg(long)]
     pub(crate) elastic_rules: Option<PathBuf>,
+    /// Directory of Splunk saved searches and macros: `savedsearches.conf` and `macros.conf`,
+    /// or the REST API's `saved/searches` and `admin/macros` JSON (ADR 0026). Their
+    /// requirements constrain every cut; no engine runs them in the proof.
+    #[arg(long)]
+    pub(crate) splunk_rules: Option<PathBuf>,
     /// Also prove, per `--sentinel-table` source, a data collection rule transformation that
     /// makes the plan's field removals in Sentinel's own ingestion, in the emulator (ADR 0013).
     /// Needs a sample read from the table, where empty and missing columns are the same.

@@ -234,6 +234,11 @@
           "description": "The columns of a Microsoft Sentinel table that is not an ASIM table (`Syslog`,\n`CommonSecurityLog`).",
           "type": "string",
           "const": "sentinel"
+        },
+        {
+          "description": "The fields as Splunk extracts them at search time: for a JSON event, its key paths\njoined by dots (`KV_MODE = json`). Aliases and calculated fields of a sourcetype\n(`props.conf`) are not part of the record, so a source declares this only when its\nsourcetype adds none that rules read.",
+          "type": "string",
+          "const": "splunk"
         }
       ]
     }

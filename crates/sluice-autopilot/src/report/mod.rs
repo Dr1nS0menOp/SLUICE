@@ -109,6 +109,10 @@ impl Report {
             rules.push(("Elastic".to_owned(), elastic.rules.requirements().len()));
             requirements.extend(elastic.rules.requirements());
         }
+        if let Some(splunk) = input.splunk {
+            rules.push(("Splunk".to_owned(), splunk.requirements().len()));
+            requirements.extend(splunk.requirements());
+        }
         Self {
             total: proof.total,
             alerts_full: proof.full_alerts.len(),

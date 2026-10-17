@@ -37,6 +37,11 @@ pub enum Schema {
     /// The columns of a Microsoft Sentinel table that is not an ASIM table (`Syslog`,
     /// `CommonSecurityLog`).
     Sentinel,
+    /// The fields as Splunk extracts them at search time: for a JSON event, its key paths
+    /// joined by dots (`KV_MODE = json`). Aliases and calculated fields of a sourcetype
+    /// (`props.conf`) are not part of the record, so a source declares this only when its
+    /// sourcetype adds none that rules read.
+    Splunk,
 }
 
 impl Schema {
@@ -66,6 +71,7 @@ impl fmt::Display for Schema {
             Self::Ocsf => "ocsf",
             Self::Udm => "udm",
             Self::Sentinel => "sentinel",
+            Self::Splunk => "splunk",
         })
     }
 }
@@ -85,7 +91,7 @@ mod tests {
         );
     }
 
-    const ALL: [Schema; 8] = [
+    const ALL: [Schema; 9] = [
         Schema::Undeclared,
         Schema::Sigma,
         Schema::Ecs,
@@ -94,6 +100,7 @@ mod tests {
         Schema::Ocsf,
         Schema::Udm,
         Schema::Sentinel,
+        Schema::Splunk,
     ];
 
     #[test]

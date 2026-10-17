@@ -199,6 +199,7 @@ fn shared_with_oidc(
         wazuh: None,
         sentinel: None,
         elastic: None,
+        splunk: None,
         bases: std::collections::BTreeMap::new(),
     };
     let mut destinations = serde_json::Map::new();

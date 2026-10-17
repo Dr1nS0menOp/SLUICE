@@ -76,6 +76,7 @@ fn eager_advice_is_guarded_and_proven() {
         wazuh: None,
         sentinel: None,
         elastic: None,
+        splunk: None,
     };
     let book = RecipeBook::embedded().expect("recipes");
     let advisor = Eager::default();
@@ -136,6 +137,7 @@ fn a_failing_advisor_is_reported_not_fatal() {
         wazuh: None,
         sentinel: None,
         elastic: None,
+        splunk: None,
     };
     let book = RecipeBook::embedded().expect("recipes");
     let analysis = analyze(

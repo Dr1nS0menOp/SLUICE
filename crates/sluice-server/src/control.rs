@@ -13,7 +13,7 @@ use sluice_autopilot::{
 use sluice_core::alert::RuleEngine;
 use sluice_core::event::{Event, Timestamp};
 use sluice_core::source::Source;
-use sluice_rules::{ElasticRules, SentinelRules, SigmaRules, WazuhRules};
+use sluice_rules::{ElasticRules, SentinelRules, SigmaRules, SplunkRules, WazuhRules};
 use sluice_vector::{
     LiveProfile, LiveSettings, LiveSource, Plan, destination_profile, live_config,
 };
@@ -38,8 +38,10 @@ pub struct Rules {
     pub sentinel: Option<SentinelRuleSet>,
     /// Elastic Security detection rules, for destinations that name `elastic`.
     pub elastic: Option<ElasticRuleSet>,
-    /// Per rule set (`sigma`, `wazuh`, `sentinel`, `elastic`), on what grounds it is every rule its SIEM
-    /// runs: fetched from it, or claimed by the operator (ADR 0021). A set that is missing is
+    /// Splunk saved searches, for destinations that name `splunk`. Only the guardrails use them.
+    pub splunk: Option<SplunkRules>,
+    /// Per rule set (`sigma`, `wazuh`, `sentinel`, `elastic`, `splunk`), on what grounds it is
+    /// every rule its SIEM runs: fetched from it, or claimed by the operator (ADR 0021). A set that is missing is
     /// not known to be complete. A profile is as complete as its weakest set; only a complete
     /// one summarizes.
     pub bases: BTreeMap<String, RulesBasis>,
@@ -387,6 +389,11 @@ impl Shared {
                     rules: &e.rules,
                     engine: e.engine.as_deref().map(|e| e as &dyn RuleEngine),
                 }),
+            splunk: self
+                .rules
+                .splunk
+                .as_ref()
+                .filter(|_| profile.runs("splunk")),
         }
     }
 
@@ -559,6 +566,10 @@ fn rule_info(rules: &Rules) -> Vec<RuleInfo> {
             "elastic",
             rules.elastic.as_ref().map(|e| e.rules.requirements()),
         ),
+        (
+            "splunk",
+            rules.splunk.as_ref().map(SplunkRules::requirements),
+        ),
     ];
     sets.into_iter()
         .flat_map(|(set, requirements)| {
@@ -570,8 +581,8 @@ fn rule_info(rules: &Rules) -> Vec<RuleInfo> {
         .collect()
 }
 
-/// The rule sets a destination can name: Sigma always (it may be empty), Wazuh, Sentinel and
-/// Elastic when loaded.
+/// The rule sets a destination can name: Sigma always (it may be empty), Wazuh, Sentinel,
+/// Elastic and Splunk when loaded.
 fn loaded(rules: &Rules) -> Vec<&'static str> {
     let mut loaded = vec!["sigma"];
     if rules.wazuh.is_some() {
@@ -582,6 +593,9 @@ fn loaded(rules: &Rules) -> Vec<&'static str> {
     }
     if rules.elastic.is_some() {
         loaded.push("elastic");
+    }
+    if rules.splunk.is_some() {
+        loaded.push("splunk");
     }
     loaded
 }

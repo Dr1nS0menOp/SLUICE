@@ -51,6 +51,7 @@ pub(crate) fn build(
         }),
         sentinel: None,
         elastic: None,
+        splunk: None,
         bases: ["sigma", "wazuh", "sentinel"]
             .map(|set| (set.to_owned(), sluice_autopilot::RulesBasis::SelfContained))
             .into(),
@@ -547,6 +548,7 @@ async fn c5_a_sentinel_engine_takes_part_in_its_profiles_proof() {
             engine: Some(Box::new(EveryField)),
         }),
         elastic: None,
+        splunk: None,
         bases: ["sigma", "wazuh", "sentinel"]
             .map(|set| (set.to_owned(), sluice_autopilot::RulesBasis::SelfContained))
             .into(),

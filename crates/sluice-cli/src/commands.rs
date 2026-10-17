@@ -47,6 +47,7 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
             wazuh: None,
             sentinel: None,
             elastic: None,
+            splunk: None,
         },
         &RecipeBook::embedded()?,
         Helpers {
@@ -91,6 +92,7 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
     let logtest = logtest(args)?;
     let sentinel_rules = input::sentinel(args.sentinel_rules.as_deref())?;
     let elastic_rules = input::elastic(args.elastic_rules.as_deref())?;
+    let splunk_rules = input::splunk(args.splunk_rules.as_deref())?;
     let kusto = match (&sentinel_rules, &args.kusto) {
         (Some(rules), Some(url)) => Some(input::kusto(url, rules, &args.sentinel_table)?),
         _ => None,
@@ -127,6 +129,7 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
                 rules,
                 engine: elasticsearch.as_ref().map(|e| e as &dyn RuleEngine),
             }),
+            splunk: splunk_rules.as_ref(),
         },
         &book,
         Helpers {
@@ -161,6 +164,7 @@ fn fetched_only(args: &AnalyzeArgs) -> bool {
         args.wazuh_rules.as_deref(),
         args.sentinel_rules.as_deref(),
         args.elastic_rules.as_deref(),
+        args.splunk_rules.as_deref(),
     ];
     args.rules.is_none()
         && given.iter().any(Option::is_some)
@@ -220,22 +224,25 @@ pub(crate) fn recipes(args: &RecipesArgs) -> Result<()> {
 }
 
 pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
-    let (rules, wazuh_rules, wazuh_decoders, sentinel_rules, elastic_rules) = match &args.command {
-        RulesCommand::Fetch(fetch) => return crate::inventory::fetch(fetch),
-        RulesCommand::Requirements {
-            rules,
-            wazuh_rules,
-            wazuh_decoders,
-            sentinel_rules,
-            elastic_rules,
-        } => (
-            rules,
-            wazuh_rules,
-            wazuh_decoders,
-            sentinel_rules,
-            elastic_rules,
-        ),
-    };
+    let (rules, wazuh_rules, wazuh_decoders, sentinel_rules, elastic_rules, splunk_rules) =
+        match &args.command {
+            RulesCommand::Fetch(fetch) => return crate::inventory::fetch(fetch),
+            RulesCommand::Requirements {
+                rules,
+                wazuh_rules,
+                wazuh_decoders,
+                sentinel_rules,
+                elastic_rules,
+                splunk_rules,
+            } => (
+                rules,
+                wazuh_rules,
+                wazuh_decoders,
+                sentinel_rules,
+                elastic_rules,
+                splunk_rules,
+            ),
+        };
     let mut requirements = Vec::new();
     let mut problems = Vec::new();
     if let Some(dir) = rules {
@@ -253,6 +260,9 @@ pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
     }
     if let Some(elastic) = input::elastic(elastic_rules.as_deref())? {
         requirements.extend(elastic.requirements().iter().cloned());
+    }
+    if let Some(splunk) = input::splunk(splunk_rules.as_deref())? {
+        requirements.extend(splunk.requirements().iter().cloned());
     }
     for problem in &problems {
         eprintln!("warning: {problem}");
