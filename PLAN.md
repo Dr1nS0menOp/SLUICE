@@ -660,8 +660,11 @@ planned when it starts; it includes at least:
 
   Status 2026-10-17 (ADR 0027): Fluent Bit Lua filters are done and *proven* in a real Fluent
   Bit (4.0.3): the same recognition and keep-whole as the ingest pipelines, an unchanged record
-  left as it was, and the same savings on the synthetic sample. Next agent: the OpenTelemetry
-  Collector.
+  left as it was, and the same savings on the synthetic sample.
+
+  Status 2026-10-17 (ADR 0028): OpenTelemetry Collector `transform` statements (OTTL) are done
+  and *proven* in a real collector (otelcol-contrib 0.128.0), with the same savings on the
+  synthetic sample as Vector, Elasticsearch and Fluent Bit.
 
   Status 2026-10-17 (ADR 0025): Elastic's own detection rules are requirements: KQL and EQL
   parsed for fields and a superset pre-filter, ES|QL and Lucene read broadly, scoped by index

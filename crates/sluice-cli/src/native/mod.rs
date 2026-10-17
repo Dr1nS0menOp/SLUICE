@@ -1,4 +1,4 @@
-//! `sluice analyze --sentinel-native`, `--elastic-native` and `--fluent-bit-native`: the plan's
+//! `sluice analyze --sentinel-native`, `--elastic-native`, `--fluent-bit-native` and `--otel-native`: the plan's
 //! field removals in a SIEM's own ingestion or in the agent, proven in that engine before
 //! anything is written.
 //!
@@ -10,6 +10,7 @@
 
 pub(crate) mod elastic;
 pub(crate) mod fluentbit;
+pub(crate) mod otel;
 pub(crate) mod sentinel;
 
 use std::collections::BTreeSet;

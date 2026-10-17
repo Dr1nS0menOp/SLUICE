@@ -67,6 +67,7 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
                 .fluent_bit
                 .as_deref()
                 .filter(|_| args.fluent_bit_native),
+            otel: args.otel_collector.as_deref().filter(|_| args.otel_native),
             ..Native::default()
         },
     )?;
@@ -161,6 +162,7 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
                 .fluent_bit
                 .as_deref()
                 .filter(|_| args.fluent_bit_native),
+            otel: args.otel_collector.as_deref().filter(|_| args.otel_native),
         },
     )
 }
@@ -303,6 +305,9 @@ struct Native<'a> {
     /// `--fluent-bit-native`: the command that runs Fluent Bit (`--fluent-bit`), to prove Lua
     /// filters in.
     fluent_bit: Option<&'a Path>,
+    /// `--otel-native`: the command that runs the collector (`--otel-collector`), to prove
+    /// transform statements in.
+    otel: Option<&'a Path>,
 }
 
 /// What `--sentinel-native` asks for.
@@ -375,6 +380,9 @@ fn run(
     }
     if let Some(command) = native.fluent_bit {
         crate::native::fluentbit::fluent_bit(&analysis, input, command, out)?;
+    }
+    if let Some(command) = native.otel {
+        crate::native::otel::otel(&analysis, input, command, out)?;
     }
     Ok(())
 }

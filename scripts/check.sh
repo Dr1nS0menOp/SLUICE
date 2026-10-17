@@ -55,4 +55,12 @@ else
     printf '\n==> fluent-bit: skipped (docker pull fluent/fluent-bit:4.0.3)\n'
 fi
 
+if command -v docker >/dev/null 2>&1 \
+    && docker image inspect otel/opentelemetry-collector-contrib:0.128.0 >/dev/null 2>&1; then
+    step "otel (transform statements and their differential test against the collector)"
+    bash "$(dirname "$0")/otel-check.sh"
+else
+    printf '\n==> otel: skipped (docker pull otel/opentelemetry-collector-contrib:0.128.0)\n'
+fi
+
 printf '\nAll gates passed.\n'

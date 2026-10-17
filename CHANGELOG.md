@@ -234,6 +234,13 @@ explains the terms.
 - `sluice rules fetch splunk --api URL`: the saved searches, macros, props and transforms of
   every app, through Splunk's REST API, as a complete inventory for `--splunk-rules` (ADR 0021,
   ADR 0026).
+- OpenTelemetry Collector `transform` statements (`--otel-native` with `--otel-collector CMD`
+  for `analyze` and `demo`; ADR 0028, crate `sluice-otel`): per source, OTTL statements that
+  make the plan's field removals in the collector, for records whose body is the parsed JSON.
+  Recognition counts each map's keys exactly (null ones too), keep-whole holds unless its test
+  is false, and nothing is removed before everything is decided. Proven in a real collector;
+  `scripts/otel-check.sh` runs the tests against otelcol-contrib 0.128.0, `check.sh` and CI run
+  it.
 - Fluent Bit Lua filters (`--fluent-bit-native` with `--fluent-bit CMD` for `analyze` and
   `demo`; ADR 0027, crate `sluice-fluentbit`): per source, a Lua filter that makes the plan's
   field removals in the agent, recognising records as Vector does and keeping whole every one

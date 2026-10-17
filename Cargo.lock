@@ -2825,6 +2825,7 @@ dependencies = [
  "sluice-fluentbit",
  "sluice-kql",
  "sluice-mcp",
+ "sluice-otel",
  "sluice-rules",
  "sluice-sentinel",
  "sluice-server",
@@ -2911,6 +2912,19 @@ dependencies = [
  "tokio",
  "tower",
  "ureq",
+]
+
+[[package]]
+name = "sluice-otel"
+version = "0.1.0"
+dependencies = [
+ "rustix",
+ "serde_json",
+ "sluice-core",
+ "sluice-rules",
+ "sluice-synth",
+ "sluice-vector",
+ "thiserror",
 ]
 
 [[package]]

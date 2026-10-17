@@ -428,6 +428,13 @@ pub(crate) struct DemoArgs {
     /// Also prove and write Fluent Bit Lua filters, as `sluice analyze --fluent-bit-native`.
     #[arg(long, requires = "fluent_bit")]
     pub(crate) fluent_bit_native: bool,
+    /// A command that runs the OpenTelemetry Collector (contrib), for `--otel-native`.
+    #[arg(long, value_name = "CMD")]
+    pub(crate) otel_collector: Option<PathBuf>,
+    /// Also prove and write OpenTelemetry Collector transform statements, as `sluice analyze
+    /// --otel-native`.
+    #[arg(long, requires = "otel_collector")]
+    pub(crate) otel_native: bool,
     #[command(flatten)]
     pub(crate) ai: AiArgs,
 }
@@ -516,6 +523,17 @@ pub(crate) struct AnalyzeArgs {
     /// Needs records as the agent reads them.
     #[arg(long, requires = "fluent_bit")]
     pub(crate) fluent_bit_native: bool,
+    /// A command that runs the OpenTelemetry Collector with the `filelog` receiver, `transform`
+    /// processor and `file` exporter (the contrib distribution, or a wrapper that runs it in a
+    /// container: `scripts/otel-check.sh` writes one). It takes the collector's own arguments.
+    #[arg(long, value_name = "CMD")]
+    pub(crate) otel_collector: Option<PathBuf>,
+    /// Also write `otel/processors.yaml`: per source, a `transform` processor whose OTTL
+    /// statements make the plan's field removals in the collector, after proving them in
+    /// `--otel-collector` (ADR 0028): they remove nothing Vector keeps, change nothing else,
+    /// and the rules raise the same alerts. For records whose body is the parsed JSON.
+    #[arg(long, requires = "otel_collector")]
+    pub(crate) otel_native: bool,
     /// Wazuh manager API (for example `https://wazuh:55000`) to spot-check reductions with its
     /// real decoders and rules through `logtest`. The password is read from
     /// `WAZUH_API_PASSWORD`.

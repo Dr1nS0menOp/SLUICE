@@ -26,6 +26,7 @@ sluice-elastic.workspace = true
 sluice-fluentbit.workspace = true
 sluice-kql.workspace = true
 sluice-mcp.workspace = true
+sluice-otel.workspace = true
 sluice-rules.workspace = true
 sluice-sentinel.workspace = true
 sluice-server.workspace = true
