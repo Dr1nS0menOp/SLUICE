@@ -416,12 +416,13 @@ fn connect_refuses_nothing_to_write_and_samples_that_are_not_json() {
     assert!(error.contains("invalid value 'splunk'"), "{error}");
 
     let sample = dir.join("bad.ndjson");
-    std::fs::write(&sample, "{\"a\":1}\nnot json\n").unwrap();
+    // A byte order mark and a blank line: the line number is still the one an editor shows.
+    std::fs::write(&sample, "\u{feff}{\"a\":1}\n\nnot json\n").unwrap();
     let sample = sample.to_str().unwrap();
     let error = sluice_fails(&[
         "connect", "sentinel", "--sample", sample, "--table", "T", "--out", out,
     ]);
-    assert!(error.contains("line 2: not a JSON object"), "{error}");
+    assert!(error.contains("line 3: not a JSON object"), "{error}");
 }
 
 /// Runs `sluice` without the credentials of the user running the tests; returns stderr.

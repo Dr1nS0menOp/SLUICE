@@ -230,10 +230,14 @@ pub(crate) fn ok_json(status: u16, body: &str) -> Result<Value, WazuhError> {
     let value: Value =
         serde_json::from_str(body).map_err(|e| WazuhError::Invalid(e.to_string()))?;
     if value["error"] != json!(0) {
+        // Wazuh says what went wrong in `message`, and per item in `data.failed_items`.
+        let message = value["message"].as_str().map_or_else(
+            || excerpt(body),
+            |m| format!("{m} ({})", excerpt(&value["data"].to_string())),
+        );
         return Err(WazuhError::Invalid(format!(
-            "error {} in {}",
-            value["error"],
-            excerpt(body)
+            "Wazuh answered error {}: {message}",
+            value["error"]
         )));
     }
     Ok(value)

@@ -117,6 +117,10 @@ pub(crate) fn sigma_pipelines(specs: &[String]) -> Result<Vec<sluice_rules::Sigm
                 let yaml = fs::read_to_string(path)
                     .with_context(|| format!("reading {}", path.display()))?;
                 Ok(sluice_rules::SigmaPipeline::parse(schema, pipeline, &yaml)?)
+            } else if pipeline.contains('/')
+                || path.extension().is_some_and(|e| e == "yml" || e == "yaml")
+            {
+                bail!("--sigma-pipeline {spec}: there is no file {pipeline}");
             } else {
                 Ok(sluice_rules::SigmaPipeline::builtin(schema, pipeline)?)
             }

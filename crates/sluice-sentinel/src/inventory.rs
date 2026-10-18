@@ -178,7 +178,9 @@ impl Out {
     }
 
     fn write(&mut self, kind: &str, name: &str, document: &Value) {
-        let text = serde_json::to_string_pretty(document).unwrap_or_default() + "\n";
+        let text = serde_json::to_string_pretty(document)
+            .expect("a JSON value always serializes: its keys are strings")
+            + "\n";
         let stem = format!("{kind}/{}", file_name(name));
         let mut path = format!("{stem}.yaml");
         // Names are unique per kind in Azure, but file_name() can make two equal.

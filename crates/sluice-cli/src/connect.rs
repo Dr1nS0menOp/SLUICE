@@ -104,7 +104,7 @@ fn write_summary_table(args: &ConnectArgs) -> Result<()> {
         &out.join("SluiceSummary.dcr.json"),
         &summary_dcr(&args.location, workspace(args)),
     )?;
-    write(&out.join("SluiceCounts.kql"), SUMMARY_COUNTS)?;
+    crate::output::write(&out.join("SluiceCounts.kql"), SUMMARY_COUNTS)?;
     println!(
         "Summaries: create {SUMMARY_TABLE} from {0}/{SUMMARY_TABLE}.table.json and the rule \
          from {0}/SluiceSummary.dcr.json, and save {0}/SluiceCounts.kql as the workspace \
@@ -128,10 +128,12 @@ fn custom_table(args: &ConnectArgs) -> Result<Option<CustomTable>> {
     };
     let text =
         std::fs::read_to_string(sample).with_context(|| format!("reading {}", sample.display()))?;
+    // Editors on Windows write a byte order mark; it is not part of the first record.
     let records: Vec<Map<String, Value>> = text
+        .trim_start_matches('\u{feff}')
         .lines()
-        .filter(|line| !line.trim().is_empty())
         .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty())
         .map(|(n, line)| {
             serde_json::from_str(line)
                 .with_context(|| format!("{} line {}: not a JSON object", sample.display(), n + 1))
@@ -150,9 +152,5 @@ fn custom_table(args: &ConnectArgs) -> Result<Option<CustomTable>> {
 }
 
 fn write_json(path: &Path, value: &Value) -> Result<()> {
-    write(path, &(serde_json::to_string_pretty(value)? + "\n"))
-}
-
-fn write(path: &Path, text: &str) -> Result<()> {
-    std::fs::write(path, text).with_context(|| format!("writing {}", path.display()))
+    crate::output::write(path, &(serde_json::to_string_pretty(value)? + "\n"))
 }

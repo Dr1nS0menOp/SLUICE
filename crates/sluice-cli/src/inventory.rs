@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 use anyhow::{Context, Result, bail};
 use sluice_core::inventory::{Inventory, MANIFEST_FILE, Manifest, is_safe_relative_path};
@@ -215,12 +215,9 @@ fn token_or_login(token: &str, user: &str, password: &str) -> Result<Credential>
 }
 
 fn now_rfc3339() -> String {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    chrono::DateTime::from_timestamp(i64::try_from(secs).unwrap_or(0), 0)
-        .map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string())
-        .unwrap_or_default()
+    chrono::DateTime::<chrono::Utc>::from(SystemTime::now())
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string()
 }
 
 #[cfg(test)]

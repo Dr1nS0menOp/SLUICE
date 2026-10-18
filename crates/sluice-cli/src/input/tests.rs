@@ -190,6 +190,15 @@ fn a_fetched_elastic_inventory_reads_its_rules_not_its_manifest() {
 }
 
 #[test]
+fn a_pipeline_file_that_is_not_there_is_named() {
+    let error = format!(
+        "{:#}",
+        sigma_pipelines(&["ecs=./missing.yml".to_owned()]).expect_err("no such file")
+    );
+    assert!(error.contains("there is no file ./missing.yml"), "{error}");
+}
+
+#[test]
 fn fail_closed_every_rule_file_but_the_fetch_manifest_is_read() {
     let dir = scratch("manifest-like");
     let rule = "{\"rule_id\":\"a\",\"type\":\"query\",\"query\":\"user.name : root\"}\n";

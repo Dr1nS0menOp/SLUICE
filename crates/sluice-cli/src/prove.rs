@@ -57,7 +57,16 @@ pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
         _ => None,
     };
     if sigma.requirements().is_empty() && kusto.is_none() {
-        bail!("no rules to prove against: give --rules, or --sentinel-rules with --kusto");
+        match &args.rules {
+            Some(dir) => bail!(
+                "{} holds no Sigma rule to prove against (see the warnings), and no \
+                 --sentinel-rules with --kusto were given",
+                dir.display()
+            ),
+            None => {
+                bail!("no rules to prove against: give --rules, or --sentinel-rules with --kusto")
+            }
+        }
     }
     let mut engines: Vec<&dyn RuleEngine> = vec![&sigma_engine];
     engines.extend(kusto.as_ref().map(|k| k as &dyn RuleEngine));
