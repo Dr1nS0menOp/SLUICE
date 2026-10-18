@@ -82,10 +82,25 @@ pub fn guard(
         })
         .collect();
     let widened: Option<RuleRequirements> = renamed_rules.first().map(|r| r.widened());
+    // On a text line, a rule in the SIEM's own field names (Wazuh's decoders, Sentinel's
+    // columns) tests fields the SIEM parses from the line, which Sluice's view of it lacks: only
+    // its keyword tests bound it there, and it reads the line.
+    let parsed = |rule: &RuleRequirements| {
+        matches!(template.shape, TemplateShape::Text { .. })
+            && !renamed(rule, template)
+            && rule.prefilter.names_fields()
+    };
+    let on_line: Vec<RuleRequirements> = ctx
+        .rules
+        .iter()
+        .filter(|rule| parsed(rule))
+        .map(RuleRequirements::on_text_line)
+        .collect();
     let applicable: Vec<&RuleRequirements> = ctx
         .rules
         .iter()
-        .filter(|rule| !renamed(rule, template) && applies(rule, template))
+        .filter(|rule| !renamed(rule, template) && !parsed(rule) && applies(rule, template))
+        .chain(on_line.iter().filter(|rule| applies(rule, template)))
         .chain(&widened)
         .collect();
     let (mut shaped, conditions) = shape(template, recipe, &applicable, true, ctx.rules_complete);

@@ -163,6 +163,20 @@ impl Predicate {
         }
     }
 
+    /// The pre-filter on a text line whose fields the SIEM parses itself (Wazuh's decoders, the
+    /// columns Sentinel's agent fills): a field test may hold on a field taken from the line,
+    /// which the line as Sluice sees it does not have, so it holds; a keyword test searches the
+    /// line itself and stays.
+    #[must_use]
+    pub fn on_text_line(&self) -> Self {
+        match self {
+            Self::Always | Self::Field(_) => Self::Always,
+            Self::Keywords(_) => self.clone(),
+            Self::Any(parts) => Self::any(parts.iter().map(Self::on_text_line)),
+            Self::All(parts) => Self::all(parts.iter().map(Self::on_text_line)),
+        }
+    }
+
     /// Returns true if this predicate trivially matches every event.
     #[must_use]
     pub fn is_always(&self) -> bool {

@@ -2,6 +2,26 @@
 
 use super::*;
 
+#[test]
+fn c3_on_a_text_line_field_tests_hold_and_keyword_tests_stay() {
+    let field = eq("user", "admin");
+    let words = Predicate::Keywords(KeywordTest {
+        values: vec!["sshd".into()],
+        case_sensitive: false,
+    });
+    assert_eq!(field.on_text_line(), Predicate::Always);
+    assert_eq!(words.on_text_line(), words);
+    assert_eq!(
+        Predicate::all([field.clone(), words.clone()]).on_text_line(),
+        words
+    );
+    assert_eq!(
+        Predicate::any([field, words]).on_text_line(),
+        Predicate::Always
+    );
+    assert_eq!(Predicate::never().on_text_line(), Predicate::never());
+}
+
 fn eq(field: &str, value: &str) -> Predicate {
     Predicate::Field(FieldTest {
         field: field.into(),

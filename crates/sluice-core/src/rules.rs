@@ -86,6 +86,18 @@ impl RuleRequirements {
         }
     }
 
+    /// The same rule on a text line whose fields the SIEM parses itself: bounded by its keyword
+    /// tests only ([`Predicate::on_text_line`]), and reading the line, which every field it
+    /// tests comes from.
+    #[must_use]
+    pub fn on_text_line(&self) -> Self {
+        Self {
+            prefilter: self.prefilter.on_text_line(),
+            matches_raw_text: true,
+            ..self.clone()
+        }
+    }
+
     /// The same rule, read as widely as can be: any field, on any event of its log source. Used
     /// when its field names cannot be related to the data's, so nothing it might read is cut.
     #[must_use]

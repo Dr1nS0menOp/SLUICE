@@ -711,17 +711,41 @@ fn c3_a_keyword_rule_on_text_lines_is_compared_as_it_is() {
 }
 
 #[test]
-fn c3_rules_without_a_convention_test_text_lines_as_they_are() {
-    // Wazuh decodes the line itself, and its rule requirements say what the decoder reads.
+fn c3_a_field_the_siem_parses_from_a_text_line_does_not_bound_the_line() {
+    // Wazuh's decoder gives the rule `Image` from the line, which the line itself lacks.
     let mut wazuh = image_rule();
     wazuh.field_names = None;
     let proposal = recipe(vec![forward_matching()]);
     let effective = guard(
         &text_template(Schema::Undeclared),
         Some(&proposal),
-        ctx(&[wazuh]),
+        ctx(&[wazuh.clone()]),
     );
     assert_eq!(parsed_from_text(&effective), [0; 0]);
+    assert_eq!(effective.route, Route::ForwardAll, "{effective:?}");
+
+    // Its decoder's program name, a keyword test, still bounds it there.
+    wazuh.prefilter = Predicate::all([keywords("sshd"), eq("Image", "x")]);
+    let effective = guard(
+        &text_template(Schema::Undeclared),
+        Some(&proposal),
+        ctx(&[wazuh.clone()]),
+    );
+    assert!(
+        matches!(&effective.route, Route::ForwardMatching { prefilter, .. }
+            if *prefilter == keywords("sshd")),
+        "{effective:?}"
+    );
+
+    // And it reads the line.
+    let drops = recipe(vec![drop(&["Message"])]);
+    wazuh.prefilter = eq("Image", "x");
+    let effective = guard(
+        &text_template(Schema::Undeclared),
+        Some(&drops),
+        ctx(&[wazuh]),
+    );
+    assert!(effective.drop_fields.is_empty(), "{effective:?}");
 }
 
 // ---------- rule 4: rare is never cut ----------
