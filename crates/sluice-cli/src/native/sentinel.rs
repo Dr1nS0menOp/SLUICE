@@ -41,7 +41,7 @@ pub(crate) fn sentinel(
         .transpose()?;
     let mut proven = Vec::new();
     for spec in specs {
-        let (source, table) = crate::input::sentinel_table(spec, input.events)?;
+        let (source, table) = crate::engines::sentinel_table(spec, input.events)?;
         let flow = Flow::of(rule.as_ref(), &table)?;
         if let Some(one) = prove(analysis, input, url, source.as_str(), table, &flow)?
             && !one.generated.columns.is_empty()

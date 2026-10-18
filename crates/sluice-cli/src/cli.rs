@@ -96,39 +96,59 @@ pub(crate) enum RulesCommand {
     /// Print, as JSON, what each rule needs: its log source, the fields it reads (`unknown` when
     /// it may read any), whether it matches raw text, and whether it is stateful. Sluice never
     /// removes what these say.
-    Requirements(RequirementsArgs),
+    Requirements(RuleSets),
     /// Read the rules a SIEM runs from its API (read-only) into a directory, with an
     /// `inventory.json` that marks them complete (ADR 0021). Fetching again replaces it.
     Fetch(FetchArgs),
 }
 
+/// The rule sets the SIEMs run, one directory each, as `analyze` and `rules requirements` read
+/// them. Their requirements constrain every cut.
 #[derive(Debug, Args)]
-pub(crate) struct RequirementsArgs {
+pub(crate) struct RuleSets {
     /// Directory of Sigma rules (`*.yml`, `*.yaml`), searched recursively.
-    #[arg(long)]
+    #[arg(long, value_name = "DIR")]
     pub(crate) rules: Option<PathBuf>,
-    /// Map the Sigma rules onto another field naming convention (`SCHEMA=PIPELINE`), as for
-    /// `sluice analyze`, so the fields printed are the ones its cuts are checked against.
+    /// Map the Sigma rules onto another field naming convention, as the SIEM's own conversion
+    /// does: `SCHEMA=PIPELINE`, such as `ecs=ecs_windows` (built in) or `ecs=my-pipeline.yml`
+    /// (pySigma's format). Repeatable, one per convention.
     #[arg(long, value_name = "SCHEMA=PIPELINE")]
     pub(crate) sigma_pipeline: Vec<String>,
     /// Directory of Wazuh rule files (`*.xml`), searched recursively.
-    #[arg(long)]
+    #[arg(long, value_name = "DIR")]
     pub(crate) wazuh_rules: Option<PathBuf>,
-    /// Directory of Wazuh decoder files (`*.xml`), to bound rules by `<decoded_as>`.
-    #[arg(long, requires = "wazuh_rules")]
+    /// Directory of Wazuh decoder files (`*.xml`), to bound rules by `<decoded_as>`
+    /// (for example a copy of `/var/ossec/ruleset/decoders` and `/var/ossec/etc/decoders`).
+    #[arg(long, value_name = "DIR", requires = "wazuh_rules")]
     pub(crate) wazuh_decoders: Option<PathBuf>,
-    /// Directory of Microsoft Sentinel analytics rules (`*.yaml` with a KQL `query`), searched
-    /// recursively, such as a clone of Azure/Azure-Sentinel.
-    #[arg(long)]
+    /// Directory of Microsoft Sentinel analytics rules, hunting queries and functions, such as
+    /// a `sluice rules fetch sentinel` directory or a clone of Azure/Azure-Sentinel.
+    #[arg(long, value_name = "DIR")]
     pub(crate) sentinel_rules: Option<PathBuf>,
-    /// Directory of Elastic Security detection rules (Kibana's export, `*.ndjson` or `*.json`,
-    /// or the prebuilt rules package), searched recursively.
-    #[arg(long)]
+    /// Directory of Elastic Security detection rules: Kibana's export (`_export` NDJSON or
+    /// `_find` JSON) or Elastic's prebuilt rules package (ADR 0025).
+    #[arg(long, value_name = "DIR")]
     pub(crate) elastic_rules: Option<PathBuf>,
-    /// Directory of Splunk configuration (`savedsearches.conf`, `macros.conf`, or the REST
-    /// API's JSON answers), searched recursively.
-    #[arg(long)]
+    /// Directory of Splunk saved searches and macros: `savedsearches.conf` and `macros.conf`,
+    /// or the REST API's `saved/searches` and `admin/macros` JSON, with `props.conf` and
+    /// `transforms.conf` for the fields Splunk derives (ADR 0026). No engine runs them in the
+    /// proof.
+    #[arg(long, value_name = "DIR")]
     pub(crate) splunk_rules: Option<PathBuf>,
+}
+
+impl RuleSets {
+    /// The directories of the SIEMs `sluice rules fetch` reads, as given.
+    pub(crate) fn siem_dirs(&self) -> impl Iterator<Item = &std::path::Path> {
+        [
+            self.wazuh_rules.as_deref(),
+            self.sentinel_rules.as_deref(),
+            self.elastic_rules.as_deref(),
+            self.splunk_rules.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+    }
 }
 
 #[derive(Debug, Args)]
@@ -271,25 +291,8 @@ pub(crate) struct AnalyzeArgs {
     /// Sources file (YAML) describing each source's log source and format.
     #[arg(long)]
     pub(crate) sources: PathBuf,
-    /// Directory of Sigma rules (`*.yml`, `*.yaml`), searched recursively.
-    #[arg(long)]
-    pub(crate) rules: Option<PathBuf>,
-    /// Map the Sigma rules onto another field naming convention, as the SIEM's own conversion
-    /// does: `SCHEMA=PIPELINE`, such as `ecs=ecs_windows` (built in) or `ecs=my-pipeline.yml`
-    /// (pySigma's format). Repeatable, one per convention.
-    #[arg(long, value_name = "SCHEMA=PIPELINE")]
-    pub(crate) sigma_pipeline: Vec<String>,
-    /// Directory of Wazuh rule files (`*.xml`), searched recursively.
-    #[arg(long)]
-    pub(crate) wazuh_rules: Option<PathBuf>,
-    /// Directory of Wazuh decoder files (`*.xml`), to bound rules by `<decoded_as>`
-    /// (for example a copy of `/var/ossec/ruleset/decoders` and `/var/ossec/etc/decoders`).
-    #[arg(long, requires = "wazuh_rules")]
-    pub(crate) wazuh_decoders: Option<PathBuf>,
-    /// Directory of Microsoft Sentinel analytics rules, hunting queries and functions, such as
-    /// a `sluice rules fetch sentinel` directory. Their requirements constrain every cut.
-    #[arg(long)]
-    pub(crate) sentinel_rules: Option<PathBuf>,
+    #[command(flatten)]
+    pub(crate) sets: RuleSets,
     /// URL of a Kusto emulator: the proof then runs the Sentinel rules themselves on full and
     /// forwarded records of the sources named with `--sentinel-table`.
     #[arg(long, requires_all = ["sentinel_rules", "sentinel_table"])]
@@ -298,17 +301,6 @@ pub(crate) struct AnalyzeArgs {
     /// `windows-security=SecurityEvent`). Repeatable.
     #[arg(long, value_name = "SOURCE=TABLE", requires = "kusto")]
     pub(crate) sentinel_table: Vec<String>,
-    /// Directory of Elastic Security detection rules: Kibana's export (`_export` NDJSON or
-    /// `_find` JSON) or Elastic's prebuilt rules package (ADR 0025). Their requirements
-    /// constrain every cut.
-    #[arg(long)]
-    pub(crate) elastic_rules: Option<PathBuf>,
-    /// Directory of Splunk saved searches and macros: `savedsearches.conf` and `macros.conf`,
-    /// or the REST API's `saved/searches` and `admin/macros` JSON, with `props.conf` and
-    /// `transforms.conf` for the fields Splunk derives (ADR 0026). Their requirements
-    /// constrain every cut; no engine runs them in the proof.
-    #[arg(long)]
-    pub(crate) splunk_rules: Option<PathBuf>,
     /// Also prove, per `--sentinel-table` source, a data collection rule transformation that
     /// makes the plan's field removals in Sentinel's own ingestion, in the emulator (ADR 0013).
     /// Needs a sample read from the table, where empty and missing columns are the same.

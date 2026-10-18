@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use sluice_autopilot::{
     Elastic, Helpers, Input, RecipeBook, Report, RulesBasis, SavingsPlan, Sentinel, Settings,
     analyze as run_autopilot, render_html,
@@ -14,7 +14,7 @@ use sluice_synth::{SynthConfig, generate};
 use sluice_vector::{Paths, vector_config};
 use sluice_wazuh::{Http as WazuhHttp, Logtest, LogtestConfig};
 
-use crate::cli::{AnalyzeArgs, DemoArgs, RecipesArgs, RecipesCommand, RulesArgs, RulesCommand};
+use crate::cli::{AnalyzeArgs, DemoArgs, RuleSets, RulesArgs, RulesCommand};
 use crate::{ai, input, output};
 
 /// The example rules the demo runs with, built into the binary.
@@ -82,38 +82,40 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
 pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
     let sources = input::sources(&args.sources)?;
     let events = input::events(&args.input, &sources)?;
-    let sigma_files = match &args.rules {
-        Some(dir) => input::files(dir, &["yml", "yaml"])?,
-        None => Vec::new(),
-    };
-    let sigma = SigmaRules::parse_with(
-        sigma_files.iter().map(|(_, text)| text.as_str()),
-        &input::sigma_pipelines(&args.sigma_pipeline)?,
-    )?;
+    let input::Loaded {
+        sigma,
+        wazuh,
+        sentinel: sentinel_rules,
+        elastic: elastic_rules,
+        splunk: splunk_rules,
+    } = input::rule_sets(&args.sets)?;
     input::hint_undeclared_schemas(&sources, &sigma);
-    let wazuh = input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?;
-    let book = recipe_book(args.recipes.as_deref())?;
+    let book = crate::recipes::recipe_book(args.recipes.as_deref())?;
     let advisor = ai::advisor(&args.ai)?;
     let logtest = logtest(args)?;
-    let sentinel_rules = input::sentinel(args.sentinel_rules.as_deref())?;
-    let elastic_rules = input::elastic(args.elastic_rules.as_deref())?;
-    let splunk_rules = input::splunk(args.splunk_rules.as_deref())?;
     let kusto = match (&sentinel_rules, &args.kusto) {
-        (Some(rules), Some(url)) => Some(input::kusto(url, rules, &args.sentinel_table, &events)?),
+        (Some(rules), Some(url)) => Some(crate::engines::kusto(
+            url,
+            rules,
+            &args.sentinel_table,
+            &events,
+        )?),
         _ => None,
     };
     let elasticsearch = match (&elastic_rules, &args.elasticsearch) {
-        (Some(rules), Some(url)) => Some(input::elasticsearch(url, rules)?),
+        (Some(rules), Some(url)) => Some(crate::engines::elasticsearch(url, rules)?),
         _ => None,
     };
     let basis = if args.rules_complete {
         RulesBasis::Claimed
-    } else if fetched_only(args) {
+    } else if fetched_only(&args.sets) {
         RulesBasis::Fetched
     } else {
         RulesBasis::NotKnown
     };
-    let inventory_notes: Vec<String> = siem_rules(args)
+    let inventory_notes: Vec<String> = args
+        .sets
+        .siem_dirs()
         .filter_map(crate::inventory::find_manifest)
         .flat_map(|m| m.not_modeled)
         .collect();
@@ -166,22 +168,10 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
 
 /// Whether rules were given and every set came from a complete `sluice rules fetch`. Sigma has
 /// no SIEM API, so Sigma rules always need `--rules-complete`.
-fn fetched_only(args: &AnalyzeArgs) -> bool {
-    args.rules.is_none()
-        && siem_rules(args).next().is_some()
-        && siem_rules(args).all(crate::inventory::is_complete)
-}
-
-/// The rule directories given of the SIEMs `sluice rules fetch` reads.
-fn siem_rules(args: &AnalyzeArgs) -> impl Iterator<Item = &Path> {
-    [
-        args.wazuh_rules.as_deref(),
-        args.sentinel_rules.as_deref(),
-        args.elastic_rules.as_deref(),
-        args.splunk_rules.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
+fn fetched_only(sets: &RuleSets) -> bool {
+    sets.rules.is_none()
+        && sets.siem_dirs().next().is_some()
+        && sets.siem_dirs().all(crate::inventory::is_complete)
 }
 
 /// The Wazuh `logtest` client `--wazuh-api` asks for.
@@ -202,120 +192,22 @@ fn logtest(args: &AnalyzeArgs) -> Result<Option<Logtest>> {
     )))
 }
 
-pub(crate) fn recipes(args: &RecipesArgs) -> Result<()> {
-    match &args.command {
-        None => {
-            for (id, description) in RecipeBook::embedded()?.entries() {
-                println!("{id:<60} {description}");
-            }
-        }
-        Some(RecipesCommand::Schema) => print!("{}", RecipeBook::json_schema()),
-        Some(RecipesCommand::Contribute { from, into }) => contribute(from, into)?,
-        Some(RecipesCommand::Export { out }) => {
-            if out.read_dir().is_ok_and(|mut d| d.next().is_some()) {
-                bail!(
-                    "{} is not empty; export into a new directory",
-                    out.display()
-                );
-            }
-            let files = RecipeBook::embedded_files();
-            for (path, yaml) in files {
-                output::write(&out.join(path), yaml)?;
-            }
-            output::write(&out.join(SCHEMA_FILE), &RecipeBook::json_schema())?;
-            println!(
-                "exported {} recipes and {SCHEMA_FILE} to {}; edit them and pass `--recipes {}`",
-                files.len(),
-                out.display(),
-                out.display()
-            );
-        }
-    }
-    Ok(())
-}
-
 pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
-    let args = match &args.command {
+    let sets = match &args.command {
         RulesCommand::Fetch(fetch) => return crate::inventory::fetch(fetch),
-        RulesCommand::Requirements(args) => args,
+        RulesCommand::Requirements(sets) => sets,
     };
-    let mut requirements = Vec::new();
-    let mut problems = Vec::new();
-    if let Some(dir) = &args.rules {
-        let files = input::files(dir, &["yml", "yaml"])?;
-        let sigma = SigmaRules::parse_with(
-            files.iter().map(|(_, text)| text.as_str()),
-            &input::sigma_pipelines(&args.sigma_pipeline)?,
-        )?;
-        requirements.extend(sigma.requirements().iter().cloned());
-        problems.extend(sigma.problems().iter().cloned());
+    let loaded = input::rule_sets(sets)?;
+    // Sentinel's, Elastic's and Splunk's loaders print their own problems.
+    let mut problems: Vec<&String> = loaded.sigma.problems().iter().collect();
+    if let Some(wazuh) = &loaded.wazuh {
+        problems.extend(wazuh.problems());
     }
-    if let Some(wazuh) = input::wazuh(args.wazuh_rules.as_deref(), args.wazuh_decoders.as_deref())?
-    {
-        requirements.extend(wazuh.requirements().iter().cloned());
-        problems.extend(wazuh.problems().iter().cloned());
-    }
-    if let Some(sentinel) = input::sentinel(args.sentinel_rules.as_deref())? {
-        requirements.extend(sentinel.requirements().iter().cloned());
-    }
-    if let Some(elastic) = input::elastic(args.elastic_rules.as_deref())? {
-        requirements.extend(elastic.requirements().iter().cloned());
-    }
-    if let Some(splunk) = input::splunk(args.splunk_rules.as_deref())? {
-        requirements.extend(splunk.requirements().iter().cloned());
-    }
-    for problem in &problems {
+    for problem in problems {
         eprintln!("warning: {problem}");
     }
-    println!("{}", serde_json::to_string_pretty(&requirements)?);
+    println!("{}", serde_json::to_string_pretty(&loaded.requirements())?);
     Ok(())
-}
-
-/// Copies the recipes in `from` into `into`, after checking that the recipe book takes them
-/// next to the built-in ones (no duplicate id, valid reductions). An existing file is never
-/// replaced.
-fn contribute(from: &Path, into: &Path) -> Result<()> {
-    let files = input::files(from, &["yml", "yaml"])?;
-    if files.is_empty() {
-        bail!("{} holds no recipes", from.display());
-    }
-    RecipeBook::embedded_with(
-        files
-            .iter()
-            .map(|(path, text)| (path.as_str(), text.as_str())),
-    )
-    .context("the recipes do not fit the recipe book")?;
-    for (path, text) in &files {
-        let relative = Path::new(path)
-            .strip_prefix(from)
-            .unwrap_or(Path::new(path));
-        let target = into.join(relative);
-        if target.exists() {
-            bail!("{} exists; nothing was copied after it", target.display());
-        }
-        output::write(&target, text)?;
-        println!("  wrote {}", target.display());
-    }
-    println!(
-        "Review each recipe (its pattern and rationale come from your logs), then commit them \
-         and open a pull request."
-    );
-    Ok(())
-}
-
-/// Where the recipe JSON Schema lives, in the repository and in an export.
-const SCHEMA_FILE: &str = "recipe.schema.json";
-
-fn recipe_book(extra: Option<&Path>) -> Result<RecipeBook> {
-    let Some(dir) = extra else {
-        return Ok(RecipeBook::embedded()?);
-    };
-    let files = input::files(dir, &["yml", "yaml"])?;
-    Ok(RecipeBook::embedded_with(
-        files
-            .iter()
-            .map(|(path, text)| (path.as_str(), text.as_str())),
-    )?)
 }
 
 /// The SIEMs' own ingestion to generate and prove code for.

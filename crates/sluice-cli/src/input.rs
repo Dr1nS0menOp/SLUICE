@@ -12,6 +12,8 @@ use sluice_core::event::{Event, Timestamp};
 use sluice_core::ids::EventId;
 use sluice_core::source::{Source, SourceFormat};
 
+use crate::cli::RuleSets;
+
 /// The sources file: `sources: [{ id, logsource, format }]`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -98,6 +100,54 @@ pub(crate) fn hint_undeclared_schemas(sources: &[Source], sigma: &sluice_rules::
             );
         }
     }
+}
+
+/// The rule sets of [`RuleSets`], read.
+pub(crate) struct Loaded {
+    pub(crate) sigma: sluice_rules::SigmaRules,
+    pub(crate) wazuh: Option<sluice_rules::WazuhRules>,
+    pub(crate) sentinel: Option<sluice_rules::SentinelRules>,
+    pub(crate) elastic: Option<sluice_rules::ElasticRules>,
+    pub(crate) splunk: Option<sluice_rules::SplunkRules>,
+}
+
+impl Loaded {
+    /// Every rule's requirements, set by set.
+    pub(crate) fn requirements(&self) -> Vec<&sluice_core::rules::RuleRequirements> {
+        let mut all: Vec<_> = self.sigma.requirements().iter().collect();
+        if let Some(wazuh) = &self.wazuh {
+            all.extend(wazuh.requirements());
+        }
+        if let Some(sentinel) = &self.sentinel {
+            all.extend(sentinel.requirements());
+        }
+        if let Some(elastic) = &self.elastic {
+            all.extend(elastic.requirements());
+        }
+        if let Some(splunk) = &self.splunk {
+            all.extend(splunk.requirements());
+        }
+        all
+    }
+}
+
+/// Reads every rule set `sets` names; Sigma rules through their `--sigma-pipeline`s.
+pub(crate) fn rule_sets(sets: &RuleSets) -> Result<Loaded> {
+    let sigma_files = match &sets.rules {
+        Some(dir) => files(dir, &["yml", "yaml"])?,
+        None => Vec::new(),
+    };
+    let sigma = sluice_rules::SigmaRules::parse_with(
+        sigma_files.iter().map(|(_, text)| text.as_str()),
+        &sigma_pipelines(&sets.sigma_pipeline)?,
+    )?;
+    Ok(Loaded {
+        sigma,
+        wazuh: wazuh(sets.wazuh_rules.as_deref(), sets.wazuh_decoders.as_deref())?,
+        sentinel: sentinel(sets.sentinel_rules.as_deref())?,
+        elastic: elastic(sets.elastic_rules.as_deref())?,
+        splunk: splunk(sets.splunk_rules.as_deref())?,
+    })
 }
 
 /// The pipelines of `--sigma-pipeline SCHEMA=PIPELINE`: a built-in name or a pipeline file.
@@ -219,128 +269,6 @@ pub(crate) fn splunk(dir: Option<&Path>) -> Result<Option<sluice_rules::SplunkRu
         );
     }
     Ok(Some(rules))
-}
-
-/// Elasticsearch at `url`, running the rules of `rules` on an index that maps every field they
-/// name (ADR 0025): EQL and ES|QL as they are, KQL as the query Kibana builds from it.
-pub(crate) fn elasticsearch(
-    url: &str,
-    rules: &sluice_rules::ElasticRules,
-) -> Result<sluice_elastic::ElasticEngine> {
-    use sluice_rules::ElasticQuery;
-    let queries: Vec<(sluice_core::ids::RuleId, sluice_elastic::RuleQuery)> = rules
-        .queries()
-        .iter()
-        .map(|(id, query)| {
-            let query = match query {
-                ElasticQuery::Eql(q) => sluice_elastic::RuleQuery::Eql(q.clone()),
-                ElasticQuery::Esql(q) => sluice_elastic::RuleQuery::Esql(q.clone()),
-                ElasticQuery::Search { query, keys } => sluice_elastic::RuleQuery::Search {
-                    query: query.clone(),
-                    keys: keys.clone(),
-                },
-            };
-            (id.clone(), query)
-        })
-        .collect();
-    let fields: std::collections::BTreeSet<sluice_core::field::FieldPath> = rules
-        .requirements()
-        .iter()
-        .filter_map(|r| match &r.fields {
-            sluice_core::rules::RequiredFields::Known(fields) => Some(fields.iter().cloned()),
-            sluice_core::rules::RequiredFields::Unknown => None,
-        })
-        .flatten()
-        .collect();
-    let engine = sluice_elastic::ElasticEngine::connect(url, &queries, &fields)
-        .with_context(|| format!("connecting to Elasticsearch at {url}"))?;
-    eprintln!(
-        "Elastic: {} rules run in Elasticsearch; {} refused there are covered by their \
-         requirements only",
-        engine.rules().count(),
-        engine.skipped().len(),
-    );
-    let mut reasons: std::collections::BTreeMap<&str, (usize, &str)> =
-        std::collections::BTreeMap::new();
-    for (_, reason) in engine.skipped() {
-        // The reason without its position (`line 2:15: `) and the field or function it names
-        // (`[…]`), so alike ones count together.
-        let text = if reason.starts_with("line ") {
-            reason.splitn(3, ':').nth(2).unwrap_or(reason)
-        } else {
-            reason.as_str()
-        };
-        let kind = text.split('[').next().unwrap_or(text).trim();
-        reasons.entry(kind).or_insert((0, text.trim())).0 += 1;
-    }
-    let mut reasons: Vec<(usize, &str)> = reasons.into_values().collect();
-    reasons.sort_by_key(|(n, _)| std::cmp::Reverse(*n));
-    for (n, example) in reasons.iter().take(3) {
-        let example: String = example.chars().take(140).collect();
-        eprintln!("  {n:>5} refused, such as: {example}");
-    }
-    Ok(engine)
-}
-
-/// The source and table a `--sentinel-table SOURCE=TABLE` names: a standard table, or a
-/// custom one (`<Name>_CL`) with the columns `sluice connect sentinel --sample` gives the
-/// source's records in `events`.
-pub(crate) fn sentinel_table(
-    spec: &str,
-    events: &[Event],
-) -> Result<(sluice_core::ids::SourceId, sluice_kql::Table)> {
-    let (source, table) = spec
-        .split_once('=')
-        .with_context(|| format!("--sentinel-table {spec}: expected SOURCE=TABLE"))?;
-    let (source, table) = (source.trim(), table.trim());
-    let found = match table.strip_suffix("_CL") {
-        Some(name) => {
-            let records: Vec<_> = events
-                .iter()
-                .filter(|e| e.source.as_str() == source)
-                .map(|e| e.fields.clone())
-                .collect();
-            let inferred = sluice_vector::CustomTable::infer(name, &records)
-                .with_context(|| format!("--sentinel-table {spec}"))?;
-            let mut columns = vec![sluice_kql::CustomColumn {
-                name: "TimeGenerated".to_owned(),
-                kind: "datetime".to_owned(),
-                field: "TimeGenerated".to_owned(),
-            }];
-            columns.extend(inferred.columns().iter().map(|c| sluice_kql::CustomColumn {
-                name: c.name.clone(),
-                kind: c.kind.name().to_owned(),
-                field: c.field.clone(),
-            }));
-            sluice_kql::Table::custom(table, columns)
-        }
-        None => sluice_kql::Table::from_name(table),
-    };
-    let table = found
-        .with_context(|| format!("--sentinel-table {spec}: Sluice cannot load table `{table}`"))?;
-    Ok((sluice_core::ids::SourceId::new(source), table))
-}
-
-/// The Kusto emulator at `url`, running `rules` on the sources `--sentinel-table` names.
-pub(crate) fn kusto(
-    url: &str,
-    rules: &sluice_rules::SentinelRules,
-    specs: &[String],
-    events: &[Event],
-) -> Result<sluice_kql::KustoEngine> {
-    let tables = specs
-        .iter()
-        .map(|spec| sentinel_table(spec, events))
-        .collect::<Result<_>>()?;
-    let engine = sluice_kql::KustoEngine::connect(url, rules.queries(), tables)
-        .with_context(|| format!("connecting to the Kusto emulator at {url}"))?;
-    eprintln!(
-        "Sentinel: {} rules run in the emulator, {} cannot run there and are covered by their \
-         requirements only",
-        engine.rules().count(),
-        engine.skipped().len()
-    );
-    Ok(engine)
 }
 
 /// Whether `path` is the manifest `sluice rules fetch` wrote at the top of `dir`: JSON too, and

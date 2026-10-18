@@ -8,11 +8,13 @@ mod ai;
 mod cli;
 mod commands;
 mod connect;
+mod engines;
 mod input;
 mod inventory;
 mod native;
 mod output;
 mod prove;
+mod recipes;
 
 use std::process::ExitCode;
 
@@ -25,7 +27,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Demo(args) => commands::demo(&args),
         Command::Analyze(args) => commands::analyze(&args),
-        Command::Recipes(args) => commands::recipes(&args),
+        Command::Recipes(args) => recipes::recipes(&args),
         Command::Rules(args) => commands::rules(&args),
         Command::Prove(args) => prove::prove(&args),
         Command::Connect(args) => connect::connect(&args),
