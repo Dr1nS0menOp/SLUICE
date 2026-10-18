@@ -17,19 +17,6 @@ fn indent(text: &str) -> String {
         .join("\n")
 }
 
-/// Records of any shape Sluice sends to a Sentinel table.
-fn shaped_records() -> Predicate {
-    Predicate::any([
-        super::extract::present("EventID"),
-        super::extract::present("Channel"),
-        super::extract::present("SyslogMessage"),
-        super::extract::present("DeviceVendor"),
-        super::extract::present("EventSchemaVersion"),
-        super::extract::present("DnsQuery"),
-        super::extract::present("Url"),
-    ])
-}
-
 fn event_ids(ids: &[&str]) -> Predicate {
     Predicate::Field(FieldTest {
         field: "EventID".into(),
@@ -126,7 +113,7 @@ fn what_cannot_be_bounded_reads_every_column() {
 }
 
 #[test]
-fn parsers_and_workspace_functions_may_read_every_windows_table() {
+fn c3_parsers_and_workspace_functions_may_read_every_row_of_every_table() {
     for query in [
         "imProcessCreate | where CommandLine has 'mimikatz'",
         "_Im_Dns(starttime=ago(1d)) | where DnsQuery has 'x'",
@@ -137,7 +124,7 @@ fn parsers_and_workspace_functions_may_read_every_windows_table() {
         let r = rule(query);
         assert_eq!(r.logsource.product.as_deref(), None, "{query}");
         assert_eq!(r.logsource.service, None, "{query}");
-        assert_eq!(r.prefilter, shaped_records(), "{query}");
+        assert_eq!(r.prefilter, Predicate::Always, "{query}");
         assert_eq!(r.fields, RequiredFields::Unknown, "{query}");
     }
     for other in [
@@ -321,7 +308,7 @@ fn unknown_or_recursive_parsers_fail_closed() {
     for parsers in [&calls_unknown[..], &recursive[..]] {
         let r = with_parsers("imDns | where DnsQuery has 'x'", parsers);
         assert_eq!(r.logsource.product.as_deref(), None);
-        assert_eq!(r.prefilter, shaped_records());
+        assert_eq!(r.prefilter, Predicate::Always);
         assert_eq!(r.fields, RequiredFields::Unknown);
     }
 }
@@ -342,11 +329,11 @@ fn columns_named_as_strings_are_read() {
 }
 
 #[test]
-fn union_star_and_search_may_read_every_windows_table() {
+fn c3_union_star_and_search_read_every_row_custom_tables_included() {
     for query in ["union * | where EventID == 1", "search \"mimikatz\""] {
         let r = rule(query);
         assert_eq!(r.logsource.product.as_deref(), None, "{query}");
-        assert_eq!(r.prefilter, shaped_records(), "{query}");
+        assert_eq!(r.prefilter, Predicate::Always, "{query}");
     }
 }
 
@@ -447,7 +434,7 @@ fn syslog_rules_apply_to_syslog_records_of_any_product() {
 }
 
 #[test]
-fn c3_tables_named_at_run_time_by_wildcard_or_by_find_may_read_every_windows_table() {
+fn c3_tables_named_at_run_time_by_wildcard_or_by_find_may_read_every_table() {
     for query in [
         "table('SecurityEvent') | where EventID == 4625",
         "union isfuzzy=true * | where EventID == 4625",
@@ -459,7 +446,7 @@ fn c3_tables_named_at_run_time_by_wildcard_or_by_find_may_read_every_windows_tab
         let r = rule(query);
         assert_eq!(r.fields, RequiredFields::Unknown, "{query}");
         assert_eq!(r.logsource.product, None, "{query}: any product's records");
-        assert_eq!(r.prefilter, shaped_records(), "{query}");
+        assert_eq!(r.prefilter, Predicate::Always, "{query}");
     }
 }
 
@@ -481,6 +468,39 @@ fn rule_names_are_the_names_the_siem_shows() {
     )]);
     assert_eq!(rules.names().len(), 1);
     assert_eq!(rules.names()[&"sentinel:r1".into()], "Brute force");
+}
+
+#[test]
+fn c3_a_named_custom_table_keeps_its_rows_whatever_else_the_query_does() {
+    for query in [
+        "MyApp_CL | invoke UnknownFunction()",
+        "search in (MyApp_CL) \"mimikatz\"",
+        "union MyApp_CL, SecurityEvent | where EventID == 4625",
+    ] {
+        let r = rule(query);
+        assert_eq!(r.logsource.product, None, "{query}");
+        assert_eq!(r.prefilter, Predicate::Always, "{query}");
+    }
+}
+
+#[test]
+fn c3_a_function_over_a_custom_table_counts() {
+    let parsers = [parser(
+        "ParserName: MyAppParser",
+        "MyApp_CL | where Level == 'error'",
+    )];
+    let r = with_parsers("MyAppParser | where User == 'admin'", &parsers);
+    assert_eq!(r.logsource.product, None, "the custom table's rows apply");
+    assert_eq!(r.prefilter, Predicate::Always);
+    let RequiredFields::Known(fields) = &r.fields else {
+        panic!("known fields")
+    };
+    for field in ["Level", "User"] {
+        assert!(
+            fields.contains(&sluice_core::field::FieldPath::new(field)),
+            "{field}: {fields:?}"
+        );
+    }
 }
 
 #[test]

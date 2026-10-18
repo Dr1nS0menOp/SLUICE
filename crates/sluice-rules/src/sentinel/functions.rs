@@ -5,7 +5,7 @@
 //! the function's names and its KQL; a unifying parser such as `imProcessCreate` calls source
 //! parsers, which read the tables.
 //! Resolution follows those calls. A function that is not known, or that calls itself, keeps
-//! the fail-closed reading: any Windows table, any column.
+//! the fail-closed reading: any table, any row, any column.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -56,8 +56,9 @@ impl Functions {
         let mut reads = extract::reads(&lexer::tokens(query), &known);
         for name in std::mem::take(&mut reads.calls) {
             let callee = self.resolve(&name, stack);
-            // A function that reads no Windows table adds nothing a Windows source must keep.
-            if !callee.tables.is_empty() || callee.any_table {
+            // A function that reads no table a source may fill (a shaped one, a custom one, or
+            // any) adds nothing a source must keep.
+            if !callee.tables.is_empty() || !callee.custom_tables.is_empty() || callee.any_table {
                 reads.merge(callee);
             }
         }

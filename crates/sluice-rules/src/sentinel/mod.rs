@@ -5,9 +5,10 @@
 //! references, every identifier it names (a superset of the columns it reads) and, per table
 //! reference, the `EventID`s (and `EventSourceName`, `Channel`, `Provider`) its first `where`
 //! clauses keep. ASIM parsers and helper functions whose source is among the files are resolved
-//! (`functions`). Anything not understood widens: an unknown parser or function, `search` or
-//! `union *` means the rule may read any column of any Windows table, `pack_all()` any column,
-//! and any other condition keeps every row.
+//! (`functions`). Anything not understood widens: an unknown parser or function, `search`,
+//! `find`, `union *` or `table()` means the rule may read any column of any row of any table,
+//! custom tables included, which any source may fill; `pack_all()` any column, and any other
+//! condition keeps every row.
 
 mod extract;
 mod functions;
@@ -143,9 +144,10 @@ impl SentinelRules {
 fn requirement(id: &str, reads: extract::Reads, problems: &mut Vec<String>) -> RuleRequirements {
     let rule = RuleId::new(format!("sentinel:{id}"));
     if let Some(why) = &reads.any_field {
-        problems.push(format!("{rule}: {why}; treated as reading every column"));
+        problems.push(format!(
+            "{rule}: {why}; treated as reading every column of every record"
+        ));
     }
-    let modeled = !reads.tables.is_empty() || reads.any_table;
     RuleRequirements {
         logsource: logsource(
             &reads.tables,
@@ -163,19 +165,10 @@ fn requirement(id: &str, reads: extract::Reads, problems: &mut Vec<String>) -> R
         matches_raw_text: reads.any_field.is_some(),
         stateful: reads.stateful,
         text_lines_only: false,
-        prefilter: if reads.any_table {
-            // A parser or function may read any row of any table Sluice shapes for: bounded to
-            // records of those shapes.
-            Predicate::any([
-                extract::present("EventID"),
-                extract::present("Channel"),
-                extract::present("SyslogMessage"),
-                extract::present("DeviceVendor"),
-                extract::present("EventSchemaVersion"),
-                extract::present("DnsQuery"),
-                extract::present("Url"),
-            ])
-        } else if modeled {
+        // Only references to named shaped tables bound the rows. A rule that may read any table
+        // may read a custom one, whose rows any record can be (fail closed); so may one that
+        // names a custom table, whose reference adds `true`.
+        prefilter: if !reads.tables.is_empty() && !reads.any_table {
             reads.prefilter
         } else {
             Predicate::Always
@@ -217,9 +210,10 @@ fn renamed_from(column: &FieldPath) -> BTreeSet<FieldPath> {
 }
 
 /// The log source of a rule. `SecurityEvent` alone is Windows Security and `WindowsEvent` is
-/// Windows. `Syslog` rows come from any product, and a parser or function may read any table, so
-/// those rules apply to every product; their pre-filter bounds them to records of the table's
-/// shape. Queries on other tables only get a product no source has.
+/// Windows. `Syslog` rows come from any product, so those rules apply to every product and
+/// their pre-filter bounds them to records of the table's shape; a rule that may read any table
+/// or a custom one applies to every product and every record. Queries on other tables only get
+/// a product no source has.
 fn logsource(tables: &std::collections::BTreeSet<String>, any_table: bool) -> LogSource {
     let windows_only = !any_table
         && !tables.is_empty()

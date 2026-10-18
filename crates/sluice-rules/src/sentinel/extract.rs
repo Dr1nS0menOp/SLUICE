@@ -83,8 +83,8 @@ pub(super) struct Reads {
     pub(super) fields: BTreeSet<FieldPath>,
     /// It may read any column (`search`, `union *`, `pack_all`, an unknown function).
     pub(super) any_field: Option<String>,
-    /// It may read Windows tables it does not name: through an ASIM parser or a workspace
-    /// function whose source is not known.
+    /// It may read tables it does not name, custom tables included: through `search`, `find`,
+    /// `union *`, `table()`, an ASIM parser or a workspace function whose source is not known.
     pub(super) any_table: bool,
     /// It aggregates or correlates rows.
     pub(super) stateful: bool,
@@ -171,7 +171,7 @@ pub(super) fn reads(tokens: &[Token], known: &dyn Fn(&str) -> bool) -> Reads {
 }
 
 impl Reads {
-    /// A query part that may read any column of any Windows table.
+    /// A query part that may read any column of any table.
     pub(super) fn unknown(why: String) -> Self {
         Self {
             tables: BTreeSet::new(),
