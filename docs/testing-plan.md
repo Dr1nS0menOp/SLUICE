@@ -241,9 +241,14 @@ Running it:
   as Administrator. WSL's sparse mode is disabled by Microsoft over data corruption; don't force
   it.
 
-Known limits found, not fixed: a workspace function whose name is all lower case looks like a
-KQL built-in to the Sentinel extractor, so a rule calling it is not widened unless the function
-was fetched with `sluice rules fetch sentinel` (which resolves it).
+Known limits found, not fixed: a workspace function whose name is all lower case still looks
+like one of KQL's own to the Sentinel extractor where an expression may stand
+(`let events = my_parser();`, `join (my_parser()) on …`), so a rule calling it there is not
+widened unless its source is among the rule files, as `sluice rules fetch sentinel` writes it.
+Where only a table may stand (a statement's start, after `invoke`) it widens since 2026-10-18.
+Azure-Sentinel `55296e6` has no such function: none of its 1,008 parser and function names is
+all lower case, and the two lower-case calls in its rules that are not KQL's (`extract_data`,
+`cap`) are defined with `let` in the rule itself.
 
 ## Real-data runs
 

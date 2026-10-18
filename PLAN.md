@@ -763,13 +763,16 @@ Still open:
 2. **Not verified against the real engine:** that Wazuh fires `maxsize` rules on large events
    (read from rule 1003's description). Verifying it with `logtest` needs the manager's
    credentials.
-3. **The ECS real-data runs** (`to-ecs.sh`, with Elastic's prebuilt rules in Elasticsearch)
-   were not repeated after the KQL number fix. Elastic KQL numbers now test their significant
-   digits, which may save a little less there.
+3. **Lower-case Sentinel workspace functions where an expression may stand**
+   (`let events = my_parser();`, `union my_parser(), …`, `join (my_parser()) on …`) still read
+   as KQL's own, unless their source is among the rule files (`sluice rules fetch sentinel`
+   writes it). Azure-Sentinel has none: none of its 1,008 parser and function names is all lower
+   case. The fix is a closed list of KQL's own function names, checked against the Kusto
+   emulator; a call to any other name widens.
 
 The report now counts each rule once, not once per requirement, and a rule shows as a coverage
 gap only when none of its requirements sees data. The real-data runs gave the same numbers after
-all of these fixes (docs/testing-plan.md).
+all of these fixes, the ECS runs with Elastic's prebuilt rules too (docs/testing-plan.md).
 
 Refactors done:
 
@@ -806,19 +809,23 @@ sluice/
                         #   (pure: no I/O, no async; engines injected via traits)
     sluice-synth/       # deterministic synthetic log generator (demo + tests)
     sluice-discover/    # Drain (text) and keyset (JSON) template discovery, frequency stats
-    sluice-rules/       # Sigma adapter (rsigma), Wazuh rules.xml, requirements, superset pre-filter
+    sluice-rules/       # Sigma (rsigma), Wazuh, Sentinel, Elastic and Splunk rules → requirements
     sluice-vector/      # reductions → VRL, VRL execution (vrl crate), vector.yaml + vector tests
-    sluice-autopilot/   # analysis pipeline, recipe book, lifecycle, live cycle, report
+    sluice-kql/         # reductions → Sentinel DCR transformations; rules in the Kusto emulator
+    sluice-elastic/     # reductions → ingest pipelines; Elastic's rules in Elasticsearch
+    sluice-fluentbit/   # reductions → Fluent Bit Lua filters
+    sluice-otel/        # reductions → OpenTelemetry Collector transform statements
+    sluice-autopilot/   # analysis pipeline, recipe book, savings plan, report
     sluice-ai/          # L3 advisor: redaction, prompt, Anthropic and OpenAI-compatible models
     sluice-wazuh/       # Wazuh logtest client (spot check) and rule inventory
     sluice-sentinel/    # Sentinel rule inventory over Azure APIs (read-only)
-    sluice-server/      # control plane for `sluice up` (axum): tap, status, Vector supervision
-    sluice-cli/         # `sluice` binary: demo, analyze, recipes, up, status
-    sluice-archive/     # streaming search over the gzip NDJSON archive (search, replay)
-    sluice-mcp/         # MCP server (rmcp, stdio): status, templates, archive search, replay
+    sluice-splunk/      # Splunk saved searches, macros, props and transforms (read-only)
+    sluice-http/        # the one HTTP client of the adapters
+    sluice-cli/         # `sluice` binary: demo, analyze, prove, rules, recipes, connect
   recipes/<vendor>/<product>/<event>.yaml + samples/   # community recipes (YAML)
-  examples/{rules/, sluice.example.yaml}
-  docs/{adr/, notes/, compatibility.md}
+  examples/rules/
+  docs/{adr/, notes/, architecture.md, compatibility.md}
+  archive/              # what ran in the data path, kept until it is deleted (ADR 0030)
   scripts/wsl.ps1       # run cargo in WSL on machines where code-integrity policy blocks builds
 ```
 
@@ -855,13 +862,13 @@ sluice/
 - `sluice demo` prints the reduction %, **0 detection regressions** and the coverage gaps, and
   writes `report.html` and `vector.yaml`.
 - If Vector is installed, run `vector validate` and `vector test` on the generated config.
-- Live smoke test (M2): `scripts/live-smoke.sh` (`sluice up --demo-traffic`, also in CI).
-  - Recipes move from shadow to enforced in `sluice status`.
-  - A test hook breaks a recipe, and auto-rollback plus an event are observed.
-  - `sluice replay` restores archived events.
+- With Docker, the generated KQL, ingest pipelines, Lua filters and OTTL statements run in the
+  real engines (`scripts/kql-check.sh`, `elastic-check.sh`, `fluentbit-check.sh`,
+  `otel-check.sh`) and must remove no more than Vector does.
 - Wazuh: mocked logtest tests; optionally a real run against a user-provided Wazuh API with
   read-only credentials.
-- MCP: `claude mcp add sluice -- sluice mcp`, then ask "what did you cut and why?".
+- The live smoke test (`sluice up`) and the MCP check went into `archive/` with the live part
+  (ADR 0030).
 
 ## Honest limits
 
@@ -877,8 +884,10 @@ sluice/
   detections: without a fetched inventory or `--rules-complete`, nothing is summarized. The
   claim is the operator's, and the proof cannot check it.
 - Detections aren't the only consumers of data; dashboards, hunts and compliance also use it.
-  Archive, replay, summaries, the keep-list and a per-destination "no reduction" switch mitigate
-  this until M10 brings them into the proof.
+  A fetched Sentinel inventory brings its hunting queries and, on request, every query people
+  ran (`LAQueryLogs`) into the proof as rules (M10), and summaries keep the counts. Consumers
+  Sluice is not given do not exist for it; Sluice only proposes, and people decide what is
+  deployed (ADR 0030).
 - Savings shown are estimates from samples; check them against the SIEM's license usage.
 - Throughput is measured on one machine (about 16k events/s per vCPU); the load test of the
   generated configuration on a stock Vector waits for M11.
