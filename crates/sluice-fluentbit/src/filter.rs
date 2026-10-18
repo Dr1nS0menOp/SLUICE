@@ -8,7 +8,8 @@
 //!   recorded values, tested in the order of the VRL program (by template id). Every key-set
 //!   template takes part that could claim a record before one that removes something. A record
 //!   that fits none, or whose leaves an empty table makes unknown, is returned unchanged
-//!   (contract rule 1).
+//!   (contract rule 1). So is one with a template's key set whose discriminator holds a number
+//!   Lua cannot render as VRL may (zero, a fraction): no later template takes it.
 //! - **Keeping whole is a superset.** `keep_whole_when` compiles with [`crate::compile`], which
 //!   matches at least what Vector's VRL matches.
 //! - **Nothing changes before everything is decided.** The filter finds the template and
@@ -76,12 +77,12 @@ pub fn lua_filter(description: &str, plans: &[FilterPlan<'_>]) -> LuaFilter {
     let mut left_out = Vec::new();
     let mut conditions = Conditions::default();
     let mut sets = Vec::new();
-    let recognised: Vec<(&FilterPlan<'_>, String, Option<Action>)> = ordered
+    let recognised: Vec<(&FilterPlan<'_>, String, Option<String>, Option<Action>)> = ordered
         .into_iter()
         .filter_map(|plan| {
-            let condition = recognition(plan.template, &mut sets, &mut left_out)?;
+            let (condition, stop) = recognition(plan.template, &mut sets, &mut left_out)?;
             let action = action(plan, &mut conditions, &mut left_out);
-            Some((plan, condition, action))
+            Some((plan, condition, stop, action))
         })
         .collect();
     let mut branches = Vec::new();
@@ -93,18 +94,23 @@ pub fn lua_filter(description: &str, plans: &[FilterPlan<'_>]) -> LuaFilter {
         empty_fields: false,
         left_out,
     };
-    for (n, (plan, condition, action)) in recognised.iter().enumerate() {
+    for (n, (plan, condition, stop, action)) in recognised.iter().enumerate() {
         // A template that changes nothing only needs recognising where Vector would give it a
         // record before a template that does change it.
         let claims = action.is_some()
             || recognised[n + 1..]
                 .iter()
-                .any(|(later, _, a)| a.is_some() && overlap(plan.template, later.template));
+                .any(|(later, _, _, a)| a.is_some() && overlap(plan.template, later.template));
         if !claims {
             continue;
         }
         let branch = branches.len();
-        branches.push(format!("if {condition} then t = {branch}"));
+        branches.push(match stop {
+            // A record Vector may give this template but Lua cannot tell: no later template
+            // takes it, and nothing is removed.
+            Some(stop) => format!("if {condition} then t = {branch}\n  elseif {stop} then t = -2"),
+            None => format!("if {condition} then t = {branch}"),
+        });
         if let Some(action) = action {
             actions.push((branch, action));
             filter.templates.insert(plan.template.id.clone());
@@ -168,13 +174,14 @@ fn overlap(a: &Template, b: &Template) -> bool {
         })
 }
 
-/// The condition recognising the template's records, or `None` (with the reason) when it has
+/// The condition recognising the template's records, and the one that stops the search where
+/// a record may be the template's but Lua cannot tell; `None` (with the reason) when it has
 /// none. Each key set becomes an entry of `sets`, the table `S` of the script.
 fn recognition(
     template: &Template,
     sets: &mut Vec<String>,
     left_out: &mut Vec<String>,
-) -> Option<String> {
+) -> Option<(String, Option<String>)> {
     let TemplateShape::Keyset {
         discriminators,
         variants,
@@ -200,19 +207,37 @@ fn recognition(
             format!("sluice_is(keys, n, S[{}], {})", sets.len(), variant.len())
         })
         .collect();
-    let mut parts = vec![if key_sets.len() == 1 {
+    let key_set = if key_sets.len() == 1 {
         key_sets.concat()
     } else {
         format!("({})", key_sets.join(" or "))
-    }];
-    parts.extend(discriminators.iter().map(|(field, value)| {
-        format!(
-            "sluice_disc(sluice_get(r, {})) == {}",
-            lua::segments(field),
-            lua::string(value)
-        )
-    }));
-    Some(parts.join(" and "))
+    };
+    let mut claim = vec![key_set.clone()];
+    let mut stop = vec![key_set];
+    for (field, value) in discriminators {
+        let at = format!("sluice_get(r, {})", lua::segments(field));
+        let literal = lua::string(value);
+        let exact = format!("sluice_disc({at}) == {literal}");
+        stop.push(if undecidable(value) {
+            format!("sluice_may({at}, {literal})")
+        } else {
+            exact.clone()
+        });
+        claim.push(exact);
+    }
+    let stop = discriminators
+        .iter()
+        .any(|(_, value)| undecidable(value))
+        .then(|| stop.join(" and "));
+    Some((claim.join(" and "), stop))
+}
+
+/// Whether VRL may render as `value` a number `sluice_disc` cannot render: zero, a fraction,
+/// or 10^15 and more. Any other value Lua renders exactly as VRL does.
+fn undecidable(value: &str) -> bool {
+    value
+        .parse::<f64>()
+        .is_ok_and(|x| x == 0.0 || x.fract() != 0.0 || x.abs() >= 1e15)
 }
 
 /// The keep-whole conditions of a filter's templates. Those of one source repeat the same

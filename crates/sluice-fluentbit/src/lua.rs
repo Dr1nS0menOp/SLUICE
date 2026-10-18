@@ -64,6 +64,7 @@ pub(crate) fn set<'a>(items: impl IntoIterator<Item = &'a str>) -> String {
 /// - `sluice_disc(v)`: a discriminator's text, as VRL renders it; `nil` where Lua cannot know
 ///   it (a number that is not a whole one below 10^15, or zero), so the record is not
 ///   recognised.
+/// - `sluice_may(v, s)`: whether VRL may render `v` as `s`: it does, or Lua cannot know.
 /// - `sluice_test(v, op, cs, floats, values)`: a field test, as in VRL: true on an object or an
 ///   empty table, on a fractional number when `floats`, false on null; an array when a member
 ///   is; otherwise the value's text against the values (`op`: 0 equals, 1 contains, 2 starts
@@ -146,6 +147,10 @@ local function sluice_disc(v)
     return string.format("%d", v)
   end
   return nil
+end
+local function sluice_may(v, s)
+  local d = sluice_disc(v)
+  return d == nil or d == s
 end
 local function sluice_match(s, op, cs, values)
   if not cs then

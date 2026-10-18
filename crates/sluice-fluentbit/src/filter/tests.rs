@@ -163,6 +163,44 @@ fn c1_a_template_that_changes_nothing_still_claims_what_vector_gives_it() {
     assert_eq!(out.templates, [removed.id.clone()].into());
 }
 
+/// A template whose discriminator is a number Lua cannot render (`0.5`), and a later one of the
+/// same key set that removes `Status`.
+fn undecided_then_later() -> [(Template, EffectiveRecipe); 2] {
+    let undecided = template(
+        "windows:0:b",
+        &[("EventID", "0.5")],
+        &[&["EventID", "Status"]],
+    );
+    let later = template("windows:0:c", &[], &[&["EventID", "Status"]]);
+    let unchanged = EffectiveRecipe::passthrough(undecided.id.clone());
+    let recipe = removing(later.id.as_str(), &["Status"], None);
+    [(undecided, unchanged), (later, recipe)]
+}
+
+#[test]
+fn c1_a_record_an_earlier_template_cannot_decide_is_claimed_by_no_later_one() {
+    let [(undecided, unchanged), (later, recipe)] = undecided_then_later();
+    let out = of(&[(&undecided, &unchanged), (&later, &recipe)]);
+    let text = script(&out);
+    let claim = text
+        .find("then t = 0")
+        .expect("the undecided template claims");
+    let stop = text
+        .find(
+            r#"elseif sluice_is(keys, n, S[1], 2) and sluice_may(sluice_get(r, {"EventID"}), "0.5") then t = -2"#,
+        )
+        .expect("the search stops where Lua cannot decide");
+    let taken = text
+        .find("then t = 1")
+        .expect("the later template takes the rest");
+    assert!(claim < stop && stop < taken, "{text}");
+    assert!(text.contains("if act == 1 then") && !text.contains("if act == 0 then"));
+    // Values Lua renders as VRL does need no stop.
+    let t = logon();
+    let plain = of(&[(&t, &removing(t.id.as_str(), &["Message"], None))]);
+    assert!(!script(&plain).contains("t = -2"));
+}
+
 #[test]
 fn c1_text_templates_are_left_to_a_pipeline_tool() {
     let text = Template {
@@ -403,6 +441,51 @@ fn c1_in_fluent_bit_records_lose_exactly_what_they_lose_in_vector() {
         expected.iter().zip(&events).any(|(v, e)| v != &e.fields),
         "some event loses fields, or the test shows nothing"
     );
+}
+
+/// In a real Fluent Bit: a record whose discriminator Lua cannot render as VRL does stays
+/// whole, never handed to a later template of the same key set; others lose what Vector removes.
+#[test]
+fn c1_in_fluent_bit_a_record_an_earlier_template_cannot_decide_stays_whole() {
+    let Ok(command) = std::env::var(ENV) else {
+        return;
+    };
+    let [(undecided, unchanged), (later, recipe)] = undecided_then_later();
+    let plans = [(&undecided, &unchanged), (&later, &recipe)];
+    // `true`: kept whole, where Vector removes `Status`.
+    let cases = [
+        (event(&json!({"EventID": 0.5, "Status": "ok"})), false),
+        (event(&json!({"EventID": 0.25, "Status": "ok"})), true),
+        (event(&json!({"EventID": 7, "Status": "ok"})), false),
+    ];
+    let events: Vec<Event> = cases.iter().map(|(e, _)| e.clone()).collect();
+    let expected = vrl(&plans, &events);
+    let out = of(&plans);
+    let records: Vec<&Map<String, Value>> = events.iter().map(|e| &e.fields).collect();
+    let fluent_bit = FluentBit::new(command);
+    let baseline = fluent_bit.run(None, &records).expect("Fluent Bit runs");
+    let actual = fluent_bit
+        .run(out.script.as_deref(), &records)
+        .unwrap_or_else(|e| panic!("{e}\n{}", script(&out)));
+    for (((event, widened), vector), (before, after)) in cases
+        .iter()
+        .zip(&expected)
+        .zip(baseline.iter().zip(&actual))
+    {
+        let shown = Value::Object(event.fields.clone());
+        let lost_in_vector: BTreeSet<String> = leaves(&event.fields)
+            .difference(&leaves(vector))
+            .cloned()
+            .collect();
+        let lost_here: BTreeSet<String> =
+            leaves(before).difference(&leaves(after)).cloned().collect();
+        if *widened {
+            assert_eq!(after, before, "kept whole: {shown}");
+            assert!(!lost_in_vector.is_empty(), "Vector removes: {shown}");
+        } else {
+            assert_eq!(lost_here, lost_in_vector, "event {shown}");
+        }
+    }
 }
 
 /// A script Fluent Bit cannot load is an error, not a filter that passes everything.
