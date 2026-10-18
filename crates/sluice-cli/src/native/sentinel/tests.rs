@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 
 use serde_json::{Value, json};
-use sluice_kql::{Table, Transformation};
+use sluice_kql::{SLUICE_PART, SLUICE_PART_END, Table, Transformation};
 
+use super::dcr::{archive, archive_table, deployment, without_sluice_part};
 use super::*;
 
 fn rule() -> Value {

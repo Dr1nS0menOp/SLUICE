@@ -7,7 +7,6 @@
 //! keeps, changes no other value (a whole float may come back as an integer, the same number),
 //! and the rules raise the same alerts.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -15,10 +14,9 @@ use serde_json::{Map, Value};
 use sluice_autopilot::{Analysis, Input};
 use sluice_core::alert::{Engines, RuleEngine};
 use sluice_core::event::Event;
-use sluice_core::reduce::{Outcome, Reducer};
-use sluice_fluentbit::{FilterPlan, FluentBit, LuaFilter, filter_section, lua_filter};
+use sluice_fluentbit::{FilterPlan, FluentBit, filter_section, lua_filter};
 
-use super::{list, megabytes, saved, size};
+use super::Generated;
 
 /// Proves a Lua filter for every source whose plan removes fields, and writes each one that
 /// removes something to `out/fluent-bit/SOURCE.lua`.
@@ -53,22 +51,10 @@ pub(crate) fn fluent_bit(
             &plans,
         );
         let Some(script) = &generated.script else {
-            if let Some(reason) = generated.left_out.first() {
-                println!(
-                    "  fluent-bit {source}: nothing removed in the agent: {reason}{}",
-                    match generated.left_out.len() {
-                        1 => String::new(),
-                        n => format!(" (and {} more)", n - 1),
-                    }
-                );
-            }
+            super::print_nothing_removed("fluent-bit", source, "the agent", &generated.left_out);
             continue;
         };
-        let events: Vec<&Event> = input
-            .events
-            .iter()
-            .filter(|e| e.source.as_str() == source)
-            .collect();
+        let events = super::source_events(input, source);
         let records: Vec<&Map<String, Value>> = events.iter().map(|e| &e.fields).collect();
         let before = fluent_bit
             .run(None, &records)
@@ -76,7 +62,7 @@ pub(crate) fn fluent_bit(
         let after = fluent_bit
             .run(Some(script), &records)
             .with_context(|| format!("{source}: running the filter in Fluent Bit"))?;
-        let violations = beyond_vector(analysis, &events, &before, &after)?;
+        let violations = super::beyond_vector(analysis, &events, &before, &after)?;
         if let Some(first) = violations.first() {
             bail!(
                 "{source}: the filter changes {} field(s) the proven data plane keeps, first \
@@ -84,17 +70,17 @@ pub(crate) fn fluent_bit(
                 violations.len()
             );
         }
-        let forwarded: Vec<Event> = events
-            .iter()
-            .zip(&before)
-            .map(|(event, record)| Event {
-                fields: record.clone(),
-                ..(*event).clone()
-            })
-            .collect();
+        let forwarded = super::with_fields(&events, &before);
         let forwarded: Vec<&Event> = forwarded.iter().collect();
         let alerts = super::same_alerts(&engine, source, &forwarded, &after)?;
-        summary(source, &generated, &before, &after, alerts);
+        let shown = Generated {
+            templates: generated.templates.len(),
+            fields: &generated.fields,
+            empty_fields: generated.empty_fields,
+            left_out: &generated.left_out,
+        };
+        let bytes = (super::bytes(&before), super::bytes(&after));
+        super::print_summary("fluent-bit", source, &shown, bytes, alerts);
         let path = out.join("fluent-bit").join(format!("{source}.lua"));
         crate::output::write(&path, script)?;
         written.push((source.to_owned(), path));
@@ -114,126 +100,4 @@ pub(crate) fn fluent_bit(
         );
     }
     Ok(())
-}
-
-fn summary(
-    source: &str,
-    generated: &LuaFilter,
-    before: &[Map<String, Value>],
-    after: &[Map<String, Value>],
-    alerts: usize,
-) {
-    let bytes_before: usize = before.iter().map(size).sum();
-    let bytes_after: usize = after.iter().map(size).sum();
-    println!(
-        "  fluent-bit {source}: {} kinds of event, fields {}{}; {} → {} ({}), every removed field \
-         also removed by Vector, {alerts} = {alerts} alerts",
-        generated.templates.len(),
-        list(&generated.fields),
-        if generated.empty_fields {
-            " and empty ones"
-        } else {
-            ""
-        },
-        megabytes(bytes_before),
-        megabytes(bytes_after),
-        saved(bytes_before, bytes_after),
-    );
-    if alerts == 0 {
-        println!("          {}", sluice_autopilot::EMPTY_PROOF);
-    }
-    for reason in generated.left_out.iter().take(5) {
-        println!("          left to a pipeline tool: {reason}");
-    }
-    if generated.left_out.len() > 5 {
-        println!("          … and {} more", generated.left_out.len() - 5);
-    }
-}
-
-/// Fields the filter removed from a record that the data plane keeps on it, and values it
-/// changed: compared with the same record through Fluent Bit without the filter.
-fn beyond_vector(
-    analysis: &Analysis,
-    events: &[&Event],
-    before: &[Map<String, Value>],
-    after: &[Map<String, Value>],
-) -> Result<Vec<String>> {
-    let mut violations = Vec::new();
-    for ((event, before), after) in events.iter().zip(before).zip(after) {
-        let was = leaf_values(before);
-        let now = leaf_values(after);
-        for (path, value) in &now {
-            match was.get(path) {
-                Some(old) if same(old, value) => {}
-                // An object whose last field went is a leaf of its own, as in Vector.
-                None if *value == Value::Object(Map::new()) => {}
-                _ => violations.push(format!("{path} changed on event {}", event.id)),
-            }
-        }
-        let removed: Vec<&String> = was.keys().filter(|p| !now.contains_key(*p)).collect();
-        if removed.is_empty() {
-            continue;
-        }
-        let reduced = analysis
-            .data_plane
-            .reduce(event)
-            .with_context(|| format!("the data plane on event {}", event.id))?;
-        let Outcome::Forwarded(body) = reduced.outcome else {
-            continue; // Vector counts it instead of sending it.
-        };
-        let forwarded = leaf_values(&body);
-        for path in removed {
-            if forwarded.contains_key(path) {
-                violations.push(format!("{path} on event {}", event.id));
-            }
-        }
-    }
-    Ok(violations)
-}
-
-/// Whether Lua gave the value back: the same, or exactly the same number.
-#[allow(clippy::float_cmp, reason = "the number must come back exactly")]
-fn same(old: &Value, new: &Value) -> bool {
-    old == new || old.as_f64().zip(new.as_f64()).is_some_and(|(a, b)| a == b)
-}
-
-/// Each leaf path of a record with its value, as VRL's `flatten` makes them; an empty object
-/// is a leaf of its own here, so one that appears or goes is seen.
-fn leaf_values(record: &Map<String, Value>) -> BTreeMap<String, Value> {
-    fn walk(prefix: String, value: &Value, out: &mut BTreeMap<String, Value>) {
-        match value {
-            Value::Object(map) if !map.is_empty() => {
-                for (key, value) in map {
-                    walk(format!("{prefix}.{key}"), value, out);
-                }
-            }
-            other => {
-                out.insert(prefix, other.clone());
-            }
-        }
-    }
-    let mut out = BTreeMap::new();
-    for (key, value) in record {
-        walk(key.clone(), value, &mut out);
-    }
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn values_compare_as_numbers_and_empty_objects_are_leaves() {
-        assert!(same(&json!(2.0), &json!(2)));
-        assert!(!same(&json!(2.5), &json!(2)));
-        assert!(!same(&json!("2"), &json!(2)));
-        let record = json!({"a": {"b": 1, "c": {}}, "d": [1]});
-        let paths: Vec<String> = leaf_values(record.as_object().expect("an object"))
-            .into_keys()
-            .collect();
-        assert_eq!(paths, ["a.b", "a.c", "d"]);
-    }
 }
