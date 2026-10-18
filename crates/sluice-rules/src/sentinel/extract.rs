@@ -159,7 +159,7 @@ pub(super) fn reads(tokens: &[Token], known: &dyn Fn(&str) -> bool) -> Reads {
         }
         if known(name) {
             reads.calls.insert(name.clone());
-        } else if is_asim_parser(name) || unknown_function(name, next) {
+        } else if is_asim_parser(name) || unknown_function(name, previous, next) {
             reads.any_table = true;
             reads.any_field.get_or_insert(format!(
                 "uses `{name}`, a parser or function whose source is not known"
@@ -377,10 +377,33 @@ pub(super) fn is_asim_parser(name: &str) -> bool {
         })
 }
 
-/// A call to a workspace function. KQL's own functions are lower case; a call with an
-/// upper-case letter is a workspace function, whose body is not known here.
-fn unknown_function(name: &str, next: Option<&Token>) -> bool {
-    is_symbol(next, "(") && name != WATCHLIST && name.chars().any(|c| c.is_ascii_uppercase())
+/// A call to a workspace function, whose body is not known here. KQL's own functions are lower
+/// case, so a call with an upper-case letter is one. So is a lower-case call where only a
+/// tabular function can stand, after `invoke` or at the start of a statement, unless it is one
+/// of KQL's few tabular functions.
+fn unknown_function(name: &str, previous: Option<&Token>, next: Option<&Token>) -> bool {
+    // And the operators that may start a statement with `(`.
+    const TABULAR: [&str; 15] = [
+        "range",
+        "datatable",
+        "print",
+        "externaldata",
+        "materialize",
+        "cluster",
+        "database",
+        "workspace",
+        "app",
+        "table",
+        "view",
+        "union",
+        "find",
+        "search",
+        "evaluate",
+    ];
+    let tabular = is_ident(previous, "invoke") || previous.is_none() || is_symbol(previous, ";");
+    is_symbol(next, "(")
+        && name != WATCHLIST
+        && (name.chars().any(|c| c.is_ascii_uppercase()) || (tabular && !TABULAR.contains(&name)))
 }
 fn is_symbol(token: Option<&Token>, symbol: &str) -> bool {
     matches!(token, Some(Token::Symbol(s)) if s == symbol)

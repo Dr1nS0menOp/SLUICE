@@ -471,6 +471,30 @@ fn rule_names_are_the_names_the_siem_shows() {
 }
 
 #[test]
+fn c3_a_lower_case_workspace_function_where_a_table_goes_is_not_known() {
+    for query in [
+        "SecurityEvent | where EventID == 4624 | invoke my_parser()",
+        "my_parser() | where EventID == 4624",
+        "let x = 1;\nmy_parser() | where EventID == x",
+    ] {
+        let r = rule(query);
+        assert_eq!(r.fields, RequiredFields::Unknown, "{query}");
+        assert_eq!(r.prefilter, Predicate::Always, "{query}");
+    }
+    // KQL's own functions, in expressions or where a table goes, are known.
+    for query in [
+        "let start = ago(1d);\nSecurityEvent | where EventID == 4624 and TimeGenerated > start",
+        "union (SecurityEvent | where EventID == 4624)",
+        "range x from 1 to 3 step 1 | extend y = strcat('a', 'b')",
+    ] {
+        assert!(
+            matches!(rule(query).fields, RequiredFields::Known(_)),
+            "{query}"
+        );
+    }
+}
+
+#[test]
 fn c3_a_named_custom_table_keeps_its_rows_whatever_else_the_query_does() {
     for query in [
         "MyApp_CL | invoke UnknownFunction()",
