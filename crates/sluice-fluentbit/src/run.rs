@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde_json::{Map, Value};
 
 use crate::FluentBitError;
-use crate::filter::CALL;
 
 /// How to run Fluent Bit: a command that takes Fluent Bit's own arguments (`-q -c FILE`), the
 /// `fluent-bit` binary or a wrapper that runs it in a container with the temporary directory
@@ -41,15 +40,12 @@ impl FluentBit {
         records: &[&Map<String, Value>],
     ) -> Result<Vec<Map<String, Value>>, FluentBitError> {
         let dir = Scratch::new()?;
+        // The section a deployment writes (`filter_section`), so the proof runs exactly that.
         let filter = match script {
             Some(script) => {
                 let path = dir.path().join("filter.lua");
                 write(&path, script)?;
-                format!(
-                    "[FILTER]\n    Name lua\n    Match *\n    Script {}\n    Call {CALL}\n    \
-                     enable_flb_null true\n",
-                    path.display()
-                )
+                crate::filter_section("*", &path.display().to_string())
             }
             None => String::new(),
         };
@@ -100,10 +96,11 @@ impl FluentBit {
         let output = child
             .wait_with_output()
             .map_err(|e| FluentBitError::Run(e.to_string()))?;
-        writer
+        // A command that stops reading early breaks the pipe: what it did with the records says
+        // more than that, so the exit and the count come first.
+        let written = writer
             .join()
-            .map_err(|_| FluentBitError::Run("writing the records failed".to_owned()))?
-            .map_err(|e| FluentBitError::Run(format!("writing the records: {e}")))?;
+            .map_err(|_| FluentBitError::Run("writing the records failed".to_owned()))?;
         if !output.status.success() {
             return Err(FluentBitError::Run(format!(
                 "Fluent Bit exited with {}: {}",
@@ -119,6 +116,7 @@ impl FluentBit {
                 String::from_utf8_lossy(&output.stderr).trim()
             )));
         }
+        written.map_err(|e| FluentBitError::Run(format!("writing the records: {e}")))?;
         Ok(out)
     }
 }

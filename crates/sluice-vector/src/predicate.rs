@@ -245,7 +245,8 @@ fn alternation(
     Some(format!("match({haystack}, {quoted})"))
 }
 
-/// Above this many keywords, one regex alternation replaces a `contains` per keyword.
+/// From this many values on (keywords, or a field test's), one regex alternation replaces a
+/// `contains` or comparison per value.
 const KEYWORD_REGEX_MIN: usize = 5;
 
 /// The test of the rendered value in `text` against the keywords: `contains` calls for a few,

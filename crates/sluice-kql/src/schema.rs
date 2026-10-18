@@ -1,5 +1,6 @@
 //! Column schemas of the Sentinel tables Sluice writes, as the Log Analytics tables API reported
-//! them in a workspace with Sentinel on (2026-10-11). Generated; regenerate rather than edit.
+//! them in a workspace with Sentinel on (2026-10-11). To follow a schema change, replace a table's
+//! list with what `GET .../tables/{name}` reports now; do not edit single columns.
 //! The proof loads records into these tables so analytics rules see the real column types.
 
 /// `SecurityEvent`: column name and KQL type.
