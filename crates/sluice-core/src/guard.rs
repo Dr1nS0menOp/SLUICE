@@ -20,7 +20,7 @@ mod protection;
 
 use crate::template::{Template, TemplateShape};
 pub use model::{
-    Adjustment, ContractRule, EffectiveRecipe, GuardContext, GuardrailConfig, Reason, Route,
+    Adjustment, ContractRule, EffectiveRecipe, GuardContext, GuardrailConfig, Plan, Reason, Route,
 };
 use protection::Protection;
 

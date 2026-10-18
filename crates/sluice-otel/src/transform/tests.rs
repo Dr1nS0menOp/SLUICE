@@ -60,9 +60,9 @@ fn eq(field: &str, value: &str) -> Predicate {
 }
 
 fn of(plans: &[(&Template, &EffectiveRecipe)]) -> Statements {
-    let plans: Vec<TransformPlan<'_>> = plans
+    let plans: Vec<Plan<'_>> = plans
         .iter()
-        .map(|(template, recipe)| TransformPlan { template, recipe })
+        .map(|(template, recipe)| Plan { template, recipe })
         .collect();
     transform(&plans)
 }

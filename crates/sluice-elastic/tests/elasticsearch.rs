@@ -232,7 +232,7 @@ fn functions() -> String {
     };
     let pipeline = sluice_elastic::ingest_pipeline(
         "functions",
-        &[sluice_elastic::PipelinePlan {
+        &[sluice_core::guard::Plan {
             template: &template,
             recipe: &recipe,
         }],

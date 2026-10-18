@@ -21,14 +21,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use sluice_core::guard::{EffectiveRecipe, Route};
+use sluice_core::guard::{Plan, Route};
 use sluice_core::ids::TemplateId;
 use sluice_core::predicate::Predicate;
 use sluice_core::template::{Template, TemplateShape};
 
 pub use self::run::{Records, run_transformations};
 use crate::predicate::compile_known;
-use crate::syntax;
+use crate::syntax::{self, STRCAT_MAX};
 use crate::table::Table;
 
 /// Columns Azure Monitor sets on the record itself, which a DCR transformation may not see.
@@ -67,9 +67,6 @@ pub const ALLOWED_FUNCTIONS: [&str; 18] = [
     "toint",
 ];
 
-/// Most arguments one `strcat` call is given.
-const STRCAT_MAX: usize = 60;
-
 /// The longest `transformKql` a data collection rule takes: Azure refuses a longer one with
 /// `InvalidTransform` (checked 2026-10-17).
 pub const MAX_TRANSFORM_KQL: usize = 15_360;
@@ -81,15 +78,6 @@ pub const SLUICE_PART: &str = "| extend __sluice_s";
 /// The line that ends what [`transformation`] adds. Where Sluice's part runs before a data
 /// flow's own transformation, the flow's part follows it.
 pub const SLUICE_PART_END: &str = "| project-away __sluice_s, __sluice_r, __sluice_t";
-
-/// One template and the recipe enforced on it.
-#[derive(Debug, Clone, Copy)]
-pub struct TransformPlan<'a> {
-    /// The template, discovered on the table's records.
-    pub template: &'a Template,
-    /// Its enforced recipe.
-    pub recipe: &'a EffectiveRecipe,
-}
 
 /// A generated transformation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,11 +115,7 @@ type Groups = BTreeMap<String, BTreeMap<Vec<(String, String)>, Group>>;
 /// error in a DCR, and a column outside it is always empty. Without a stream of its own, a data
 /// flow into a standard table carries the table's columns: [`Table::column_names`].
 #[must_use]
-pub fn transformation(
-    table: &Table,
-    stream: &[&str],
-    plans: &[TransformPlan<'_>],
-) -> Transformation {
+pub fn transformation(table: &Table, stream: &[&str], plans: &[Plan<'_>]) -> Transformation {
     let columns: Vec<(&str, &str)> = table
         .own_columns()
         .filter(|(name, _)| stream.contains(name))
@@ -147,7 +131,7 @@ pub fn transformation_on(
     table: &str,
     columns: &[(&str, &str)],
     stream: &[&str],
-    plans: &[TransformPlan<'_>],
+    plans: &[Plan<'_>],
 ) -> Transformation {
     let columns: Vec<(&str, &str)> = columns
         .iter()
@@ -172,7 +156,7 @@ pub fn transformation_on(
     let types: BTreeMap<&str, &str> = columns.iter().copied().collect();
     let mut left_out = Vec::new();
     let mut unrecognised = Vec::new();
-    let recognised: Vec<(&TransformPlan<'_>, Recognition)> = plans
+    let recognised: Vec<(&Plan<'_>, Recognition)> = plans
         .iter()
         .filter_map(|plan| {
             let found = recognition(plan.template, &types, &mut left_out);
@@ -329,7 +313,7 @@ fn separable(mut groups: Groups, left_out: &mut Vec<String>) -> Vec<(String, Gro
 /// not discriminators; the rest goes to `left_out`. A field no record of the template has is
 /// nothing to remove.
 fn removable(
-    plan: &TransformPlan<'_>,
+    plan: &Plan<'_>,
     discriminators: &BTreeMap<String, String>,
     types: &BTreeMap<&str, &str>,
     table: &str,

@@ -14,7 +14,7 @@ use serde_json::{Map, Value};
 use sluice_autopilot::{Analysis, Input};
 use sluice_core::alert::{Engines, RuleEngine};
 use sluice_core::event::Event;
-use sluice_otel::{Collector, TransformPlan, processor, transform};
+use sluice_otel::{Collector, processor, transform};
 
 use super::Generated;
 
@@ -38,14 +38,7 @@ pub(crate) fn otel(
     let mut written = Vec::new();
     for source in input.sources {
         let source = source.id.as_str();
-        let plans: Vec<TransformPlan<'_>> = analysis
-            .discovery
-            .templates
-            .iter()
-            .zip(&analysis.selection.recipes)
-            .filter(|(template, _)| template.source.as_str() == source)
-            .map(|(template, recipe)| TransformPlan { template, recipe })
-            .collect();
+        let plans = super::plans_for(analysis, source);
         let generated = transform(&plans);
         if generated.statements.is_empty() {
             super::print_nothing_removed("otel   ", source, "the collector", &generated.left_out);

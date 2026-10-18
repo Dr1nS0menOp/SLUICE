@@ -16,16 +16,13 @@
 use sluice_core::codegen::balanced;
 use sluice_core::predicate::{FieldTest, KeywordTest, MatchOp, Predicate};
 
-use crate::syntax;
+use crate::syntax::{self, STRCAT_MAX};
 
 /// Types whose test widens to `true`: VRL matches inside arrays and objects, and floats,
 /// booleans, dates, timespans and GUIDs render as different text in the two engines (KQL turns
 /// an ISO 8601 string into a `datetime` and prints it back without fractional zeros).
 const WIDENED_TYPES: &str =
     r#"("array", "dictionary", "real", "bool", "datetime", "timespan", "guid")"#;
-
-/// Most arguments `strcat_delim` takes (the delimiter included).
-const STRCAT_MAX: usize = 60;
 
 /// True when the text holds a non-ASCII character, where case folding may differ.
 const NON_ASCII: &str = r#""[^\\x00-\\x7f]""#;

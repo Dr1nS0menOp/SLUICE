@@ -12,7 +12,7 @@ mod lua;
 mod predicate;
 mod run;
 
-pub use crate::filter::{CALL, FilterPlan, LuaFilter, lua_filter};
+pub use crate::filter::{CALL, LuaFilter, lua_filter};
 pub use crate::predicate::compile;
 pub use crate::run::FluentBit;
 

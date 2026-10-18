@@ -67,9 +67,9 @@ fn eq(field: &str, value: &str) -> Predicate {
 }
 
 fn of(plans: &[(&Template, &EffectiveRecipe)]) -> Transformation {
-    let plans: Vec<TransformPlan<'_>> = plans
+    let plans: Vec<Plan<'_>> = plans
         .iter()
-        .map(|(template, recipe)| TransformPlan { template, recipe })
+        .map(|(template, recipe)| Plan { template, recipe })
         .collect();
     transformation(
         &Table::SecurityEvent,
@@ -322,7 +322,7 @@ fn a_boolean_column_is_emptied_with_a_bool_null_and_a_type_without_one_is_left_o
         &[&["EventID", "Flag", "Span"]],
     );
     let recipe = removing(t.id.as_str(), &["Flag", "Span"], None);
-    let plans = [TransformPlan {
+    let plans = [Plan {
         template: &t,
         recipe: &recipe,
     }];
@@ -361,7 +361,7 @@ fn no_panic_on_input_a_column_kql_cannot_name_leaves_the_records_as_they_come() 
         &[&["EventID", "Bad\u{1}Name"]],
     );
     let recipe = removing(t.id.as_str(), &["Bad\u{1}Name"], None);
-    let plans = [TransformPlan {
+    let plans = [Plan {
         template: &t,
         recipe: &recipe,
     }];
@@ -493,7 +493,7 @@ fn only_columns_of_the_stream_are_named_and_a_template_needing_another_is_left_a
         &["EventData"],
         Some(eq("SubjectUserName", "x")),
     );
-    let plans = [TransformPlan {
+    let plans = [Plan {
         template: &t,
         recipe: &recipe,
     }];

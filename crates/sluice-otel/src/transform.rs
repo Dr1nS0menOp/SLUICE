@@ -23,7 +23,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use sluice_core::field::FieldPath;
-use sluice_core::guard::{EffectiveRecipe, Route};
+use sluice_core::guard::{Plan, Route};
 use sluice_core::ids::TemplateId;
 use sluice_core::predicate::Predicate;
 use sluice_core::template::{Template, TemplateShape};
@@ -37,15 +37,6 @@ pub const ROOT: &str = "log.body";
 /// The cache keys the statements keep their decisions in.
 const TEMPLATE: &str = "log.cache[\"sluice_t\"]";
 const ACTION: &str = "log.cache[\"sluice_a\"]";
-
-/// One template and the recipe enforced on it.
-#[derive(Debug, Clone, Copy)]
-pub struct TransformPlan<'a> {
-    /// The template, discovered on records as the collector parses them.
-    pub template: &'a Template,
-    /// Its enforced recipe.
-    pub recipe: &'a EffectiveRecipe,
-}
 
 /// Generated transform statements.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,8 +55,8 @@ pub struct Statements {
 
 /// The statements carrying out `plans`' field removals.
 #[must_use]
-pub fn transform(plans: &[TransformPlan<'_>]) -> Statements {
-    let mut ordered: Vec<&TransformPlan<'_>> = plans.iter().collect();
+pub fn transform(plans: &[Plan<'_>]) -> Statements {
+    let mut ordered: Vec<&Plan<'_>> = plans.iter().collect();
     ordered.sort_by(|a, b| a.template.id.cmp(&b.template.id));
     let mut out = Statements {
         statements: Vec::new(),
@@ -75,7 +66,7 @@ pub fn transform(plans: &[TransformPlan<'_>]) -> Statements {
         left_out: Vec::new(),
     };
     let mut probes = 0usize;
-    let mut recognised: Vec<(&TransformPlan<'_>, Recognition, Option<Removal>)> = Vec::new();
+    let mut recognised: Vec<(&Plan<'_>, Recognition, Option<Removal>)> = Vec::new();
     for plan in ordered {
         if let Some(recognition) = recognition(plan.template, &mut probes, &mut out.left_out) {
             let removal = removal(plan, &mut out.left_out);
@@ -181,7 +172,7 @@ fn delete(field: &FieldPath, condition: Option<&str>) -> String {
     statement
 }
 
-fn removal(plan: &TransformPlan<'_>, left_out: &mut Vec<String>) -> Option<Removal> {
+fn removal(plan: &Plan<'_>, left_out: &mut Vec<String>) -> Option<Removal> {
     let recipe = plan.recipe;
     if recipe.is_passthrough() {
         return None;

@@ -14,7 +14,7 @@ use serde_json::{Map, Value};
 use sluice_autopilot::{Analysis, Input};
 use sluice_core::alert::{Engines, RuleEngine};
 use sluice_core::event::Event;
-use sluice_fluentbit::{FilterPlan, FluentBit, filter_section, lua_filter};
+use sluice_fluentbit::{FluentBit, filter_section, lua_filter};
 
 use super::Generated;
 
@@ -38,14 +38,7 @@ pub(crate) fn fluent_bit(
     let mut written = Vec::new();
     for source in input.sources {
         let source = source.id.as_str();
-        let plans: Vec<FilterPlan<'_>> = analysis
-            .discovery
-            .templates
-            .iter()
-            .zip(&analysis.selection.recipes)
-            .filter(|(template, _)| template.source.as_str() == source)
-            .map(|(template, recipe)| FilterPlan { template, recipe })
-            .collect();
+        let plans = super::plans_for(analysis, source);
         let generated = lua_filter(
             &format!("Sluice: proven field removals for {source} (ADR 0027)"),
             &plans,

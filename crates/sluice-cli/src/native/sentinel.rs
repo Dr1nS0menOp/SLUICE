@@ -15,8 +15,8 @@ use sluice_autopilot::{Analysis, Input};
 use sluice_core::event::Event;
 use sluice_core::reduce::{Outcome, Reducer};
 use sluice_kql::{
-    MAX_TRANSFORM_KQL, Table, TransformPlan, Transformation, disallowed_functions,
-    run_transformations, transformation, transformation_on,
+    MAX_TRANSFORM_KQL, Table, Transformation, disallowed_functions, run_transformations,
+    transformation, transformation_on,
 };
 
 use self::dcr::{Flow, write};
@@ -93,14 +93,7 @@ fn prove(
         );
         return Ok(None);
     }
-    let plans: Vec<TransformPlan<'_>> = analysis
-        .discovery
-        .templates
-        .iter()
-        .zip(&analysis.selection.recipes)
-        .filter(|(template, _)| template.source.as_str() == source)
-        .map(|(template, recipe)| TransformPlan { template, recipe })
-        .collect();
+    let plans = super::plans_for(analysis, source);
     let stream: Vec<&str> = flow.stream.iter().map(|(name, _)| name.as_str()).collect();
     let generated = if flow.first {
         transformation_on(table.name(), &flow.declared(), &stream, &plans)

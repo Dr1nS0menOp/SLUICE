@@ -21,6 +21,7 @@ use sluice_autopilot::{Analysis, Input};
 use sluice_core::alert::RuleEngine;
 use sluice_core::event::Event;
 use sluice_core::field::FieldPath;
+use sluice_core::guard::Plan;
 use sluice_core::reduce::{Outcome, Reducer};
 
 /// The alerts `engine` raises on the full records, if it raises the same on the records as
@@ -47,6 +48,15 @@ fn same_alerts(
         );
     }
     Ok(full.len())
+}
+
+/// The plans of `source`'s templates, in discovery's order: what each generator carries out.
+fn plans_for<'a>(analysis: &'a Analysis, source: &str) -> Vec<Plan<'a>> {
+    analysis
+        .plans()
+        .into_iter()
+        .filter(|plan| plan.template.source.as_str() == source)
+        .collect()
 }
 
 /// The events of `source`, in the sample's order.

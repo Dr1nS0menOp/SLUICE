@@ -23,8 +23,6 @@ mod predicate;
 mod simulate;
 
 pub use crate::engine::{ElasticEngine, RuleQuery};
-pub use crate::pipeline::{
-    IngestPipeline, MAX_SCRIPT, METADATA_FIELDS, PipelinePlan, ingest_pipeline,
-};
+pub use crate::pipeline::{IngestPipeline, MAX_SCRIPT, METADATA_FIELDS, ingest_pipeline};
 pub use crate::predicate::compile;
 pub use crate::simulate::{ElasticError, simulate};

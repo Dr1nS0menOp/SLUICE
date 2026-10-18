@@ -14,7 +14,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 use sluice_autopilot::{Analysis, Input};
 use sluice_core::alert::{Engines, RuleEngine};
-use sluice_elastic::{PipelinePlan, ingest_pipeline, simulate};
+use sluice_elastic::{ingest_pipeline, simulate};
 
 use super::Generated;
 
@@ -32,14 +32,7 @@ pub(crate) fn elastic(analysis: &Analysis, input: Input<'_>, url: &str, out: &Pa
     let mut written = Vec::new();
     for source in input.sources {
         let source = source.id.as_str();
-        let plans: Vec<PipelinePlan<'_>> = analysis
-            .discovery
-            .templates
-            .iter()
-            .zip(&analysis.selection.recipes)
-            .filter(|(template, _)| template.source.as_str() == source)
-            .map(|(template, recipe)| PipelinePlan { template, recipe })
-            .collect();
+        let plans = super::plans_for(analysis, source);
         let generated = ingest_pipeline(
             &format!("Sluice: proven field removals for {source} (ADR 0024)"),
             &plans,

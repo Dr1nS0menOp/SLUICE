@@ -14,7 +14,7 @@ mod transform;
 
 pub use crate::predicate::compile;
 pub use crate::run::Collector;
-pub use crate::transform::{ROOT, Statements, TransformPlan, processor, transform};
+pub use crate::transform::{ROOT, Statements, processor, transform};
 
 /// The collector could not be used.
 #[derive(Debug, thiserror::Error)]

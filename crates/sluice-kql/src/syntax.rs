@@ -2,6 +2,10 @@
 
 use sluice_core::field::FieldPath;
 
+/// Most arguments one `strcat` or `strcat_delim` call is given, the delimiter included (Kusto
+/// takes 64).
+pub(crate) const STRCAT_MAX: usize = 60;
+
 /// A KQL string literal, or `None` if `value` holds a control character other than tab,
 /// newline or carriage return, which the generated query does not try to escape.
 pub(crate) fn string(value: &str) -> Option<String> {

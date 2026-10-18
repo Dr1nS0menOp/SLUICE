@@ -25,7 +25,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use sluice_core::field::FieldPath;
-use sluice_core::guard::{EffectiveRecipe, Route};
+use sluice_core::guard::{Plan, Route};
 use sluice_core::ids::TemplateId;
 use sluice_core::predicate::Predicate;
 use sluice_core::template::{Template, TemplateShape};
@@ -35,15 +35,6 @@ use crate::predicate::compile;
 
 /// The function a generated filter defines, as the filter's `Call` names it.
 pub const CALL: &str = "sluice";
-
-/// One template and the recipe enforced on it.
-#[derive(Debug, Clone, Copy)]
-pub struct FilterPlan<'a> {
-    /// The template, discovered on records as the agent reads them.
-    pub template: &'a Template,
-    /// Its enforced recipe.
-    pub recipe: &'a EffectiveRecipe,
-}
 
 /// A generated Lua filter.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,13 +62,13 @@ struct Action {
 
 /// The Lua filter carrying out `plans`' field removals; `description` says what it is for.
 #[must_use]
-pub fn lua_filter(description: &str, plans: &[FilterPlan<'_>]) -> LuaFilter {
-    let mut ordered: Vec<&FilterPlan<'_>> = plans.iter().collect();
+pub fn lua_filter(description: &str, plans: &[Plan<'_>]) -> LuaFilter {
+    let mut ordered: Vec<&Plan<'_>> = plans.iter().collect();
     ordered.sort_by(|a, b| a.template.id.cmp(&b.template.id));
     let mut left_out = Vec::new();
     let mut conditions = Conditions::default();
     let mut sets = Vec::new();
-    let recognised: Vec<(&FilterPlan<'_>, String, Option<String>, Option<Action>)> = ordered
+    let recognised: Vec<(&Plan<'_>, String, Option<String>, Option<Action>)> = ordered
         .into_iter()
         .filter_map(|plan| {
             let (condition, stop) = recognition(plan.template, &mut sets, &mut left_out)?;
@@ -278,7 +269,7 @@ impl Conditions {
 
 /// What a recognised record of the template loses; `None` when nothing.
 fn action(
-    plan: &FilterPlan<'_>,
+    plan: &Plan<'_>,
     conditions: &mut Conditions,
     left_out: &mut Vec<String>,
 ) -> Option<Action> {

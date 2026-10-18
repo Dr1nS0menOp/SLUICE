@@ -60,9 +60,9 @@ fn eq(field: &str, value: &str) -> Predicate {
 }
 
 fn of(plans: &[(&Template, &EffectiveRecipe)]) -> LuaFilter {
-    let plans: Vec<FilterPlan<'_>> = plans
+    let plans: Vec<Plan<'_>> = plans
         .iter()
-        .map(|(template, recipe)| FilterPlan { template, recipe })
+        .map(|(template, recipe)| Plan { template, recipe })
         .collect();
     lua_filter("test", &plans)
 }

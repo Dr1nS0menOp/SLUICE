@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value, json};
 use sluice_core::field::FieldPath;
-use sluice_core::guard::{EffectiveRecipe, Route};
+use sluice_core::guard::{Plan, Route};
 use sluice_core::ids::TemplateId;
 use sluice_core::predicate::Predicate;
 use sluice_core::template::{Template, TemplateShape};
@@ -49,15 +49,6 @@ pub const METADATA_FIELDS: [&str; 10] = [
     "_type",
     "_ingest",
 ];
-
-/// One template and the recipe enforced on it.
-#[derive(Debug, Clone, Copy)]
-pub struct PipelinePlan<'a> {
-    /// The template, discovered on documents as the index stores them.
-    pub template: &'a Template,
-    /// Its enforced recipe.
-    pub recipe: &'a EffectiveRecipe,
-}
 
 /// A generated ingest pipeline.
 #[derive(Debug, Clone, PartialEq)]
@@ -84,12 +75,12 @@ struct Action {
 
 /// The ingest pipeline carrying out `plans`' field removals; `description` says what it is for.
 #[must_use]
-pub fn ingest_pipeline(description: &str, plans: &[PipelinePlan<'_>]) -> IngestPipeline {
-    let mut ordered: Vec<&PipelinePlan<'_>> = plans.iter().collect();
+pub fn ingest_pipeline(description: &str, plans: &[Plan<'_>]) -> IngestPipeline {
+    let mut ordered: Vec<&Plan<'_>> = plans.iter().collect();
     ordered.sort_by(|a, b| a.template.id.cmp(&b.template.id));
     let mut left_out = Vec::new();
     let mut conditions = Conditions::default();
-    let recognised: Vec<(&PipelinePlan<'_>, Recognition, Option<Action>)> = ordered
+    let recognised: Vec<(&Plan<'_>, Recognition, Option<Action>)> = ordered
         .into_iter()
         .filter_map(|plan| {
             let seen = recognition(plan.template, &mut left_out)?;
@@ -339,7 +330,7 @@ impl Conditions {
 
 /// What a recognised document of the template loses; `None` when nothing.
 fn action(
-    plan: &PipelinePlan<'_>,
+    plan: &Plan<'_>,
     conditions: &mut Conditions,
     left_out: &mut Vec<String>,
 ) -> Option<Action> {

@@ -59,9 +59,9 @@ fn eq(field: &str, value: &str) -> Predicate {
 }
 
 fn of(plans: &[(&Template, &EffectiveRecipe)]) -> IngestPipeline {
-    let plans: Vec<PipelinePlan<'_>> = plans
+    let plans: Vec<Plan<'_>> = plans
         .iter()
-        .map(|(template, recipe)| PipelinePlan { template, recipe })
+        .map(|(template, recipe)| Plan { template, recipe })
         .collect();
     ingest_pipeline("test", &plans)
 }

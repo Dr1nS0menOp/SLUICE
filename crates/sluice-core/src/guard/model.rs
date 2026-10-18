@@ -215,6 +215,16 @@ impl EffectiveRecipe {
     }
 }
 
+/// A template and the recipe that may be enforced on it: what every generator (Vector's VRL,
+/// a DCR transformation, an ingest pipeline, a Lua filter, OTTL statements) carries out.
+#[derive(Debug, Clone, Copy)]
+pub struct Plan<'a> {
+    /// The template.
+    pub template: &'a Template,
+    /// Its effective recipe.
+    pub recipe: &'a EffectiveRecipe,
+}
+
 /// Thresholds for the guardrails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuardrailConfig {

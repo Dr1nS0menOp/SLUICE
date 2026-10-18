@@ -13,8 +13,8 @@
 use std::collections::BTreeMap;
 
 use sluice_core::field::FieldPath;
-use sluice_core::guard::{EffectiveRecipe, Route};
-use sluice_core::template::{Template, TemplateShape};
+use sluice_core::guard::Route;
+use sluice_core::template::TemplateShape;
 
 use crate::classify::{self, Classifier, KEYS};
 use crate::predicate;
@@ -29,14 +29,7 @@ pub const FORWARD: &str = "forward";
 /// Route value for events counted into summaries.
 pub const SUMMARIZE: &str = "summarize";
 
-/// A template and what may be enforced for it.
-#[derive(Debug, Clone, Copy)]
-pub struct Plan<'a> {
-    /// The template.
-    pub template: &'a Template,
-    /// Its effective recipe.
-    pub recipe: &'a EffectiveRecipe,
-}
+pub use sluice_core::guard::Plan;
 
 /// The VRL source for one source's templates.
 #[must_use]
