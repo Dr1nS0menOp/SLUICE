@@ -258,7 +258,10 @@ fetch wazuh`) and Azure-Sentinel `55296e6` ("Windows Security Events", 21 rules,
 in the Kusto emulator). All with `--rules-complete`, as the earlier runs predate ADR 0021.
 
 Run again on 2026-10-17 after the Splunk, custom-table and agent work (`next/m12`, `1a5b3ca`):
-every number below came out the same.
+every number below came out the same. Again on 2026-10-18 after the review's fail-closed fixes
+(generators that stop where they cannot decide, Sentinel rules over custom tables, fields parsed
+from text lines, Wazuh `maxsize`, Splunk raw text): the same again. None of those cases occur
+in this data, or its savings were already nothing.
 
 | Run, 2026-10-16 | Data | Saved | Alerts (full = forwarded) | Before (ADR 0009, 0015) |
 |---|---|---:|---|---|

@@ -56,6 +56,42 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
 - **Breaking:** `sluice prove --profile` and the Action's `profile` input are gone; rule profiles
   were a `sluice up` setting.
 
+### Fixed in the review, 2026-10-18
+
+- **The native generators no longer hand a record to the wrong template.** A discriminator the
+  engine could not render as VRL does (a number 0, a fraction, one of 10^15 or more, and in
+  OTTL a null for `""`) made its test false. A later template with the same key set then took
+  the record and removed fields Vector keeps. The Lua filters, ingest pipelines and OTTL
+  statements now stop the search there, and nothing is removed. In a Sentinel transformation, a
+  template it cannot recognise blocks the groups its records could fall into. In an ingest
+  pipeline, a template with a field named like Elasticsearch metadata does the same. OTTL no
+  longer compares `0` as a number, because that also took `-0.0`.
+- **Sentinel rules on custom tables.** `search`, `find`, `union *`, `table()`, ASIM parsers and
+  unknown functions were bounded to records shaped for the standard tables. They may read custom
+  tables too, so they now keep every row. A function that reads only a custom table now counts
+  for the rule that calls it.
+- **Fields parsed from a text line.** On a text line, a rule in the SIEM's own field names
+  (Wazuh's decoder outputs, the columns Sentinel's agent fills) tests fields the line does not
+  have. The rule is now bounded by its keyword tests only, and it reads the line.
+- **Wazuh rule attributes.** `maxsize` (rule 1003) now reads every field: removing one may bring
+  an event under the size. `ignore` is stateful. An unknown attribute widens the rule.
+- **Splunk.** A value written as a function (`user=CASE(Admin)`) was read as the word `case`. It
+  now needs only its field.
+- **The Sentinel proof** matched transformed records with the sample's events by position, which
+  a data flow's own `where` shifts. Records are now matched by row number. Every column a record
+  loses is checked, and dropped or added events are refused.
+- **The Elasticsearch proof** also refuses a pipeline that changes a value.
+- **Error messages.**
+  - Errors from Elastic and Kibana name the URL and give the answer's reason in short; they no
+    longer say "refused the pipeline" for a bad Kibana key.
+  - Wazuh errors show Wazuh's own message.
+  - `connect --sample` numbers lines as an editor does.
+  - A missing `--sigma-pipeline` file is named.
+- **Kibana fetch.** Reading the rules ends when a page adds nothing new.
+- **Report.** "N rules loaded" and `plan.json`'s `proof.rules` count each rule once: a Sigma
+  rule mapped through a pipeline, or an Elastic rule per index pattern, has several
+  requirements. A rule is a coverage gap only when none of its requirements sees data.
+
 ### Offline autopilot
 
 - `sluice demo` and `sluice analyze`: template discovery (JSON key sets, Drain for text with

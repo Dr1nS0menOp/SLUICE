@@ -734,41 +734,45 @@ A read-only review of the whole workspace after the advice-only cut (ADR 0030). 
 day: rule files named like `*inventory.json` were skipped; Elastic and Splunk inventory notes
 missed the report; `rules requirements` lacked `--sigma-pipeline`; KQL panicked on a column name
 with a control character and wrote `boolean(null)`; a raw-text rule (Splunk) protected only the
-text fields of a JSON record; `prove --profile` and the autopilot's live cycle were dead. Open,
-safety first. Each fix starts with a failing test named after the contract rule:
+text fields of a JSON record; `prove --profile` and the autopilot's live cycle were dead.
 
-1. **Generators fall through (fail open).** In Lua, Painless and OTTL, a discriminator the
-   engine cannot render (a number 0, a fraction, one of 1e15 or more) makes the test false. The
-   record then goes to a later template with the same key set, which may remove fields Vector
-   keeps for it. KQL has the same hole for templates `recognition()` refuses, and Elastic for
-   templates with metadata-named fields. Plan:
-   - in core, `TemplateShape::may_overlap` and `claims(order, acts, recognisable)`;
-   - per engine, an "undecided" branch right after each template that stops the chain;
-   - one test per generator: `c1_a_record_an_earlier_template_cannot_decide_is_claimed_by_no_later_one`.
-2. **Sentinel custom tables.** `search`, `union *`, `table()` and unknown functions turn a
-   named `_CL` table's `Always` into the shaped-table markers (`sentinel/mod.rs`). A resolved
-   function over `X_CL` only is dropped (`functions.rs`). Plan: `reads_every_table`; always
-   merge callees; build the table list in one place.
-3. **Values matched by meaning.** Done for networks: a CIDR value (`10.0.0.0/8`) in Elastic KQL
-   and in SPL widens to `exists`. Open: KQL numbers (`4.0` against a stored `4`) and SPL
-   `CASE()`/`TERM()` in field values.
-4. **Wazuh decoded fields on text lines.** Field tests on decoder outputs (`srcip`, `user`) are
-   compared with text templates as if the fields existed. Plan: `Predicate::on_text_line()`
-   (field tests become `Always`) for rules that may see text lines.
-5. **The Sentinel native proof** pairs records by position (a flow's own `where` shifts them),
-   and checks only the columns the transformation names. Plan: index records by `__sluice_n`,
-   and compare every leaf, as the other three proofs do.
-6. **Wazuh `<rule>` attributes** `maxsize` (depends on the event's size) and `ignore` (stateful)
-   are not read. Send them to "reads anything" or "stateful".
-7. **Leftovers of the live design.** `connect --standard-table` and the shaping VRL (`syslog`,
-   `common_security_log`, `asim_*`, `windows`) were for `sluice up` sources: archive them, or
+Fixed on 2026-10-18, each with a test named after the contract rule:
+
+- **Generators fell through.** In Lua, Painless and OTTL, a discriminator the engine cannot
+  render (a number 0, a fraction, one of 1e15 or more, OTTL's `""` for a null) made the test
+  false. The record then went to a later template with the same key set. Each generator now
+  stops the search there, as do KQL's refused templates and Elastic's metadata-named ones
+  (`c1_a_record_an_earlier_template_cannot_decide_is_claimed_by_no_later_one`).
+- **Sentinel.** `search`, `union *`, `table()` and unknown functions may read custom tables:
+  they keep every row. A function over a custom table only is merged into its caller.
+- **Values matched by meaning.** A CIDR value in Elastic KQL and SPL widens to `exists`. A
+  Splunk value written as a function (`CASE(Admin)`) needs only its field.
+- **Fields a SIEM parses from a text line** (Wazuh's decoders, Sentinel's columns) no longer
+  bound the line: only keyword tests do (`Predicate::on_text_line`).
+- **The Sentinel native proof** matches records by row number and checks every column.
+- **Wazuh `<rule>` attributes:** `maxsize` reads every field, `ignore` is stateful, an unknown
+  one widens.
+
+Still open:
+
+1. **Leftovers of the live design.** `connect --standard-table` and the shaping VRL (`syslog`,
+   `common_security_log`, `asim_*`, `windows`) were for `sluice up` sources. Archive them, or
    document how to shape records without Sluice.
+2. **Not verified against the real engine:** that Wazuh fires `maxsize` rules on large events
+   (read from rule 1003's description).
+3. **Values by meaning, remaining:** Elastic KQL numbers (`4.0` against a stored `4`).
 
-Refactors proposed, in order of value:
+The report now counts each rule once, not once per requirement, and a rule shows as a coverage
+gap only when none of its requirements sees data. The real-data runs gave the same numbers after
+all of these fixes (docs/testing-plan.md).
+
+Refactors done: `float_may_match` and `balanced` live once in `sluice_core::codegen`. The CLI's
+native proofs share their check and summary. `native/sentinel/dcr.rs` is split out.
+
+Refactors still proposed, in order of value:
 
 - one `Plan<'a>` in core instead of five copies;
-- `float_may_match`, `balanced`, case folding and `Any` alternatives shared from core;
-- the CLI's native proofs sharing `beyond_vector` and `leaf_values`;
+- case folding and `Any` alternatives shared from core;
 - one `RuleSets` argument struct (the rule flags are declared three times);
 - one `--native sentinel,elastic,fluent-bit,otel` flag;
 - a small `sluice-http` crate for the eight ureq clients, with one body limit and one error excerpt;
