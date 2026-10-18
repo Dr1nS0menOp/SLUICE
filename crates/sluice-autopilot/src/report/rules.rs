@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 use sluice_core::field::FieldPath;
 use sluice_core::ids::RuleId;
+use sluice_core::logsource::LogSource;
 use sluice_core::rules::{RequiredFields, RuleRequirements};
 
 use crate::analyze::Input;
@@ -105,17 +106,18 @@ fn set_rows(
 }
 
 fn judge(rule: &RuleRequirements) -> (RuleStatus, String) {
-    let id = rule.rule.as_str();
-    if [":unreadable:", ":unparsed:", ":unknown:"]
-        .iter()
-        .any(|marker| id.contains(marker))
-    {
+    let scope = text::logsource(&rule.logsource);
+    if rule.is_opaque() {
+        let place = if rule.logsource == LogSource::default() {
+            "everywhere".to_owned()
+        } else {
+            format!("on {scope}")
+        };
         return (
             RuleStatus::NotRead,
-            "could not be read; it blocks savings everywhere".to_owned(),
+            format!("could not be read; it blocks savings {place}"),
         );
     }
-    let scope = text::logsource(&rule.logsource);
     let fields = match &rule.fields {
         RequiredFields::Known(fields) => Some(fields),
         RequiredFields::Unknown => None,
@@ -218,6 +220,21 @@ mod tests {
     fn an_unreadable_rule_is_not_read() {
         let opaque = RuleRequirements::opaque(RuleId::new("sentinel:unreadable:x.yaml#1"));
         assert_eq!(judge(&opaque).0, RuleStatus::NotRead);
+        // Whatever its id says: a Splunk search with a macro Sluice has no definition of.
+        let (status, detail) = judge(&RuleRequirements::opaque(RuleId::new(
+            "splunk:Unknown Macro",
+        )));
+        assert_eq!(status, RuleStatus::NotRead);
+        assert!(detail.ends_with("everywhere"), "{detail}");
+        // An Elastic rule read per index pattern blocks savings on that pattern only.
+        let mut scoped = RuleRequirements::opaque(RuleId::new("elastic:r"));
+        scoped.logsource = LogSource {
+            product: Some("windows".into()),
+            ..LogSource::default()
+        };
+        let (status, detail) = judge(&scoped);
+        assert_eq!(status, RuleStatus::NotRead);
+        assert!(detail.contains("on product=windows"), "{detail}");
     }
 
     #[test]

@@ -229,8 +229,8 @@ impl ElasticRules {
                     "{rule}: {why}; it is treated as a rule that may read anything"
                 ));
                 for scope in scopes {
-                    let mut opaque =
-                        RuleRequirements::opaque(RuleId::new(format!("elastic:unknown:{id}")));
+                    // Under the rule's own id, so the report names it.
+                    let mut opaque = RuleRequirements::opaque(rule.clone());
                     opaque.logsource = scope;
                     self.requirements.push(opaque);
                 }

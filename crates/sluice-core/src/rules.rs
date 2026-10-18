@@ -86,6 +86,16 @@ impl RuleRequirements {
         }
     }
 
+    /// Whether this stands for a rule that could not be understood ([`RuleRequirements::opaque`]),
+    /// on whatever log source it was read for.
+    #[must_use]
+    pub fn is_opaque(&self) -> bool {
+        Self {
+            logsource: LogSource::default(),
+            ..self.clone()
+        } == Self::opaque(self.rule.clone())
+    }
+
     /// The same rule on a text line whose fields the SIEM parses itself: bounded by its keyword
     /// tests only ([`Predicate::on_text_line`]), and reading the line, which every field it
     /// tests comes from.
