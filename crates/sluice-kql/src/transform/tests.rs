@@ -266,6 +266,38 @@ fn a_record_that_could_fit_two_templates_is_left_alone() {
 }
 
 #[test]
+fn c1_a_record_an_earlier_template_cannot_decide_is_claimed_by_no_later_one() {
+    // `LogonGuid` is no text or whole-number column, so the transformation cannot tell this
+    // template's records from the later one's, which has the same columns.
+    let columns: &[&str] = &["EventID", "Computer", "EventData", "LogonGuid"];
+    let undecided = template("SecurityEvent:4624:a", &[("LogonGuid", "x")], &[columns]);
+    let later = template("SecurityEvent:4624:b", &[], &[columns]);
+    let recipe = removing(later.id.as_str(), &["EventData"], None);
+    assert_ne!(
+        of(&[(&later, &recipe)]).kql,
+        "source",
+        "on its own the later template removes EventData"
+    );
+    let unchanged = EffectiveRecipe::passthrough(undecided.id.clone());
+    let both = of(&[(&undecided, &unchanged), (&later, &recipe)]);
+    assert_eq!(both.kql, "source");
+    assert!(
+        both.left_out
+            .iter()
+            .any(|r| r.contains("not a text or whole-number column")),
+        "{:?}",
+        both.left_out
+    );
+    assert!(
+        both.left_out
+            .iter()
+            .any(|r| r.contains("cannot be told apart")),
+        "{:?}",
+        both.left_out
+    );
+}
+
+#[test]
 fn typed_columns_are_emptied_with_a_null_of_their_type() {
     let t = template(
         "SecurityEvent:4624:a",

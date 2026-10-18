@@ -171,10 +171,15 @@ pub fn transformation_on(
     }
     let types: BTreeMap<&str, &str> = columns.iter().copied().collect();
     let mut left_out = Vec::new();
+    let mut unrecognised = Vec::new();
     let recognised: Vec<(&TransformPlan<'_>, Recognition)> = plans
         .iter()
         .filter_map(|plan| {
-            recognition(plan.template, &types, &mut left_out).map(|recognition| (plan, recognition))
+            let found = recognition(plan.template, &types, &mut left_out);
+            if found.is_none() && matches!(plan.template.shape, TemplateShape::Keyset { .. }) {
+                unrecognised.push(plan.template);
+            }
+            found.map(|recognition| (plan, recognition))
         })
         .collect();
     // The signature covers the columns some template has; every other column must be empty.
@@ -221,12 +226,15 @@ pub fn transformation_on(
             group.keep_whole.extend(plan.recipe.keep_whole_when.clone());
         }
     }
-    let kept = separable(groups, &mut left_out);
     let rest: Vec<(&str, &str)> = columns
         .iter()
         .copied()
         .filter(|(name, _)| !used.contains(name))
         .collect();
+    for template in &unrecognised {
+        block(template, &signed, &rest, &mut groups);
+    }
+    let kept = separable(groups, &mut left_out);
     let mut transformation = render(&signed, &rest, stream, &kept, left_out);
     if transformation.kql.len() > MAX_TRANSFORM_KQL {
         transformation.left_out.push(format!(
@@ -239,6 +247,45 @@ pub fn transformation_on(
         transformation.columns.clear();
     }
     transformation
+}
+
+/// Puts a key-set template the transformation cannot recognise into every group its records
+/// could fall into, removing nothing there. Vector may give such a record to it, so no group
+/// may take it: where a group has its discriminator values, nothing is removed; where a group
+/// tests other fields, its records cannot be told apart from this template's. A record with a
+/// column outside the signature is in no group anyway.
+fn block(template: &Template, signed: &[(&str, &str)], rest: &[(&str, &str)], groups: &mut Groups) {
+    let TemplateShape::Keyset {
+        discriminators,
+        variants,
+        ..
+    } = &template.shape
+    else {
+        return;
+    };
+    let values: BTreeMap<String, String> = discriminators
+        .iter()
+        .map(|(field, value)| (field.as_str().to_owned(), value.clone()))
+        .collect();
+    for variant in variants {
+        // A field below a column (`EventData.X`) makes that column hold something.
+        let present: BTreeSet<&str> = variant.iter().filter_map(|p| p.segments().next()).collect();
+        if rest.iter().any(|(name, _)| present.contains(name)) {
+            continue;
+        }
+        let signature: String = signed
+            .iter()
+            .map(|(name, _)| if present.contains(name) { '1' } else { '0' })
+            .collect();
+        let group = groups
+            .entry(signature)
+            .or_default()
+            .entry(values.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .or_default();
+        group.discriminators.clone_from(&values);
+        group.templates.insert(template.id.clone());
+        group.removes = Some(BTreeSet::new());
+    }
 }
 
 /// The groups a record can be placed in without doubt that remove something. Under one
