@@ -7,7 +7,9 @@
 //!   body is, level by level, a map of exactly the key set's keys (OTTL reads a null and a
 //!   missing key alike, so each map is copied with the expected keys deleted, and none may be
 //!   left), and its discriminators render to the recorded values. The first statements set the template's
-//!   number in `log.cache`, in template id order, each only while none is set.
+//!   number in `log.cache`, in template id order, each only while none is set. Where a record has
+//!   a template's key set and a discriminator VRL may render from a value OTTL does not compare
+//!   (a fraction, a null), `-1` is set: no later template takes it, and nothing is removed.
 //! - **Keeping whole is a superset, and the default.** `keep_whole_when` compiles with
 //!   [`crate::compile`]; each distinct alternative is set in `log.cache` to hold, and then not
 //!   to where its condition is false. A statement that fails is skipped (`error_mode: ignore`),
@@ -85,6 +87,7 @@ pub fn transform(plans: &[TransformPlan<'_>]) -> Statements {
     let mut keeps = Keeps::default();
     let mut decide = Vec::new();
     let mut remove = Vec::new();
+    let mut branches = 0usize;
     for (n, (plan, condition, removal)) in recognised.iter().enumerate() {
         let claims = removal.is_some()
             || recognised[n + 1..]
@@ -93,12 +96,20 @@ pub fn transform(plans: &[TransformPlan<'_>]) -> Statements {
         if !claims {
             continue;
         }
-        let branch = classify.len();
+        let branch = branches;
+        branches += 1;
         prepare.extend(condition.prepare.iter().cloned());
         classify.push(format!(
             "set({TEMPLATE}, {branch}) where {TEMPLATE} == nil and {}",
             condition.condition
         ));
+        // A record Vector may give this template but OTTL cannot tell: no later template takes
+        // it, and nothing is removed.
+        if let Some(stop) = &condition.stop {
+            classify.push(format!(
+                "set({TEMPLATE}, -1) where {TEMPLATE} == nil and {stop}"
+            ));
+        }
         let Some(removal) = removal else { continue };
         let keep = plan.recipe.keep_whole_when.as_ref().map(|k| keeps.call(k));
         decide.push(match keep {
@@ -287,6 +298,9 @@ struct Recognition {
     /// removed, so the condition can see whether any other key is there.
     prepare: Vec<String>,
     condition: String,
+    /// The condition that stops the search where a record may be the template's but OTTL
+    /// cannot tell: a discriminator VRL may render from a value OTTL does not compare.
+    stop: Option<String>,
 }
 
 impl Node {
@@ -367,35 +381,64 @@ fn recognition(
             format!("({condition})")
         })
         .collect();
-    let mut parts = vec![if key_sets.len() == 1 {
+    let key_set = if key_sets.len() == 1 {
         key_sets.concat()
     } else {
         format!("({})", key_sets.join(" or "))
-    }];
-    parts.extend(
-        discriminators
-            .iter()
-            .map(|(field, value)| discriminator(&ottl::path(ROOT, field), value)),
-    );
+    };
+    let mut claim = vec![key_set.clone()];
+    let mut stop = vec![key_set];
+    let mut undecided = false;
+    for (field, value) in discriminators {
+        let at = ottl::path(ROOT, field);
+        let exact = discriminator(&at, value);
+        match undecidable(&at, value) {
+            Some(maybe) => {
+                undecided = true;
+                stop.push(format!("({exact} or {maybe})"));
+            }
+            None => stop.push(exact.clone()),
+        }
+        claim.push(exact);
+    }
     Some(Recognition {
         prepare,
-        condition: parts.join(" and "),
+        condition: claim.join(" and "),
+        stop: undecided.then(|| stop.join(" and ")),
     })
 }
-/// That the value at `at` renders as VRL renders `value`: the string itself, or the number or
-/// boolean it spells. A number written otherwise (`1.5`) only matches as a string, so such a
-/// record is not recognised.
+
+/// That the value at `at` renders as VRL renders `value`: the string itself, or the whole number
+/// or boolean it spells. A number written otherwise (`1.5`, `0`, whose `-0` VRL renders apart)
+/// only matches as a string, so such a record is not recognised.
 fn discriminator(at: &str, value: &str) -> String {
     let literal = ottl::string(value);
-    let integer = value.strip_prefix('-').unwrap_or(value);
-    let whole = !integer.is_empty()
-        && integer.len() < 16
-        && integer.chars().all(|c| c.is_ascii_digit())
-        && (integer == "0" || !integer.starts_with('0'));
-    if whole || value == "true" || value == "false" {
+    if whole(value) || value == "true" || value == "false" {
         format!("({at} == {literal} or {at} == {value})")
     } else {
         format!("{at} == {literal}")
+    }
+}
+
+/// Whether `value` spells a whole number OTTL compares exactly as VRL renders it: no zero,
+/// leading zero or more than 15 digits.
+fn whole(value: &str) -> bool {
+    let integer = value.strip_prefix('-').unwrap_or(value);
+    !integer.is_empty()
+        && integer.len() < 16
+        && integer.chars().all(|c| c.is_ascii_digit())
+        && !integer.starts_with('0')
+}
+
+/// What else VRL may render as `value` that [`discriminator`] does not take: a null, list or
+/// map for `""`, any number for a number that is not [`whole`].
+fn undecidable(at: &str, value: &str) -> Option<String> {
+    if value.is_empty() {
+        Some(format!("({at} == nil or IsList({at}) or IsMap({at}))"))
+    } else if !whole(value) && value.parse::<f64>().is_ok() {
+        Some(format!("(IsInt({at}) or IsDouble({at}))"))
+    } else {
+        None
     }
 }
 

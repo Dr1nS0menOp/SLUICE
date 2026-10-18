@@ -207,6 +207,49 @@ fn discriminators_match_the_text_or_the_value_it_spells() {
     assert_eq!(discriminator("x", "true"), r#"(x == "true" or x == true)"#);
     assert_eq!(discriminator("x", "012"), r#"x == "012""#);
     assert_eq!(discriminator("x", "1.5"), r#"x == "1.5""#);
+    // `== 0` would also take `-0.0`, which VRL renders as `-0`.
+    assert_eq!(discriminator("x", "0"), r#"x == "0""#);
+}
+
+/// A template whose discriminator is a number OTTL does not compare (`0.5`), and a later one of
+/// the same key set that removes `Status`.
+fn undecided_then_later() -> [(Template, EffectiveRecipe); 2] {
+    let undecided = template(
+        "windows:0:b",
+        &[("EventID", "0.5")],
+        &[&["EventID", "Status"]],
+    );
+    let later = template("windows:0:c", &[], &[&["EventID", "Status"]]);
+    let unchanged = EffectiveRecipe::passthrough(undecided.id.clone());
+    let recipe = removing(later.id.as_str(), &["Status"], None);
+    [(undecided, unchanged), (later, recipe)]
+}
+
+#[test]
+fn c1_a_record_an_earlier_template_cannot_decide_is_claimed_by_no_later_one() {
+    let [(undecided, unchanged), (later, recipe)] = undecided_then_later();
+    let out = of(&[(&undecided, &unchanged), (&later, &recipe)]);
+    let position = |prefix: &str| {
+        out.statements
+            .iter()
+            .position(|s| s.starts_with(prefix))
+            .unwrap_or_else(|| panic!("{prefix}: {:#?}", out.statements))
+    };
+    let claim = position(r#"set(log.cache["sluice_t"], 0)"#);
+    let stop = position(r#"set(log.cache["sluice_t"], -1) where log.cache["sluice_t"] == nil and"#);
+    let taken = position(r#"set(log.cache["sluice_t"], 1)"#);
+    assert!(claim < stop && stop < taken, "{:#?}", out.statements);
+    assert!(
+        out.statements[stop].ends_with(
+            r#"(log.body["EventID"] == "0.5" or (IsInt(log.body["EventID"]) or IsDouble(log.body["EventID"])))"#
+        ),
+        "{}",
+        out.statements[stop]
+    );
+    // Values OTTL compares as VRL renders them need no stop.
+    let t = logon();
+    let plain = of(&[(&t, &removing(t.id.as_str(), &["Message"], None))]);
+    assert!(!plain.statements.iter().any(|s| s.contains(", -1)")));
 }
 
 fn event(fields: &Value) -> Event {
@@ -381,6 +424,53 @@ fn c1_in_the_collector_records_lose_exactly_what_they_lose_in_vector() {
                 same(was, &value),
                 "{path} changed from {was} to {value}: {shown}"
             );
+        }
+    }
+}
+
+/// In a real collector: a record whose discriminator OTTL does not compare as VRL renders it
+/// stays whole, never handed to a later template of the same key set. OTTL cannot render a
+/// number, so the stop takes any number there.
+#[test]
+fn c1_in_the_collector_a_record_an_earlier_template_cannot_decide_stays_whole() {
+    let Ok(command) = std::env::var(ENV) else {
+        return;
+    };
+    let [(undecided, unchanged), (later, recipe)] = undecided_then_later();
+    let plans = [(&undecided, &unchanged), (&later, &recipe)];
+    // `true`: kept whole, where Vector removes `Status`.
+    let cases = [
+        (event(&json!({"EventID": 0.5, "Status": "ok"})), false),
+        (event(&json!({"EventID": 0.25, "Status": "ok"})), true),
+        (event(&json!({"EventID": 7, "Status": "ok"})), true),
+        (event(&json!({"EventID": "7", "Status": "ok"})), false),
+    ];
+    let events: Vec<Event> = cases.iter().map(|(e, _)| e.clone()).collect();
+    let expected = vrl(&plans, &events);
+    let out = of(&plans);
+    let records: Vec<&Map<String, Value>> = events.iter().map(|e| &e.fields).collect();
+    let collector = Collector::new(command);
+    let baseline = collector.run(None, &records).expect("the collector runs");
+    let actual = collector
+        .run(Some(&out.statements), &records)
+        .unwrap_or_else(|e| panic!("{e}\n{:#?}", out.statements));
+    for (((event, widened), vector), (before, after)) in cases
+        .iter()
+        .zip(&expected)
+        .zip(baseline.iter().zip(&actual))
+    {
+        let shown = Value::Object(event.fields.clone());
+        let lost_in_vector: BTreeSet<String> = leaves(&event.fields)
+            .difference(&leaves(vector))
+            .cloned()
+            .collect();
+        let lost_here: BTreeSet<String> =
+            leaves(before).difference(&leaves(after)).cloned().collect();
+        if *widened {
+            assert_eq!(after, before, "kept whole: {shown}");
+            assert!(!lost_in_vector.is_empty(), "Vector removes: {shown}");
+        } else {
+            assert_eq!(lost_here, lost_in_vector, "event {shown}");
         }
     }
 }
