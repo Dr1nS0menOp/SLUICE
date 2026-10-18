@@ -301,6 +301,26 @@ fn sluice_fails(args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
+#[test]
+fn a_flag_without_what_it_is_for_is_refused() {
+    let analyze = ["analyze", "--input", "in", "--sources", "sources.yaml"];
+    for (extra, wanted) in [
+        (&["--fluent-bit", "fluent-bit"][..], "--fluent-bit-native"),
+        (&["--otel-collector", "otelcol"][..], "--otel-native"),
+        (&["--wazuh-insecure"][..], "--wazuh-api"),
+        (
+            &["--elasticsearch", "http://127.0.0.1:9"][..],
+            "--elastic-rules",
+        ),
+    ] {
+        let args: Vec<&str> = analyze.iter().chain(extra).copied().collect();
+        let error = sluice_fails(&args);
+        assert!(error.contains(wanted), "{args:?}: {error}");
+    }
+    let error = sluice_fails(&["demo", "--elasticsearch", "http://127.0.0.1:9"]);
+    assert!(error.contains("--elastic-native"), "{error}");
+}
+
 fn scratch(name: &str) -> std::path::PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
     let _ = std::fs::remove_dir_all(&dir);

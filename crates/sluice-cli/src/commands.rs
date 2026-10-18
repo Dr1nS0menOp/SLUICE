@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use sluice_autopilot::{
     Elastic, Helpers, Input, RecipeBook, Report, RulesBasis, SavingsPlan, Sentinel, Settings,
     analyze as run_autopilot, render_html,
@@ -80,6 +80,12 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
 }
 
 pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
+    if args.elasticsearch.is_some() && args.sets.elastic_rules.is_none() && !args.elastic_native {
+        bail!(
+            "--elasticsearch runs --elastic-rules in the proof or proves --elastic-native \
+             pipelines: give one of them"
+        );
+    }
     let sources = input::sources(&args.sources)?;
     let events = input::events(&args.input, &sources)?;
     let input::Loaded {

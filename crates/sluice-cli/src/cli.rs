@@ -257,19 +257,19 @@ pub(crate) struct DemoArgs {
     #[arg(long, default_value_t = 1)]
     pub(crate) seed: u64,
     /// An Elasticsearch, for `--elastic-native`.
-    #[arg(long, value_name = "URL")]
+    #[arg(long, value_name = "URL", requires = "elastic_native")]
     pub(crate) elasticsearch: Option<String>,
     /// Also prove and write Elasticsearch ingest pipelines, as `sluice analyze --elastic-native`.
     #[arg(long, requires = "elasticsearch")]
     pub(crate) elastic_native: bool,
     /// A command that runs Fluent Bit, for `--fluent-bit-native`.
-    #[arg(long, value_name = "CMD")]
+    #[arg(long, value_name = "CMD", requires = "fluent_bit_native")]
     pub(crate) fluent_bit: Option<PathBuf>,
     /// Also prove and write Fluent Bit Lua filters, as `sluice analyze --fluent-bit-native`.
     #[arg(long, requires = "fluent_bit")]
     pub(crate) fluent_bit_native: bool,
     /// A command that runs the OpenTelemetry Collector (contrib), for `--otel-native`.
-    #[arg(long, value_name = "CMD")]
+    #[arg(long, value_name = "CMD", requires = "otel_native")]
     pub(crate) otel_collector: Option<PathBuf>,
     /// Also prove and write OpenTelemetry Collector transform statements, as `sluice analyze
     /// --otel-native`.
@@ -327,7 +327,7 @@ pub(crate) struct AnalyzeArgs {
     pub(crate) elastic_native: bool,
     /// A command that runs Fluent Bit: the `fluent-bit` binary, or a wrapper that runs it in a
     /// container (`scripts/fluentbit-check.sh` writes one). It takes Fluent Bit's own arguments.
-    #[arg(long, value_name = "CMD")]
+    #[arg(long, value_name = "CMD", requires = "fluent_bit_native")]
     pub(crate) fluent_bit: Option<PathBuf>,
     /// Also write, per source, a Fluent Bit Lua filter (`fluent-bit/SOURCE.lua`) that makes the
     /// plan's field removals in the agent, after proving it in `--fluent-bit` (ADR 0027): it
@@ -338,7 +338,7 @@ pub(crate) struct AnalyzeArgs {
     /// A command that runs the OpenTelemetry Collector with the `filelog` receiver, `transform`
     /// processor and `file` exporter (the contrib distribution, or a wrapper that runs it in a
     /// container: `scripts/otel-check.sh` writes one). It takes the collector's own arguments.
-    #[arg(long, value_name = "CMD")]
+    #[arg(long, value_name = "CMD", requires = "otel_native")]
     pub(crate) otel_collector: Option<PathBuf>,
     /// Also write `otel/processors.yaml`: per source, a `transform` processor whose OTTL
     /// statements make the plan's field removals in the collector, after proving them in
@@ -352,10 +352,10 @@ pub(crate) struct AnalyzeArgs {
     #[arg(long, requires = "wazuh_user")]
     pub(crate) wazuh_api: Option<String>,
     /// Wazuh API user (needs the `logtest:run` permission).
-    #[arg(long)]
+    #[arg(long, requires = "wazuh_api")]
     pub(crate) wazuh_user: Option<String>,
     /// Accept the Wazuh API's self-signed certificate. Only on a trusted network path.
-    #[arg(long)]
+    #[arg(long, requires = "wazuh_api")]
     pub(crate) wazuh_insecure: bool,
     /// Directory of extra recipes, used next to the built-in ones.
     #[arg(long)]
