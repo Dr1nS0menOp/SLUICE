@@ -14,23 +14,25 @@ const TIMEOUT: Duration = Duration::from_secs(300);
 /// Largest answer read.
 const MAX_ANSWER: u64 = 512 * 1024 * 1024;
 
-/// Elasticsearch could not be used, or the pipeline failed on a document.
+/// Elasticsearch or Kibana could not be used, or the pipeline failed on a document.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ElasticError {
-    /// No answer from Elasticsearch.
-    #[error("Elasticsearch at {url} unreachable: {reason}")]
+    /// No answer.
+    #[error("cannot reach {url}: {reason}")]
     Unreachable {
         /// The base URL.
         url: String,
         /// The transport error.
         reason: String,
     },
-    /// Elasticsearch refused the request, for example a script that does not compile.
-    #[error("Elasticsearch refused the pipeline ({status}): {message}")]
+    /// The request was refused: a script that does not compile, a key without the privilege.
+    #[error("{url} answered HTTP {status}: {}", excerpt(.message))]
     Rejected {
+        /// The base URL.
+        url: String,
         /// HTTP status.
         status: u16,
-        /// Elasticsearch's error text.
+        /// The whole answer.
         message: String,
     },
     /// The pipeline failed on a document.
@@ -41,9 +43,26 @@ pub enum ElasticError {
         /// Elasticsearch's error.
         message: String,
     },
-    /// Elasticsearch answered something that is not a simulation result.
-    #[error("unexpected answer from Elasticsearch: {0}")]
+    /// An answer that is not what was asked for.
+    #[error("unexpected answer: {0}")]
     Response(String),
+}
+
+/// What an error answer says, short enough for a message: Elasticsearch's or Kibana's reason
+/// when the answer gives one, otherwise its first 300 characters.
+fn excerpt(answer: &str) -> String {
+    let reason = serde_json::from_str::<Value>(answer).ok().and_then(|v| {
+        v["error"]["reason"]
+            .as_str()
+            .or_else(|| v["message"].as_str())
+            .map(str::to_owned)
+    });
+    let text = reason.unwrap_or_else(|| answer.to_owned());
+    let mut short: String = text.chars().take(300).collect();
+    if short.len() < text.len() {
+        short.push('…');
+    }
+    short
 }
 
 /// Each document as `pipeline` (a `PUT _ingest/pipeline` body) leaves it, in order. The pipeline
@@ -120,9 +139,40 @@ fn post(agent: &ureq::Agent, url: &str, body: &str) -> Result<Value, ElasticErro
         .map_err(|e| unreachable(e.to_string()))?;
     if !status.is_success() {
         return Err(ElasticError::Rejected {
+            url: url.to_owned(),
             status: status.as_u16(),
             message: text,
         });
     }
     serde_json::from_str(&text).map_err(|e| ElasticError::Response(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_refusal_names_where_and_says_why_in_short() {
+        let kibana = ElasticError::Rejected {
+            url: "https://kibana:5601".into(),
+            status: 401,
+            message: r#"{"statusCode":401,"error":"Unauthorized","message":"bad key"}"#.into(),
+        };
+        assert_eq!(
+            kibana.to_string(),
+            "https://kibana:5601 answered HTTP 401: bad key"
+        );
+        let elastic = ElasticError::Rejected {
+            url: "http://es:9200".into(),
+            status: 400,
+            message: r#"{"error":{"type":"script_exception","reason":"compile error"}}"#.into(),
+        };
+        assert!(elastic.to_string().ends_with(": compile error"));
+        let long = ElasticError::Rejected {
+            url: "http://es:9200".into(),
+            status: 502,
+            message: "x".repeat(10_000),
+        };
+        assert!(long.to_string().len() < 400, "{long}");
+    }
 }

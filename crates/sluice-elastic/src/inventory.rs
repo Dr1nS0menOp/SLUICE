@@ -74,6 +74,7 @@ pub fn fetch(
             .map_err(|e| ElasticError::Response(e.to_string()))?;
         if !status.is_success() {
             return Err(ElasticError::Rejected {
+                url: base.to_owned(),
                 status: status.as_u16(),
                 message: text,
             });
@@ -103,6 +104,7 @@ fn collect(
             .as_u64()
             .and_then(|t| usize::try_from(t).ok());
         read += data.len();
+        let known = by_id.len();
         for rule in data {
             let id = rule["rule_id"]
                 .as_str()
@@ -110,7 +112,9 @@ fn collect(
                 .map_or_else(|| format!("#{}", by_id.len()), str::to_owned);
             by_id.insert(id, rule.clone());
         }
-        if data.is_empty() || total.is_some_and(|t| read >= t) {
+        // A page of rules already read also ends it: a Kibana that ignores `page` and gives no
+        // total would otherwise be asked forever. The count then decides completeness.
+        if data.is_empty() || by_id.len() == known || total.is_some_and(|t| read >= t) {
             break;
         }
     }
@@ -213,6 +217,17 @@ mod tests {
         let inventory = collect(|n| Ok(pages[n - 1].clone()), "http://k", "t").unwrap();
         assert_eq!(inventory.manifest.counts["rules"], 2);
         assert!(!inventory.manifest.complete);
+    }
+
+    #[test]
+    fn a_kibana_that_ignores_the_page_and_gives_no_total_ends_the_fetch() {
+        let answer = json!({"data": [{"rule_id": "a", "type": "query", "query": "a : b"}]});
+        let inventory = collect(|_| Ok(answer.clone()), "http://k", "t").unwrap();
+        assert_eq!(inventory.manifest.counts["rules"], 1);
+        assert!(
+            !inventory.manifest.complete,
+            "no total to check the count against"
+        );
     }
 
     #[test]

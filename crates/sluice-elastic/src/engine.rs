@@ -497,6 +497,7 @@ impl Client {
             .map_err(|e| unreachable(e.to_string()))?;
         if !status.is_success() {
             return Err(ElasticError::Rejected {
+                url: self.url.clone(),
                 status: status.as_u16(),
                 message: text,
             });
