@@ -752,6 +752,8 @@ Fixed on 2026-10-18, each with a test named after the contract rule:
 - **The Sentinel native proof** matches records by row number and checks every column.
 - **Wazuh `<rule>` attributes:** `maxsize` reads every field, `ignore` is stateful, an unknown
   one widens.
+- **Sigma pipeline copies** stand in for their rule only on templates their log source can
+  apply to.
 
 Still open:
 
@@ -768,12 +770,15 @@ The report now counts each rule once, not once per requirement, and a rule shows
 gap only when none of its requirements sees data. The real-data runs gave the same numbers after
 all of these fixes (docs/testing-plan.md).
 
-Refactors done: `float_may_match` and `balanced` live once in `sluice_core::codegen`. The CLI's
-native proofs share their check and summary. `native/sentinel/dcr.rs` is split out.
+Refactors done:
+
+- `float_may_match` and `balanced` live once in `sluice_core::codegen`.
+- One `sluice_core::guard::Plan` replaces five plan structs.
+- The CLI's native proofs share their check and summary.
+- `native/sentinel/dcr.rs` is split out.
 
 Refactors still proposed, in order of value:
 
-- one `Plan<'a>` in core instead of five copies;
 - case folding and `Any` alternatives shared from core;
 - one `RuleSets` argument struct (the rule flags are declared three times);
 - one `--native sentinel,elastic,fluent-bit,otel` flag;

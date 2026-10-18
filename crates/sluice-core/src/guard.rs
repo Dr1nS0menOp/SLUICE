@@ -62,7 +62,8 @@ pub fn guard(
     // A rule whose field names cannot be compared with the template's is read as widely as can
     // be (ADR 0018): its pre-filter and field list say nothing about records named otherwise.
     // Widened rules protect identically, so the first one stands for all of them. A rule that
-    // also comes mapped onto the template's convention (ADR 0020) is covered by that copy.
+    // also comes mapped onto the template's convention (ADR 0020) is covered by that copy, if
+    // the copy can see the template at all: a pipeline may change the log source.
     let mapped: BTreeSet<&RuleId> = ctx
         .rules
         .iter()
@@ -71,6 +72,7 @@ pub fn guard(
                 && rule
                     .field_names
                     .is_some_and(|n| template.schema.can_read(n))
+                && rule.logsource.may_apply_to(&template.logsource)
         })
         .map(|rule| &rule.rule)
         .collect();

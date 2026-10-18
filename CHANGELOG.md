@@ -79,6 +79,9 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
   now needs only its field.
 - **Elastic KQL numbers.** `a : 4.0` required the text `0`, which a stored `4` lacks. A number
   now tests its significant digits, as Elasticsearch compares numeric fields by value.
+- **Sigma pipelines.** A rule's copy mapped onto the records' naming convention stood in for the
+  rule even where the copy's log source could not apply (after `change_logsource`), so the rule
+  protected nothing there. The copy now counts only where it can apply.
 - **The Sentinel proof** matched transformed records with the sample's events by position, which
   a data flow's own `where` shifts. Records are now matched by row number. Every column a record
   loses is checked, and dropped or added events are refused.

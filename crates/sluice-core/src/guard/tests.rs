@@ -495,6 +495,25 @@ fn c3_a_rule_mapped_onto_the_records_convention_is_used_instead_of_widened() {
 }
 
 #[test]
+fn c3_a_mapped_copy_that_cannot_see_the_template_does_not_stand_in_for_the_rule() {
+    // A pipeline that changes the log source (`change_logsource`) moves the mapped copy away
+    // from these records, while the rule in Sigma's names may still see them: it is widened.
+    let mut mapped = rule("image", &["process.name"], eq("process.name", "x"));
+    mapped.field_names = Some(Schema::Ecs);
+    mapped.logsource = LogSource {
+        product: Some("linux".into()),
+        ..LogSource::default()
+    };
+    let proposal = recipe(vec![drop(&["Message"])]);
+    let effective = guard(
+        &ecs_template(),
+        Some(&proposal),
+        ctx(&[image_rule(), mapped]),
+    );
+    assert!(effective.drop_fields.is_empty(), "{effective:?}");
+}
+
+#[test]
 fn c3_many_rules_in_another_convention_give_one_reason() {
     let rules: Vec<RuleRequirements> = (0..500)
         .map(|n| rule(&format!("r{n}"), &["Image"], eq("Image", "x")))
