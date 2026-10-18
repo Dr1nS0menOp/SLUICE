@@ -760,7 +760,9 @@ Still open:
    document how to shape records without Sluice.
 2. **Not verified against the real engine:** that Wazuh fires `maxsize` rules on large events
    (read from rule 1003's description).
-3. **Values by meaning, remaining:** Elastic KQL numbers (`4.0` against a stored `4`).
+3. **The ECS real-data runs** (`to-ecs.sh`, with Elastic's prebuilt rules in Elasticsearch)
+   were not repeated after the KQL number fix. Elastic KQL numbers now test their significant
+   digits, which may save a little less there.
 
 The report now counts each rule once, not once per requirement, and a rule shows as a coverage
 gap only when none of its requirements sees data. The real-data runs gave the same numbers after

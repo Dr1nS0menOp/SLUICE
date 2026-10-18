@@ -584,7 +584,7 @@ fn matches(field: &FieldPath, value: &str) -> Predicate {
     if crate::is_cidr(value) {
         return test(MatchOp::Exists, Vec::new());
     }
-    if let Some(digits) = number(value) {
+    if let Some(digits) = crate::significant_digits(value) {
         // A number written with an exponent (`4.624e3`) holds no such digits.
         return test(MatchOp::Contains, vec![digits, "e".to_owned()]);
     }
@@ -600,33 +600,6 @@ fn matches(field: &FieldPath, value: &str) -> Predicate {
         return test(MatchOp::Exists, Vec::new());
     }
     Predicate::all(parts)
-}
-
-/// The significant digits of a value that is a number: without sign, leading zeros and
-/// trailing fractional zeros. `None` for anything else.
-fn number(value: &str) -> Option<String> {
-    let unsigned = value.trim_start_matches(['+', '-']);
-    if unsigned.is_empty()
-        || unsigned == "."
-        || unsigned.matches('.').count() > 1
-        || !unsigned.chars().all(|c| c.is_ascii_digit() || c == '.')
-    {
-        return None;
-    }
-    let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
-    let whole = whole.trim_start_matches('0');
-    let fraction = fraction.trim_end_matches('0');
-    let digits = if fraction.is_empty() {
-        whole.to_owned()
-    } else {
-        format!("{whole}.{fraction}")
-    };
-    // Zero: every way to write it holds a `0`.
-    Some(if digits.is_empty() {
-        "0".to_owned()
-    } else {
-        digits
-    })
 }
 
 #[cfg(test)]

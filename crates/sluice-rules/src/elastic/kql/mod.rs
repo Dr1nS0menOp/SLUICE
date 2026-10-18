@@ -428,6 +428,23 @@ fn value(field: Option<&FieldPath>, value: &Literal) -> Predicate {
     if crate::is_cidr(&value.text) {
         return field.map_or(Predicate::Always, |f| exists(f.clone()));
     }
+    // A number matches a numeric field by value (`4.0` finds a stored `4`): its significant
+    // digits are in every way to write it but one with an exponent.
+    if let Some(digits) = crate::significant_digits(&value.text) {
+        let values = vec![digits, "e".to_owned()];
+        return match field {
+            Some(field) => Predicate::Field(FieldTest {
+                field: field.clone(),
+                op: MatchOp::Contains,
+                values,
+                case_sensitive: false,
+            }),
+            None => Predicate::Keywords(KeywordTest {
+                values,
+                case_sensitive: false,
+            }),
+        };
+    }
     // A word holds all of its alphanumeric runs: the analyzer keeps `cmd.exe` one token, and a
     // keyword is the whole value.
     let word = |word: &str| -> Option<Predicate> {

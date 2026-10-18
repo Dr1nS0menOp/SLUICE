@@ -77,6 +77,8 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
   an event under the size. `ignore` is stateful. An unknown attribute widens the rule.
 - **Splunk.** A value written as a function (`user=CASE(Admin)`) was read as the word `case`. It
   now needs only its field.
+- **Elastic KQL numbers.** `a : 4.0` required the text `0`, which a stored `4` lacks. A number
+  now tests its significant digits, as Elasticsearch compares numeric fields by value.
 - **The Sentinel proof** matched transformed records with the sample's events by position, which
   a data flow's own `where` shifts. Records are now matched by row number. Every column a record
   loses is checked, and dropped or added events are refused.

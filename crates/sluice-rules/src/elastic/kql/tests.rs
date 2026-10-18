@@ -13,6 +13,16 @@ fn fields(reads: &Reads) -> Vec<&str> {
     reads.fields.iter().map(FieldPath::as_str).collect()
 }
 
+/// The test a number makes: its significant digits, or an exponent, contained.
+fn number(field: &str, digits: &str) -> Predicate {
+    Predicate::Field(FieldTest {
+        field: field.into(),
+        op: MatchOp::Contains,
+        values: vec![digits.into(), "e".into()],
+        case_sensitive: false,
+    })
+}
+
 #[test]
 fn a_field_value_is_a_test_that_its_tokens_are_contained() {
     let reads = read(r#"event.code : "4624" and winlog.logon.type : Network"#).unwrap();
@@ -21,10 +31,17 @@ fn a_field_value_is_a_test_that_its_tokens_are_contained() {
     assert_eq!(
         reads.prefilter,
         Predicate::all([
-            contains("event.code", "4624"),
+            number("event.code", "4624"),
             contains("winlog.logon.type", "network")
         ])
     );
+}
+
+#[test]
+fn c3_a_number_matches_every_way_to_write_it() {
+    // A numeric field holds `4` for `4.0`, and `4624` for `04624`.
+    assert_eq!(read("a : 4.0").unwrap().prefilter, number("a", "4"));
+    assert_eq!(read("a : 04624").unwrap().prefilter, number("a", "4624"));
 }
 
 #[test]

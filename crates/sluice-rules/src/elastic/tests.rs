@@ -216,10 +216,11 @@ fn c3_a_prefilter_matches_the_rules_events() {
     let Predicate::All(parts) = &rule(&rules, "r-kql").prefilter else {
         panic!("a conjunction");
     };
+    // A number: its digits, or an exponent.
     assert!(parts.contains(&Predicate::Field(FieldTest {
         field: "event.code".into(),
         op: MatchOp::Contains,
-        values: vec!["4624".into()],
+        values: vec!["4624".into(), "e".into()],
         case_sensitive: false,
     })));
 }
