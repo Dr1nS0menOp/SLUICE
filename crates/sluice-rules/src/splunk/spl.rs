@@ -460,6 +460,16 @@ impl Parser<'_> {
                 Some(Token::Op(op)) if !quoted => {
                     self.at += 1;
                     let value = self.value()?;
+                    // A value written as a function (`CASE(Admin)`, `TERM(10.0.0.1)`) is matched
+                    // as the function says, not as its name: only that the field has a value is
+                    // known, and only for `=`.
+                    if self.tokens.get(self.at) == Some(&Token::Open) {
+                        self.group()?;
+                        return Ok(match (op, self.field(&text)) {
+                            ("=", Some(field)) => Predicate::present(field),
+                            _ => Predicate::Always,
+                        });
+                    }
                     Ok(self.comparison(&text, op, &value))
                 }
                 Some(Token::Word {
@@ -479,6 +489,22 @@ impl Parser<'_> {
                 }
             },
             other => Err(format!("unexpected {other:?}")),
+        }
+    }
+
+    /// Skips a parenthesised group, nested ones included: a function's arguments.
+    fn group(&mut self) -> Result<(), String> {
+        let mut depth = 0usize;
+        loop {
+            let token = self.tokens.get(self.at).cloned();
+            self.at += 1;
+            match token {
+                Some(Token::Open) => depth += 1,
+                Some(Token::Close) if depth <= 1 => return Ok(()),
+                Some(Token::Close) => depth -= 1,
+                None => return Err("an unclosed `(`".to_owned()),
+                Some(_) => {}
+            }
         }
     }
 

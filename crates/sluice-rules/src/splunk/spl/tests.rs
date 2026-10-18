@@ -30,6 +30,21 @@ fn field_terms_become_tests_ignoring_case() {
 }
 
 #[test]
+fn c3_a_value_written_as_a_function_needs_only_its_field() {
+    // `CASE(Admin)` matches `Admin` with its case, not the word `case`.
+    let reads = read("user=CASE(Admin) action=success");
+    assert_eq!(
+        reads.prefilter,
+        Predicate::all([
+            Predicate::present(FieldPath::new("user")),
+            test("action", MatchOp::Equals, &["success"]),
+        ])
+    );
+    assert_eq!(fields(&reads), ["action", "user"]);
+    assert_eq!(read("user!=TERM(x)").prefilter, Predicate::Always);
+}
+
+#[test]
 fn or_in_and_parentheses_keep_their_structure() {
     let reads = read("(a=1 OR b IN (x, \"y z\")) AND c=*");
     assert_eq!(
