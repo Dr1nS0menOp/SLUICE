@@ -87,11 +87,7 @@ pub fn simulate(
         }
     }
     let url = url.trim_end_matches('/');
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .http_status_as_error(false)
-        .timeout_global(Some(TIMEOUT))
-        .build()
-        .into();
+    let client = sluice_http::Client::with(TIMEOUT, false, MAX_ANSWER);
     let mut out = Vec::with_capacity(documents.len());
     for (batch, chunk) in documents.chunks(BATCH).enumerate() {
         let docs: Vec<Value> = chunk
@@ -99,7 +95,7 @@ pub fn simulate(
             .map(|d| json!({ "_index": "sluice", "_source": d }))
             .collect();
         let body = json!({ "pipeline": strict, "docs": docs }).to_string();
-        let answer = post(&agent, url, &body)?;
+        let answer = post(&client, url, &body)?;
         let results = answer["docs"]
             .as_array()
             .filter(|r| r.len() == chunk.len())
@@ -120,31 +116,26 @@ pub fn simulate(
     Ok(out)
 }
 
-fn post(agent: &ureq::Agent, url: &str, body: &str) -> Result<Value, ElasticError> {
-    let unreachable = |reason: String| ElasticError::Unreachable {
-        url: url.to_owned(),
-        reason,
-    };
-    let mut answer = agent
-        .post(format!("{url}/_ingest/pipeline/_simulate"))
-        .header("content-type", "application/json")
-        .send(body)
-        .map_err(|e| unreachable(e.to_string()))?;
-    let status = answer.status();
-    let text = answer
-        .body_mut()
-        .with_config()
-        .limit(MAX_ANSWER)
-        .read_to_string()
-        .map_err(|e| unreachable(e.to_string()))?;
-    if !status.is_success() {
+fn post(client: &sluice_http::Client, url: &str, body: &str) -> Result<Value, ElasticError> {
+    let answer = client
+        .send(
+            "POST",
+            &format!("{url}/_ingest/pipeline/_simulate"),
+            &[("content-type", "application/json".to_owned())],
+            Some(body),
+        )
+        .map_err(|e| ElasticError::Unreachable {
+            url: url.to_owned(),
+            reason: e.reason,
+        })?;
+    if !answer.is_success() {
         return Err(ElasticError::Rejected {
             url: url.to_owned(),
-            status: status.as_u16(),
-            message: text,
+            status: answer.status,
+            message: answer.body,
         });
     }
-    serde_json::from_str(&text).map_err(|e| ElasticError::Response(e.to_string()))
+    serde_json::from_str(&answer.body).map_err(|e| ElasticError::Response(e.to_string()))
 }
 
 #[cfg(test)]

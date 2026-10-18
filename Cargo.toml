@@ -19,6 +19,7 @@ sluice-core = { path = "crates/sluice-core" }
 sluice-discover = { path = "crates/sluice-discover" }
 sluice-elastic = { path = "crates/sluice-elastic" }
 sluice-fluentbit = { path = "crates/sluice-fluentbit" }
+sluice-http = { path = "crates/sluice-http" }
 sluice-kql = { path = "crates/sluice-kql" }
 sluice-otel = { path = "crates/sluice-otel" }
 sluice-rules = { path = "crates/sluice-rules" }

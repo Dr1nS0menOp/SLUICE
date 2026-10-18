@@ -54,47 +54,38 @@ const COLLECTIONS: [(&str, &str, &str); 4] = [
 ///
 /// [`SplunkError`] when Splunk cannot be reached or refuses a request.
 pub fn fetch(target: &Target<'_>, fetched_at: &str) -> Result<Inventory, SplunkError> {
-    let tls = ureq::tls::TlsConfig::builder()
-        .disable_verification(target.insecure)
-        .build();
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .http_status_as_error(false)
-        .tls_config(tls)
-        .timeout_global(Some(Duration::from_secs(120)))
-        .build()
-        .into();
+    let client = sluice_http::Client::with(
+        Duration::from_secs(120),
+        target.insecure,
+        sluice_http::MAX_ANSWER,
+    );
     let base = target.url.trim_end_matches('/');
+    let authorization = match target.auth {
+        Auth::Token(token) => format!("Bearer {token}"),
+        Auth::Basic { user, password } => sluice_http::basic_auth(user, password),
+    };
     let get = |collection: &str, offset: usize| -> Result<Value, SplunkError> {
         let url = format!(
             "{base}/servicesNS/-/-/{collection}?output_mode=json&count={PAGE}&offset={offset}"
         );
-        let request = agent.get(&url).header(
-            "authorization",
-            match target.auth {
-                Auth::Token(token) => format!("Bearer {token}"),
-                Auth::Basic { user, password } => {
-                    format!("Basic {}", base64(&format!("{user}:{password}")))
-                }
-            },
-        );
-        let mut answer = request.call().map_err(|e| SplunkError::Unreachable {
-            url: base.to_owned(),
-            reason: e.to_string(),
-        })?;
-        let status = answer.status();
-        let text = answer
-            .body_mut()
-            .with_config()
-            .limit(256 * 1024 * 1024)
-            .read_to_string()
-            .map_err(|e| SplunkError::Response(e.to_string()))?;
-        if !status.is_success() {
+        let answer = client
+            .send(
+                "GET",
+                &url,
+                &[("authorization", authorization.clone())],
+                None,
+            )
+            .map_err(|e| SplunkError::Unreachable {
+                url: base.to_owned(),
+                reason: e.reason,
+            })?;
+        if !answer.is_success() {
             return Err(SplunkError::Rejected {
-                status: status.as_u16(),
-                message: text,
+                status: answer.status,
+                message: answer.body,
             });
         }
-        serde_json::from_str(&text).map_err(|e| SplunkError::Response(e.to_string()))
+        serde_json::from_str(&answer.body).map_err(|e| SplunkError::Response(e.to_string()))
     };
     collect(get, base, fetched_at)
 }
@@ -166,29 +157,6 @@ fn pages(
             return Ok((entries, total));
         }
     }
-}
-
-/// Standard base64, for a basic authorization header.
-fn base64(text: &str) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let bytes = text.as_bytes();
-    let mut out = String::new();
-    for chunk in bytes.chunks(3) {
-        let b = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
-        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-        for (i, shift) in [18, 12, 6, 0].into_iter().enumerate() {
-            if i <= chunk.len() {
-                out.push(char::from(ALPHABET[((n >> shift) & 63) as usize]));
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
 }
 
 #[cfg(test)]

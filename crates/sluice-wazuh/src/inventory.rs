@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 use sluice_core::inventory::{Inventory, Manifest, is_safe_relative_path};
+use sluice_http::percent_encode;
 
 use crate::client::{Transport, WazuhError, basic_auth, excerpt, ok_json};
 
@@ -128,8 +129,8 @@ impl<T: Transport> Api<'_, T> {
     fn file(&self, kind: &str, dirname: &str, filename: &str) -> Result<String, WazuhError> {
         let (status, body) = self.get(&format!(
             "/{kind}/files/{}?raw=true&relative_dirname={}",
-            encode(filename),
-            encode(dirname)
+            percent_encode(filename),
+            percent_encode(dirname)
         ))?;
         if !(200..300).contains(&status) {
             return Err(WazuhError::Http(format!(
@@ -164,20 +165,6 @@ fn authenticate(
         .as_str()
         .map(str::to_owned)
         .ok_or_else(|| WazuhError::Invalid("no data.token in the authentication response".into()))
-}
-
-/// Percent-encodes a query or path value: everything but unreserved characters.
-fn encode(value: &str) -> String {
-    value
-        .bytes()
-        .map(|b| {
-            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
-                char::from(b).to_string()
-            } else {
-                format!("%{b:02X}")
-            }
-        })
-        .collect()
 }
 
 #[cfg(test)]

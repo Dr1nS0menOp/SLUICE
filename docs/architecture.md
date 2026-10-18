@@ -228,6 +228,7 @@ Sluice is a Rust workspace with one crate per responsibility. Dependencies point
 | `sluice-wazuh` | Spot checks through a Wazuh manager's `logtest` API, and its rule and decoder files (`sluice rules fetch wazuh`). |
 | `sluice-sentinel` | A Sentinel workspace's analytics rules, hunting queries, functions and query log, read-only (`sluice rules fetch sentinel`). |
 | `sluice-splunk` | Splunk's saved searches, macros, props and transforms over its REST API, read-only (`sluice rules fetch splunk`). |
+| `sluice-http` | The one HTTP client the adapters use: timeouts per caller, one answer limit, certificate handling and short error excerpts. |
 | `sluice-synth` | Deterministic synthetic security logs for the demo and the tests. |
 | `sluice-cli` | The `sluice` command: arguments, files, exit codes, logging. |
 

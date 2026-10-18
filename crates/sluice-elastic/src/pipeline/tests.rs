@@ -460,27 +460,22 @@ fn c1_an_installed_pipeline_stores_what_the_simulation_showed() {
         .collect();
     let simulated = crate::simulate(&url, &out.body, &sources).expect("simulates");
 
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .http_status_as_error(false)
-        .build()
-        .into();
+    let client = sluice_http::Client::new(std::time::Duration::from_secs(60));
     let call = |method: &str, path: &str, body: Option<String>| -> Value {
-        let target = format!("{url}/{path}");
-        let mut answer = match (method, body) {
-            ("PUT", Some(body)) => agent
-                .put(&target)
-                .header("content-type", "application/json")
-                .send(&body),
-            ("POST", Some(body)) => agent
-                .post(&target)
-                .header("content-type", "application/x-ndjson")
-                .send(&body),
-            ("DELETE", _) => agent.delete(&target).call(),
-            _ => agent.get(&target).call(),
-        }
-        .expect("Elasticsearch answers");
-        let text = answer.body_mut().read_to_string().expect("a body");
-        serde_json::from_str(&text).unwrap_or(Value::String(text))
+        let content = if method == "POST" {
+            "application/x-ndjson"
+        } else {
+            "application/json"
+        };
+        let answer = client
+            .send(
+                method,
+                &format!("{url}/{path}"),
+                &[("content-type", content.to_owned())],
+                body.as_deref(),
+            )
+            .expect("Elasticsearch answers");
+        serde_json::from_str(&answer.body).unwrap_or(Value::String(answer.body))
     };
     let index = "sluice-test-installed";
     call("DELETE", index, None);

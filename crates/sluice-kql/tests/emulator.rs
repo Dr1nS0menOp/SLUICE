@@ -179,24 +179,23 @@ fn run(
         project.join(", ")
     );
     let body = json!({ "db": "NetDefaultDB", "csl": query }).to_string();
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .http_status_as_error(false)
-        .build()
-        .into();
-    let mut answer = agent
-        .post(format!("{url}/v1/rest/query"))
-        .header("content-type", "application/json")
-        .send(&body)
+    let answer = sluice_http::Client::new(std::time::Duration::from_secs(300))
+        .send(
+            "POST",
+            &format!("{url}/v1/rest/query"),
+            &[("content-type", "application/json".to_owned())],
+            Some(&body),
+        )
         .unwrap_or_else(|e| panic!("emulator unreachable: {e}"));
-    let status = answer.status();
-    let response = answer.body_mut().read_to_string().expect("response body");
-    if !status.is_success() {
+    let status = answer.status;
+    let response = answer.body;
+    if !(200..300).contains(&status) {
         let path = std::env::temp_dir().join("sluice-kql-failed-query.kql");
         let _ = std::fs::write(&path, &query);
         eprintln!("failed query written to {}", path.display());
     }
     assert!(
-        status.is_success(),
+        (200..300).contains(&status),
         "emulator query failed ({status}): {}\nquery head: {}",
         &response[..response.len().min(1500)],
         &query[..query.len().min(300)]

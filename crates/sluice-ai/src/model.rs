@@ -39,42 +39,33 @@ pub trait Transport {
 /// HTTP transport with a generous timeout: one call per template, never per event.
 #[derive(Debug)]
 pub struct Http {
-    agent: ureq::Agent,
+    client: sluice_http::Client,
 }
 
 impl Default for Http {
     fn default() -> Self {
-        let config = ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(300)))
-            .http_status_as_error(false)
-            .build();
         Self {
-            agent: config.into(),
+            client: sluice_http::Client::new(Duration::from_secs(300)),
         }
     }
 }
 
 impl Transport for Http {
     fn post(&self, url: &str, headers: &[(&str, String)], body: &str) -> Result<String, AiError> {
-        let mut request = self
-            .agent
-            .post(url)
-            .header("content-type", "application/json");
-        for (name, value) in headers {
-            request = request.header(*name, value.as_str());
-        }
-        let mut response = request
-            .send(body)
-            .map_err(|e| AiError::Http(format!("{url}: {e}")))?;
-        let status = response.status();
-        let text = response
-            .body_mut()
-            .read_to_string()
-            .map_err(|e| AiError::Http(format!("{url}: {e}")))?;
-        if status.is_success() {
-            Ok(text)
+        let mut headers = headers.to_vec();
+        headers.push(("content-type", "application/json".to_owned()));
+        let answer = self
+            .client
+            .send("POST", url, &headers, Some(body))
+            .map_err(|e| AiError::Http(e.to_string()))?;
+        if answer.is_success() {
+            Ok(answer.body)
         } else {
-            Err(AiError::Http(format!("{url}: HTTP {status}: {text}")))
+            Err(AiError::Http(format!(
+                "{url}: HTTP {}: {}",
+                answer.status,
+                sluice_http::excerpt(&answer.body)
+            )))
         }
     }
 }

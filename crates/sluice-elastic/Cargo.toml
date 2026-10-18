@@ -10,8 +10,8 @@ publish.workspace = true
 [dependencies]
 serde_json.workspace = true
 sluice-core.workspace = true
+sluice-http.workspace = true
 thiserror.workspace = true
-ureq.workspace = true
 
 [dev-dependencies]
 sluice-rules.workspace = true

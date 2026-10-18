@@ -161,13 +161,6 @@ fn an_error_from_the_api_fails_the_fetch() {
 }
 
 #[test]
-fn values_are_percent_encoded() {
-    assert_eq!(encode("etc/rules"), "etc%2Frules");
-    assert_eq!(encode("a b&c=d"), "a%20b%26c%3Dd");
-    assert_eq!(encode("0010-rules_config.xml"), "0010-rules_config.xml");
-}
-
-#[test]
 fn c3_a_listing_without_a_total_fails_instead_of_passing_as_complete() {
     struct NoTotal;
     impl Transport for NoTotal {

@@ -1,0 +1,15 @@
+[package]
+name = "sluice-http"
+description = "The HTTP client Sluice's adapters share: one answer limit, certificate handling and error excerpt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+ureq.workspace = true
+
+[lints]
+workspace = true

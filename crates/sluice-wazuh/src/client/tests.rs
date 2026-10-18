@@ -88,16 +88,6 @@ fn event() -> Map<String, Value> {
 }
 
 #[test]
-fn base64_matches_rfc_4648_vectors() {
-    assert_eq!(base64(""), "");
-    assert_eq!(base64("f"), "Zg==");
-    assert_eq!(base64("fo"), "Zm8=");
-    assert_eq!(base64("foo"), "Zm9v");
-    assert_eq!(base64("foobar"), "Zm9vYmFy");
-    assert_eq!(base64("user:pass"), "dXNlcjpwYXNz");
-}
-
-#[test]
 fn alerting_rule_is_reported_with_its_wazuh_id() {
     let fake = Fake::new(
         json!({"error": 0, "data": {"token": "s1", "alert": true, "output": {"rule": {"id": "100100", "level": 5}}}}),

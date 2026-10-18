@@ -39,23 +39,19 @@ pub trait Transport {
 /// `insecure` only when the network path to the manager is trusted.
 #[derive(Debug)]
 pub struct Http {
-    agent: ureq::Agent,
+    client: sluice_http::Client,
 }
 
 impl Http {
     /// A transport, optionally skipping TLS certificate verification.
     #[must_use]
     pub fn new(insecure: bool) -> Self {
-        let tls = ureq::tls::TlsConfig::builder()
-            .disable_verification(insecure)
-            .build();
-        let config = ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(30)))
-            .http_status_as_error(false)
-            .tls_config(tls)
-            .build();
         Self {
-            agent: config.into(),
+            client: sluice_http::Client::with(
+                Duration::from_secs(30),
+                insecure,
+                sluice_http::MAX_ANSWER,
+            ),
         }
     }
 }
@@ -68,18 +64,13 @@ impl Transport for Http {
         headers: &[(&str, String)],
         body: Option<&str>,
     ) -> Result<(u16, String), WazuhError> {
-        let failed = |e: ureq::Error| WazuhError::Http(format!("{method} {url}: {e}"));
-        let request = ureq::http::Request::builder().method(method).uri(url);
-        let request = headers
-            .iter()
-            .fold(request, |r, (name, value)| r.header(*name, value.as_str()))
-            .header("content-type", "application/json")
-            .body(body.unwrap_or_default().to_owned())
-            .map_err(|e| WazuhError::Http(format!("{method} {url}: {e}")))?;
-        let mut response = self.agent.run(request).map_err(failed)?;
-        let status = response.status().as_u16();
-        let text = response.body_mut().read_to_string().map_err(failed)?;
-        Ok((status, text))
+        let mut headers = headers.to_vec();
+        headers.push(("content-type", "application/json".to_owned()));
+        let answer = self
+            .client
+            .send(method, url, &headers, body)
+            .map_err(|e| WazuhError::Http(e.to_string()))?;
+        Ok((answer.status, answer.body))
     }
 }
 
@@ -243,43 +234,7 @@ pub(crate) fn ok_json(status: u16, body: &str) -> Result<Value, WazuhError> {
     Ok(value)
 }
 
-/// The start of a response body, for an error message: bodies can be large and can repeat the
-/// event that was sent.
-pub(crate) fn excerpt(body: &str) -> String {
-    const MAX: usize = 300;
-    let mut out: String = body.chars().take(MAX).collect();
-    if body.chars().nth(MAX).is_some() {
-        out.push('…');
-    }
-    out
-}
-
-/// The `Authorization` header value for HTTP Basic authentication.
-pub(crate) fn basic_auth(user: &str, password: &str) -> String {
-    format!("Basic {}", base64(&format!("{user}:{password}")))
-}
-
-/// Standard base64, for the Basic authorization header.
-fn base64(text: &str) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let bytes = text.as_bytes();
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let n = chunk
-            .iter()
-            .enumerate()
-            .fold(0u32, |acc, (i, b)| acc | u32::from(*b) << (16 - 8 * i));
-        for i in 0..4 {
-            if i <= chunk.len() {
-                let index = (n >> (18 - 6 * i)) & 0x3f;
-                out.push(char::from(ALPHABET[usize::try_from(index).unwrap_or(0)]));
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
-}
+pub(crate) use sluice_http::{basic_auth, excerpt};
 
 #[cfg(test)]
 mod tests;

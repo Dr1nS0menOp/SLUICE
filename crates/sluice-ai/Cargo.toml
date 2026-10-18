@@ -11,8 +11,8 @@ publish.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sluice-core.workspace = true
+sluice-http.workspace = true
 thiserror.workspace = true
-ureq.workspace = true
 
 [lints]
 workspace = true

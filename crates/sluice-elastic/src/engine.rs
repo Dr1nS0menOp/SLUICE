@@ -453,61 +453,52 @@ fn reason(message: &str) -> String {
 
 #[derive(Debug)]
 struct Client {
-    agent: ureq::Agent,
+    http: sluice_http::Client,
     url: String,
 }
 
 impl Client {
     fn new(url: &str) -> Self {
         Self {
-            agent: ureq::Agent::config_builder()
-                .http_status_as_error(false)
-                .timeout_global(Some(TIMEOUT))
-                .build()
-                .into(),
+            http: sluice_http::Client::new(TIMEOUT),
             url: url.trim_end_matches('/').to_owned(),
         }
     }
 
+    /// `method` (`PUT` or `POST`) of `body` to `path`.
     fn call(&self, method: &str, path: &str, body: &str) -> Result<Value, ElasticError> {
-        let unreachable = |reason: String| ElasticError::Unreachable {
-            url: self.url.clone(),
-            reason,
-        };
-        let target = format!("{}/{path}", self.url);
         let content = if path.contains("_bulk") {
             "application/x-ndjson"
         } else {
             "application/json"
         };
-        let request = match method {
-            "PUT" => self.agent.put(&target),
-            _ => self.agent.post(&target),
-        };
-        let mut answer = request
-            .header("content-type", content)
-            .send(body)
-            .map_err(|e| unreachable(e.to_string()))?;
-        let status = answer.status();
-        let text = answer
-            .body_mut()
-            .with_config()
-            .limit(256 * 1024 * 1024)
-            .read_to_string()
-            .map_err(|e| unreachable(e.to_string()))?;
-        if !status.is_success() {
+        let answer = self
+            .http
+            .send(
+                method,
+                &format!("{}/{path}", self.url),
+                &[("content-type", content.to_owned())],
+                Some(body),
+            )
+            .map_err(|e| ElasticError::Unreachable {
+                url: self.url.clone(),
+                reason: e.reason,
+            })?;
+        if !answer.is_success() {
             return Err(ElasticError::Rejected {
                 url: self.url.clone(),
-                status: status.as_u16(),
-                message: text,
+                status: answer.status,
+                message: answer.body,
             });
         }
-        serde_json::from_str(&text).map_err(|e| ElasticError::Response(e.to_string()))
+        serde_json::from_str(&answer.body).map_err(|e| ElasticError::Response(e.to_string()))
     }
 
     /// Deletes an index; one left behind is only a leftover, so a failure is not reported.
     fn delete(&self, index: &str) {
-        let _ = self.agent.delete(format!("{}/{index}", self.url)).call();
+        let _ = self
+            .http
+            .send("DELETE", &format!("{}/{index}", self.url), &[], None);
     }
 }
 

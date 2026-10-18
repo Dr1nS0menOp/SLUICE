@@ -2390,8 +2390,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sluice-core",
+ "sluice-http",
  "thiserror",
- "ureq",
 ]
 
 [[package]]
@@ -2461,11 +2461,11 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "sluice-core",
+ "sluice-http",
  "sluice-rules",
  "sluice-synth",
  "sluice-vector",
  "thiserror",
- "ureq",
 ]
 
 [[package]]
@@ -2481,16 +2481,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "sluice-http"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "ureq",
+]
+
+[[package]]
 name = "sluice-kql"
 version = "0.1.0"
 dependencies = [
  "serde_json",
  "sluice-core",
+ "sluice-http",
  "sluice-rules",
  "sluice-synth",
  "sluice-vector",
  "thiserror",
- "ureq",
 ]
 
 [[package]]
@@ -2528,8 +2536,8 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "sluice-core",
+ "sluice-http",
  "thiserror",
- "ureq",
 ]
 
 [[package]]
@@ -2538,9 +2546,9 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "sluice-core",
+ "sluice-http",
  "sluice-rules",
  "thiserror",
- "ureq",
 ]
 
 [[package]]
@@ -2573,8 +2581,8 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "sluice-core",
+ "sluice-http",
  "thiserror",
- "ureq",
 ]
 
 [[package]]

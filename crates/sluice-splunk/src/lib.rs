@@ -15,11 +15,11 @@ pub enum SplunkError {
         reason: String,
     },
     /// Splunk answered with an error status.
-    #[error("Splunk refused the request ({status}): {message}")]
+    #[error("Splunk refused the request ({status}): {}", sluice_http::excerpt(.message))]
     Rejected {
         /// The HTTP status.
         status: u16,
-        /// Splunk's answer.
+        /// Splunk's whole answer.
         message: String,
     },
     /// The answer is not what the REST API documents.

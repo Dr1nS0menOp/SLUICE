@@ -4,6 +4,8 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use serde_json::Value;
+/// Percent-encodes a form or query value: everything but unreserved characters.
+pub(crate) use sluice_http::percent_encode as encode;
 
 /// An Azure API could not be used.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -35,17 +37,13 @@ pub trait Transport {
 /// HTTPS transport with certificate verification.
 #[derive(Debug)]
 pub struct Http {
-    agent: ureq::Agent,
+    client: sluice_http::Client,
 }
 
 impl Default for Http {
     fn default() -> Self {
-        let config = ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(60)))
-            .http_status_as_error(false)
-            .build();
         Self {
-            agent: config.into(),
+            client: sluice_http::Client::new(Duration::from_secs(60)),
         }
     }
 }
@@ -58,22 +56,12 @@ impl Transport for Http {
         headers: &[(&str, String)],
         body: Option<&str>,
     ) -> Result<(u16, String), SentinelError> {
-        // The URL may carry no secret, but keep it out of errors anyway: only the path.
-        let place = url.split('?').next().unwrap_or(url);
-        let failed = |e: String| SentinelError::Http(format!("{method} {place}: {e}"));
-        let request = ureq::http::Request::builder().method(method).uri(url);
-        let request = headers
-            .iter()
-            .fold(request, |r, (name, value)| r.header(*name, value.as_str()))
-            .body(body.unwrap_or_default().to_owned())
-            .map_err(|e| failed(e.to_string()))?;
-        let mut response = self.agent.run(request).map_err(|e| failed(e.to_string()))?;
-        let status = response.status().as_u16();
-        let text = response
-            .body_mut()
-            .read_to_string()
-            .map_err(|e| failed(e.to_string()))?;
-        Ok((status, text))
+        // The error names the URL without its query, which carries no secret but stays out.
+        let answer = self
+            .client
+            .send(method, url, headers, body)
+            .map_err(|e| SentinelError::Http(e.to_string()))?;
+        Ok((answer.status, answer.body))
     }
 }
 
@@ -243,20 +231,6 @@ fn scrub(error: SentinelError, secret: &str) -> SentinelError {
         SentinelError::Http(m) => SentinelError::Http(clean(m)),
         SentinelError::Invalid(m) => SentinelError::Invalid(clean(m)),
     }
-}
-
-/// Percent-encodes a form or query value: everything but unreserved characters.
-pub(crate) fn encode(value: &str) -> String {
-    value
-        .bytes()
-        .map(|b| {
-            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
-                char::from(b).to_string()
-            } else {
-                format!("%{b:02X}")
-            }
-        })
-        .collect()
 }
 
 #[cfg(test)]

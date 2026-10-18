@@ -40,46 +40,39 @@ pub fn fetch(
     space: Option<&str>,
     fetched_at: &str,
 ) -> Result<Inventory, ElasticError> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .http_status_as_error(false)
-        .timeout_global(Some(Duration::from_secs(120)))
-        .build()
-        .into();
+    let client = sluice_http::Client::new(Duration::from_secs(120));
     let base = url.trim_end_matches('/');
-    let prefix = space.map_or_else(String::new, |s| format!("/s/{s}"));
+    // The space goes into the path as one segment.
+    let prefix = space.map_or_else(String::new, |s| {
+        format!("/s/{}", sluice_http::percent_encode(s))
+    });
+    let authorization = match auth {
+        Auth::ApiKey(key) => format!("ApiKey {key}"),
+        Auth::Basic { user, password } => sluice_http::basic_auth(user, password),
+    };
     let get = |page: usize| -> Result<Value, ElasticError> {
         let target = format!(
             "{base}{prefix}/api/detection_engine/rules/_find?page={page}&per_page={PAGE}&sort_field=name&sort_order=asc"
         );
-        let request = agent
-            .get(&target)
-            .header("elastic-api-version", "2023-10-31");
-        let request = match auth {
-            Auth::ApiKey(key) => request.header("authorization", format!("ApiKey {key}")),
-            Auth::Basic { user, password } => request.header(
-                "authorization",
-                format!("Basic {}", base64(&format!("{user}:{password}"))),
-            ),
-        };
-        let mut answer = request.call().map_err(|e| ElasticError::Unreachable {
-            url: base.to_owned(),
-            reason: e.to_string(),
-        })?;
-        let status = answer.status();
-        let text = answer
-            .body_mut()
-            .with_config()
-            .limit(256 * 1024 * 1024)
-            .read_to_string()
-            .map_err(|e| ElasticError::Response(e.to_string()))?;
-        if !status.is_success() {
+        let headers = [
+            ("elastic-api-version", "2023-10-31".to_owned()),
+            ("authorization", authorization.clone()),
+        ];
+        let answer =
+            client
+                .send("GET", &target, &headers, None)
+                .map_err(|e| ElasticError::Unreachable {
+                    url: base.to_owned(),
+                    reason: e.reason,
+                })?;
+        if !answer.is_success() {
             return Err(ElasticError::Rejected {
                 url: base.to_owned(),
-                status: status.as_u16(),
-                message: text,
+                status: answer.status,
+                message: answer.body,
             });
         }
-        serde_json::from_str(&text).map_err(|e| ElasticError::Response(e.to_string()))
+        serde_json::from_str(&answer.body).map_err(|e| ElasticError::Response(e.to_string()))
     };
     let from = format!("{base}{prefix}");
     collect(get, &from, fetched_at)
@@ -156,29 +149,6 @@ fn collect(
     })
 }
 
-/// Standard base64, for a basic authorization header.
-fn base64(text: &str) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let bytes = text.as_bytes();
-    let mut out = String::new();
-    for chunk in bytes.chunks(3) {
-        let b = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
-        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-        for (i, shift) in [18, 12, 6, 0].into_iter().enumerate() {
-            if i <= chunk.len() {
-                out.push(char::from(ALPHABET[((n >> shift) & 63) as usize]));
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -241,12 +211,5 @@ mod tests {
                 .iter()
                 .any(|n| n.contains("machine learning"))
         );
-    }
-
-    #[test]
-    fn base64_as_basic_authorization_needs_it() {
-        assert_eq!(base64("elastic:changeme"), "ZWxhc3RpYzpjaGFuZ2VtZQ==");
-        assert_eq!(base64("ab"), "YWI=");
-        assert_eq!(base64("abc"), "YWJj");
     }
 }

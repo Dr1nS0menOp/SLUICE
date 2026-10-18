@@ -83,15 +83,6 @@ fn page(values: &[i64], next: Option<&str>) -> Value {
 const FIRST: &str = "https://management.azure.com/x?api-version=1";
 
 #[test]
-fn encode_keeps_only_unreserved_characters() {
-    assert_eq!(encode("aZ09-_.~"), "aZ09-_.~");
-    assert_eq!(encode("a b&c=d/e?f"), "a%20b%26c%3Dd%2Fe%3Ff");
-    assert_eq!(encode("é"), "%C3%A9");
-    assert_eq!(encode("%"), "%25");
-    assert_eq!(encode(""), "");
-}
-
-#[test]
 fn json_accepts_exactly_the_2xx_statuses() {
     for status in [200, 201, 299] {
         assert!(json(status, "{}").is_ok(), "{status}");

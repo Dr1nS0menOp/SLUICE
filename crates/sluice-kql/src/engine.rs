@@ -42,7 +42,7 @@ pub enum KustoError {
         reason: String,
     },
     /// The emulator answered with an error, for a command Sluice generated or a rule's query.
-    #[error("Kusto rejected the request ({status}): {message}")]
+    #[error("Kusto rejected the request ({status}): {}", sluice_http::excerpt(.message))]
     Rejected {
         /// HTTP status.
         status: u16,
@@ -345,19 +345,14 @@ impl Drop for Database<'_> {
 /// The emulator's REST API (v1).
 #[derive(Debug)]
 pub(crate) struct Client {
-    agent: ureq::Agent,
+    http: sluice_http::Client,
     url: String,
 }
 
 impl Client {
     pub(crate) fn new(url: &str) -> Self {
-        let agent = ureq::Agent::config_builder()
-            .http_status_as_error(false)
-            .timeout_global(Some(TIMEOUT))
-            .build()
-            .into();
         Self {
-            agent,
+            http: sluice_http::Client::new(TIMEOUT),
             url: url.trim_end_matches('/').to_owned(),
         }
     }
@@ -371,29 +366,26 @@ impl Client {
     }
 
     fn post(&self, kind: &str, db: &str, csl: &str) -> Result<Value, KustoError> {
-        let unreachable = |reason: String| KustoError::Unreachable {
-            url: self.url.clone(),
-            reason,
-        };
         let body = json!({ "db": db, "csl": csl }).to_string();
-        let mut answer = self
-            .agent
-            .post(format!("{}/v1/rest/{kind}", self.url))
-            .header("content-type", "application/json")
-            .send(&body)
-            .map_err(|e| unreachable(e.to_string()))?;
-        let status = answer.status();
-        let text = answer
-            .body_mut()
-            .read_to_string()
-            .map_err(|e| unreachable(e.to_string()))?;
-        if !status.is_success() {
+        let answer = self
+            .http
+            .send(
+                "POST",
+                &format!("{}/v1/rest/{kind}", self.url),
+                &[("content-type", "application/json".to_owned())],
+                Some(&body),
+            )
+            .map_err(|e| KustoError::Unreachable {
+                url: self.url.clone(),
+                reason: e.reason,
+            })?;
+        if !answer.is_success() {
             return Err(KustoError::Rejected {
-                status: status.as_u16(),
-                message: text,
+                status: answer.status,
+                message: answer.body,
             });
         }
-        serde_json::from_str(&text).map_err(|e| KustoError::Response(e.to_string()))
+        serde_json::from_str(&answer.body).map_err(|e| KustoError::Response(e.to_string()))
     }
 }
 

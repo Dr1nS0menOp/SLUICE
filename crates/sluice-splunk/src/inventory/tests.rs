@@ -105,12 +105,6 @@ fn an_answer_without_entries_is_an_error() {
     assert!(matches!(error, Err(SplunkError::Response(_))));
 }
 
-#[test]
-fn base64_as_basic_authorization_needs_it() {
-    assert_eq!(base64("admin:changeme"), "YWRtaW46Y2hhbmdlbWU=");
-    assert_eq!(base64("ab"), "YWI=");
-}
-
 /// A Splunk that answers each GET with `answer(path and query, authorization)`.
 fn splunk(answer: fn(&str, &str) -> (u16, String)) -> String {
     use std::io::{BufRead, BufReader, Write};
