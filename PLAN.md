@@ -692,8 +692,10 @@ Its scope is planned when it starts; it includes at least:
   read from `savedsearches.conf`/`macros.conf` or the REST API with macros expanded: the base
   search as a superset pre-filter, the pipeline for names, counting and raw reads; fields Splunk
   derives (`props.conf`, `transforms.conf`) are read through; `sluice rules fetch splunk` reads
-  all of it from the REST API. On ESCU 6.8.0: 2,223 searches read, 845 bounded. Open: a Splunk
-  engine for the proof (needs the Splunk General Terms accepted).
+  all of it from the REST API. On ESCU 6.8.0: 2,223 searches read, 845 bounded. On hold since
+  2026-10-17 (confirmed 2026-10-18): a Splunk engine for the proof and a Splunk generator, which
+  need the Splunk General Terms accepted. `sluice rules fetch splunk` was tested against a
+  stand-in only, never a real Splunk.
 - The rest of M10 for every SIEM: inventories over Splunk (`saved/searches`, macros,
   extractions), Elastic (detection rules, ingest pipelines) and Chronicle; workbook and
   dashboard queries; `sluice up` reloading the inventory (done 2026-10-17: `--reload-rules`,
@@ -757,18 +759,36 @@ Fixed on 2026-10-18, each with a test named after the contract rule:
 
 Still open:
 
-1. **Leftovers of the live design.** `connect --standard-table` and the shaping VRL (`syslog`,
-   `common_security_log`, `asim_*`, `windows`) were for `sluice up` sources. Archive them, or
-   document how to shape records without Sluice.
-2. **Not verified against the real engine:** that Wazuh fires `maxsize` rules on large events
-   (read from rule 1003's description). Verifying it with `logtest` needs the manager's
-   credentials.
-3. **Lower-case Sentinel workspace functions where an expression may stand**
-   (`let events = my_parser();`, `union my_parser(), …`, `join (my_parser()) on …`) still read
-   as KQL's own, unless their source is among the rule files (`sluice rules fetch sentinel`
-   writes it). Azure-Sentinel has none: none of its 1,008 parser and function names is all lower
-   case. The fix is a closed list of KQL's own function names, checked against the Kusto
-   emulator; a call to any other name widens.
+1. **Leftovers of the live design.** `sluice connect sentinel --standard-table` writes a data
+   collection rule that stores records already shaped as `Syslog`, `CommonSecurityLog` or an
+   ASIM table. The VRL that shaped them (`syslog`, `common_security_log`, `asim_*` and `windows`
+   in `sluice-vector`) ran in `sluice up` sources (`shape:`); now only its tests run it, so
+   Sluice writes the rule but no longer the program that makes records fit it. Shaping is
+   onboarding, not saving, and the analysis does not need it: a sample read from a Sentinel
+   table is already shaped. Recommended: archive both. The alternative is to have `connect`
+   write the shaping program as a Vector transform too.
+2. **Postponed (2026-10-18): Wazuh `maxsize` in the real engine.** Sluice reads a rule with
+   `maxsize` as one that reads every field, after rule 1003's description (it fires on an event
+   above a size). Whether Wazuh fires it that way is not verified with `logtest`: that needs an
+   API user with `logtest:run` on a manager, and none is available to this project yet.
+3. **Lower-case Sentinel workspace functions where an expression may stand.** A rule's query
+   can call workspace functions (ASIM parsers, vendor parsers, a team's own saved functions),
+   and a function's body may read any table. Sluice reads the body when the function's source
+   is among the rule files (`sluice rules fetch sentinel` writes every workspace function); any
+   other function widens the rule to every column of every table. To tell a workspace function
+   from one of KQL's own, Sluice relies on case: KQL's functions are all lower case, so a call
+   with an upper-case letter is a workspace function, and so, since cb035ad, is a lower-case
+   call where only a table can stand (a statement's start, after `invoke`). Left: a lower-case
+   call where an expression of either kind may stand (`let events = my_parser();`,
+   `union my_parser(), …`, `join (my_parser()) on …`, `in (my_list())`) is taken for a
+   built-in. When the function's source is missing too, what it reads is not protected: fail
+   open. Azure-Sentinel (55296e6) has no such function: none of its 1,008 parser and function
+   names is all lower case, and the two lower-case calls in its rules that are not KQL's
+   (`extract_data`, `cap`) are defined with `let` in the rule. The fix is a closed list of every
+   function, plugin and keyword KQL itself defines that can stand before `(`, checked against
+   the Kusto emulator; a call to any other name not defined with `let` widens the rule. A
+   built-in missing from the list then costs savings on the rules that use it, never a
+   detection, and the report names it.
 
 The report now counts each rule once, not once per requirement, and a rule shows as a coverage
 gap only when none of its requirements sees data. The real-data runs gave the same numbers after
@@ -788,10 +808,34 @@ CLI, refusals for flags that would be ignored, and "not read" decided by
 
 Still proposed:
 
-- one `--native sentinel,elastic,fluent-bit,otel` flag instead of four switches (a CLI change
-  for users: Ward's decision);
-- case folding and `Any` alternatives shared from core;
-- `RuleId::of(Engine, …)` and typed problems instead of `format!` ids and strings.
+- **One `--native` flag.** `--native sentinel,elastic,fluent-bit,otel` instead of the four
+  switches `--sentinel-native`, `--elastic-native`, `--fluent-bit-native` and `--otel-native`:
+  the same behaviour, spelled differently, so a CLI change for users and the maintainer's
+  decision.
+- **Rule ids built in one place.** A `RuleId` is a string with the SIEM as its prefix, written
+  with `format!` in a dozen places across two crates (`wazuh:{id}`,
+  `sentinel:unreadable:{place}`, `sigma:unparsed:{n}`, …). Code that must agree on an id does so
+  only by spelling it alike: Wazuh's `<if_sid>` chains look a parent up by
+  `format!("wazuh:{id}")`, and if that drifted from the reader's spelling, no parent would be
+  found and every child rule would widen, silently costing savings. A Sigma rule without an `id`
+  is named after its title, so two such rules with the same title share an id and the report
+  counts them as one. Proposed: `RuleId::of(Engine, native_id)` and
+  `RuleId::stand_in(Engine, place)` in `sluice-core`, with `Engine` an enum, so the format lives
+  in one place and the compiler finds every caller. The text stays the same, so `plan.json` and
+  the reports do not change.
+- **Typed problems.** Every rule reader returns its problems as sentences (`Vec<String>`), and
+  the report can only list them. As data (`Problem { rule, kind }`, with kinds such as
+  `Unreadable`, `UnknownFunction` and `ReadsAnyField`, and a `Display` that writes today's
+  sentence), the report could group them and say what to do per kind ("37 rules call functions
+  Sluice has not read: fetch them"), `plan.json` could carry them for tools, and tests would
+  match a kind instead of a phrase.
+- **Case folding shared from core.** A case-insensitive test on non-ASCII text cannot be decided
+  alike in every engine, because Java, Go, Lua and KQL fold case differently from Rust, so each
+  generator widens it. Fluent Bit, Elasticsearch, the OpenTelemetry Collector and KQL each carry
+  their own copy of that rule, and Fluent Bit's and Elasticsearch's predicate compilers are the
+  same code in two syntaxes, down to lowercasing the values. One function in
+  `sluice_core::codegen` (the folded values, or `None` where the test must widen) would put the
+  rule and its test in one place, as `float_may_match` did for numbers.
 
 ## Project layout (Rust Cargo workspace)
 
