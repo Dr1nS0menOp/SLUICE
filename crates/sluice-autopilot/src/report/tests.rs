@@ -231,10 +231,22 @@ fn coverage_gaps_are_sorted_and_name_rules_no_template_can_reach() {
         "stats": {"events": 1, "bytes": 1, "source_events": 1}
     }))
     .unwrap();
-    let gaps = coverage_gaps(&rules.iter().collect::<Vec<_>>(), &[template]);
+    let gaps = coverage_gaps(
+        &rules.iter().collect::<Vec<_>>(),
+        std::slice::from_ref(&template),
+    );
     assert_eq!(gaps.len(), 2);
     assert!(
         gaps[0].starts_with("a:") && gaps[1].starts_with("z:"),
         "{gaps:?}"
+    );
+
+    // A rule with a requirement per naming convention (a Sigma pipeline copy) counts once, and
+    // sees data when one of its requirements does.
+    let copies = [rule("r", "windows"), rule("r", "macos")];
+    assert_eq!(count(&copies), 1);
+    assert_eq!(
+        coverage_gaps(&copies.iter().collect::<Vec<_>>(), &[template]),
+        Vec::<String>::new()
     );
 }

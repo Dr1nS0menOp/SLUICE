@@ -4,9 +4,10 @@ mod html;
 mod rules;
 pub(crate) mod text;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sluice_core::guard::EffectiveRecipe;
+use sluice_core::ids::RuleId;
 use sluice_core::logsource::LogSource;
 use sluice_core::proof::Volume;
 use sluice_core::rules::RuleRequirements;
@@ -95,22 +96,22 @@ impl Report {
                 .then(a.id.cmp(&b.id))
         });
 
-        let mut rules = vec![("Sigma".to_owned(), input.sigma.requirements().len())];
+        let mut rules = vec![("Sigma".to_owned(), count(input.sigma.requirements()))];
         let mut requirements: Vec<&RuleRequirements> = input.sigma.requirements().iter().collect();
         if let Some(wazuh) = input.wazuh {
-            rules.push(("Wazuh".to_owned(), wazuh.requirements().len()));
+            rules.push(("Wazuh".to_owned(), count(wazuh.requirements())));
             requirements.extend(wazuh.requirements());
         }
         if let Some(sentinel) = input.sentinel {
-            rules.push(("Sentinel".to_owned(), sentinel.rules.requirements().len()));
+            rules.push(("Sentinel".to_owned(), count(sentinel.rules.requirements())));
             requirements.extend(sentinel.rules.requirements());
         }
         if let Some(elastic) = input.elastic {
-            rules.push(("Elastic".to_owned(), elastic.rules.requirements().len()));
+            rules.push(("Elastic".to_owned(), count(elastic.rules.requirements())));
             requirements.extend(elastic.rules.requirements());
         }
         if let Some(splunk) = input.splunk {
-            rules.push(("Splunk".to_owned(), splunk.requirements().len()));
+            rules.push(("Splunk".to_owned(), count(splunk.requirements())));
             requirements.extend(splunk.requirements());
         }
         Self {
@@ -220,14 +221,30 @@ fn scope_hints(requirements: &[&RuleRequirements], templates: &[Template]) -> Ve
         .collect()
 }
 
+/// The rules among `requirements`: a Sigma rule mapped through a pipeline, or an Elastic rule
+/// per index pattern, has several requirements and counts once.
+fn count(requirements: &[RuleRequirements]) -> usize {
+    requirements
+        .iter()
+        .map(|r| &r.rule)
+        .collect::<BTreeSet<_>>()
+        .len()
+}
+
 fn coverage_gaps(requirements: &[&RuleRequirements], templates: &[Template]) -> Vec<String> {
-    let mut gaps: Vec<String> = requirements
+    // A rule sees data when one of its requirements does.
+    let seeing: BTreeSet<&RuleId> = requirements
         .iter()
         .filter(|r| {
-            !templates
+            templates
                 .iter()
                 .any(|t| r.logsource.may_apply_to(&t.logsource))
         })
+        .map(|r| &r.rule)
+        .collect();
+    let mut gaps: Vec<String> = requirements
+        .iter()
+        .filter(|r| !seeing.contains(&r.rule))
         .map(|r| {
             format!(
                 "{}: no data matches its log source {}",
