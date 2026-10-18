@@ -187,6 +187,60 @@ fn c1_text_templates_and_metadata_names_are_left_to_a_pipeline_tool() {
     assert_eq!(out.left_out.len(), 2, "{:?}", out.left_out);
 }
 
+/// A template whose discriminator is a float Painless cannot render (`0.5`), and a later one of
+/// the same key set that removes `Status`.
+fn undecided_then_later() -> [(Template, EffectiveRecipe); 2] {
+    let undecided = template(
+        "windows:0:b",
+        &[("EventID", "0.5")],
+        &[&["EventID", "Status"]],
+    );
+    let later = template("windows:0:c", &[], &[&["EventID", "Status"]]);
+    let unchanged = EffectiveRecipe::passthrough(undecided.id.clone());
+    let recipe = removing(later.id.as_str(), &["Status"], None);
+    [(undecided, unchanged), (later, recipe)]
+}
+
+#[test]
+fn c1_a_record_an_earlier_template_cannot_decide_is_claimed_by_no_later_one() {
+    let [(undecided, unchanged), (later, recipe)] = undecided_then_later();
+    let out = of(&[(&undecided, &unchanged), (&later, &recipe)]);
+    let text = script(&out);
+    let claim = text
+        .find("{ t = 0; }")
+        .expect("the undecided template claims");
+    let stop = text
+        .find(
+            "else if (keys.equals(new HashSet(['EventID', 'Status'])) && \
+             sluiceMay(sluiceGet(ctx, ['EventID']), '0.5')) { t = -2; }",
+        )
+        .expect("the search stops where Painless cannot decide");
+    let taken = text
+        .find("{ t = 1; }")
+        .expect("the later template takes the rest");
+    assert!(claim < stop && stop < taken, "{text}");
+
+    // A field named like metadata hides from the script's keys: such a template stops the search
+    // wherever its records may be.
+    let meta = template("windows:0:a", &[], &[&["_id", "EventID", "Status"]]);
+    let unchanged = EffectiveRecipe::passthrough(meta.id.clone());
+    let out = of(&[(&meta, &unchanged), (&later, &recipe)]);
+    let text = script(&out);
+    let stop = text
+        .find("if (keys.equals(new HashSet(['EventID', 'Status']))) { t = -2; }")
+        .expect("the metadata template stops the search");
+    let taken = text
+        .find("{ t = 1; }")
+        .expect("the later template comes after");
+    assert!(stop < taken, "{text}");
+    assert!(out.left_out.iter().any(|r| r.contains("metadata")));
+
+    // Values Painless renders as VRL does need no stop.
+    let t = logon();
+    let plain = of(&[(&t, &removing(t.id.as_str(), &["Message"], None))]);
+    assert!(!script(&plain).contains("t = -2"));
+}
+
 #[test]
 fn templates_share_the_functions_of_their_keep_whole_alternatives() {
     let a = logon();
@@ -351,6 +405,38 @@ fn c1_in_elasticsearch_documents_lose_exactly_what_they_lose_in_vector() {
         expected.iter().zip(&events).any(|(v, e)| v != &e.fields),
         "some event loses fields, or the test shows nothing"
     );
+}
+
+/// In a real Elasticsearch: a document whose discriminator Painless cannot render as VRL does
+/// stays whole, never handed to a later template of the same key set.
+#[test]
+fn c1_in_elasticsearch_a_document_an_earlier_template_cannot_decide_stays_whole() {
+    let Ok(url) = std::env::var(ENV) else {
+        return;
+    };
+    let [(undecided, unchanged), (later, recipe)] = undecided_then_later();
+    let plans = [(&undecided, &unchanged), (&later, &recipe)];
+    let events = [
+        event(&json!({"EventID": 0.5, "Status": "ok"})),
+        event(&json!({"EventID": 0.25, "Status": "ok"})),
+        event(&json!({"EventID": 7, "Status": "ok"})),
+    ];
+    let expected = vrl(&plans, &events);
+    let out = of(&plans);
+    let documents: Vec<&Map<String, Value>> = events.iter().map(|e| &e.fields).collect();
+    let actual = crate::simulate(&url, &out.body, &documents)
+        .unwrap_or_else(|e| panic!("{e}\n{}", script(&out)));
+    // Kept whole, where Vector removes `Status`.
+    let widened = 1;
+    for (n, ((event, vector), elastic)) in events.iter().zip(&expected).zip(&actual).enumerate() {
+        let shown = Value::Object(event.fields.clone());
+        if n == widened {
+            assert_eq!(elastic, &event.fields, "kept whole: {shown}");
+            assert_ne!(vector, &event.fields, "Vector removes: {shown}");
+        } else {
+            assert_eq!(elastic, vector, "event {shown}");
+        }
+    }
 }
 
 /// Installed as a real pipeline and indexed through, documents are stored as `_simulate` showed.

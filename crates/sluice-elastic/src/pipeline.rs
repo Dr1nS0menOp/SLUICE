@@ -8,7 +8,9 @@
 //!   the recorded values, tested in the order of the VRL program (by template id). Every
 //!   key-set template takes part, also those whose saving runs elsewhere, so no document is
 //!   claimed by another template than in Vector. A document that fits none keeps every field
-//!   (contract rule 1).
+//!   (contract rule 1), as does one with a template's key set that the script cannot tell is
+//!   that template's (a discriminator holding a fraction, a field named like metadata): no
+//!   later template takes it.
 //! - **Keeping whole is a superset.** `keep_whole_when` compiles with [`crate::compile`], which
 //!   matches at least what Vector's VRL matches.
 //! - **Nothing changes before everything is decided.** The script first finds the template and
@@ -87,12 +89,16 @@ pub fn ingest_pipeline(description: &str, plans: &[PipelinePlan<'_>]) -> IngestP
     ordered.sort_by(|a, b| a.template.id.cmp(&b.template.id));
     let mut left_out = Vec::new();
     let mut conditions = Conditions::default();
-    let recognised: Vec<(&PipelinePlan<'_>, String, Option<Action>)> = ordered
+    let recognised: Vec<(&PipelinePlan<'_>, Recognition, Option<Action>)> = ordered
         .into_iter()
         .filter_map(|plan| {
-            let condition = recognition(plan.template, &mut left_out)?;
-            let action = action(plan, &mut conditions, &mut left_out);
-            Some((plan, condition, action))
+            let seen = recognition(plan.template, &mut left_out)?;
+            let action = seen
+                .claim
+                .is_some()
+                .then(|| action(plan, &mut conditions, &mut left_out))
+                .flatten();
+            Some((plan, seen, action))
         })
         .collect();
     let mut branches = Vec::new();
@@ -100,7 +106,7 @@ pub fn ingest_pipeline(description: &str, plans: &[PipelinePlan<'_>]) -> IngestP
     let mut templates = BTreeSet::new();
     let mut fields = BTreeSet::new();
     let mut empty_fields = false;
-    for (n, (plan, condition, action)) in recognised.iter().enumerate() {
+    for (n, (plan, seen, action)) in recognised.iter().enumerate() {
         // A template that changes nothing only needs recognising where Vector would give it a
         // document before a template that does change it.
         let claims = action.is_some()
@@ -111,7 +117,18 @@ pub fn ingest_pipeline(description: &str, plans: &[PipelinePlan<'_>]) -> IngestP
             continue;
         }
         let branch = branches.len();
-        branches.push(format!("if ({condition}) {{ t = {branch}; }}"));
+        // A document Vector may give this template but the script cannot tell: no later
+        // template takes it, and nothing is removed.
+        let stop = seen
+            .stop
+            .as_ref()
+            .map(|s| format!("if ({s}) {{ t = -2; }}"));
+        branches.push(match (&seen.claim, stop) {
+            (Some(claim), Some(stop)) => format!("if ({claim}) {{ t = {branch}; }}\nelse {stop}"),
+            (Some(claim), None) => format!("if ({claim}) {{ t = {branch}; }}"),
+            (None, Some(stop)) => stop,
+            (None, None) => continue,
+        });
         if let Some(action) = action {
             actions.push(format!("if (t == {branch}) {{\n{}\n}}", action.code));
             templates.insert(plan.template.id.clone());
@@ -177,7 +194,10 @@ fn overlap(a: &Template, b: &Template) -> bool {
     else {
         return false;
     };
-    a_variants.iter().any(|v| b_variants.contains(v))
+    // As the script sees them: a field named like metadata is not among `sluiceKeys`.
+    a_variants
+        .iter()
+        .any(|v| b_variants.iter().any(|w| visible(v) == visible(w)))
         && a_discriminators.iter().all(|(field, value)| {
             b_discriminators
                 .iter()
@@ -185,9 +205,18 @@ fn overlap(a: &Template, b: &Template) -> bool {
         })
 }
 
-/// The condition recognising the template's documents, or `None` (with the reason) when it has
-/// none.
-fn recognition(template: &Template, left_out: &mut Vec<String>) -> Option<String> {
+/// How the script recognises a template's documents.
+struct Recognition {
+    /// The condition that claims them; `None` when the script cannot, for a field named like
+    /// Elasticsearch metadata.
+    claim: Option<String>,
+    /// The condition that stops the search where a document may be the template's but the
+    /// script cannot tell: a metadata name, or a discriminator Painless cannot render.
+    stop: Option<String>,
+}
+
+/// The template's recognition, or `None` (with the reason) when it has no key set.
+fn recognition(template: &Template, left_out: &mut Vec<String>) -> Option<Recognition> {
     let id = &template.id;
     let TemplateShape::Keyset {
         discriminators,
@@ -203,43 +232,72 @@ fn recognition(template: &Template, left_out: &mut Vec<String>) -> Option<String
     if variants.is_empty() {
         return None;
     }
-    let metadata = variants
+    let refused = variants
         .iter()
         .flatten()
         .chain(discriminators.iter().map(|(field, _)| field))
-        .find(|path| {
-            path.segments()
-                .next()
-                .is_some_and(|s| METADATA_FIELDS.contains(&s))
-        });
-    if let Some(path) = metadata {
+        .find(|path| metadata(path));
+    if let Some(path) = refused {
         left_out.push(format!(
             "{id}: its field {path} has the name of Elasticsearch metadata"
         ));
-        return None;
     }
     let key_sets: Vec<String> = variants
         .iter()
         .map(|variant| {
             format!(
                 "keys.equals(new HashSet({}))",
-                painless::list(variant.iter().map(FieldPath::as_str))
+                painless::list(visible(variant).into_iter().map(FieldPath::as_str))
             )
         })
         .collect();
-    let mut parts = vec![if key_sets.len() == 1 {
+    let key_set = if key_sets.len() == 1 {
         key_sets.concat()
     } else {
         format!("({})", key_sets.join(" || "))
-    }];
-    parts.extend(discriminators.iter().map(|(field, value)| {
-        format!(
-            "sluiceDisc(sluiceGet(ctx, {})) == {}",
-            painless::segments(field),
-            painless::string(value)
-        )
-    }));
-    Some(parts.join(" && "))
+    };
+    let mut claim = vec![key_set.clone()];
+    let mut stop = vec![key_set];
+    let mut undecided = refused.is_some();
+    for (field, value) in discriminators {
+        if metadata(field) {
+            continue; // The script would read Elasticsearch's own value there.
+        }
+        let at = format!("sluiceGet(ctx, {})", painless::segments(field));
+        let literal = painless::string(value);
+        let exact = format!("sluiceDisc({at}) == {literal}");
+        if undecidable(value) {
+            undecided = true;
+            stop.push(format!("sluiceMay({at}, {literal})"));
+        } else {
+            stop.push(exact.clone());
+        }
+        claim.push(exact);
+    }
+    Some(Recognition {
+        claim: refused.is_none().then(|| claim.join(" && ")),
+        stop: undecided.then(|| stop.join(" && ")),
+    })
+}
+
+/// Whether the path's first segment is a name of Elasticsearch metadata.
+fn metadata(path: &FieldPath) -> bool {
+    path.segments()
+        .next()
+        .is_some_and(|s| METADATA_FIELDS.contains(&s))
+}
+
+/// A key set as `sluiceKeys` shows it: metadata left out.
+fn visible(variant: &BTreeSet<FieldPath>) -> BTreeSet<&FieldPath> {
+    variant.iter().filter(|path| !metadata(path)).collect()
+}
+
+/// Whether VRL may render as `value` a float `sluiceDisc` cannot render: zero, a fraction, or
+/// 10^15 and more. Any other value Painless renders exactly as VRL does.
+fn undecidable(value: &str) -> bool {
+    value
+        .parse::<f64>()
+        .is_ok_and(|x| x == 0.0 || x.fract() != 0.0 || x.abs() >= 1e15)
 }
 
 /// The keep-whole conditions of a pipeline's templates. Those of one source repeat the same

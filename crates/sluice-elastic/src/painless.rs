@@ -8,7 +8,7 @@ pub(crate) fn string(text: &str) -> String {
     format!("'{}'", text.replace('\\', "\\\\").replace('\'', "\\'"))
 }
 
-/// A list literal of the path's segments, as [`GET`] and [`REMOVE`] take them.
+/// A list literal of the path's segments, as `sluiceGet` and `sluiceRemove` take them.
 pub(crate) fn segments(path: &FieldPath) -> String {
     list(path.segments())
 }
@@ -31,6 +31,7 @@ pub(crate) fn list<'a>(items: impl IntoIterator<Item = &'a str>) -> String {
 /// - `sluiceDisc(v)`: a discriminator's text, as `to_string(v) ?? ""` renders it in VRL; null
 ///   for a float that is not a whole number below 10^15, whose text may differ, so it matches
 ///   no recorded value and the document is not recognised.
+/// - `sluiceMay(v, s)`: whether VRL may render `v` as `s`: it does, or Painless cannot know.
 /// - `sluiceAscii(s)`: whether `s` is ASCII, where Java and Rust fold case alike.
 /// - `sluiceTest(v, op, cs, floats, values)`: a field test, as in VRL: true on an object, on a
 ///   float when `floats` (a value could be a number's text), false on null; an array when a
@@ -81,6 +82,10 @@ String sluiceDisc(def v) {
     return null;
   }
   return String.valueOf(v);
+}
+boolean sluiceMay(def v, String s) {
+  String d = sluiceDisc(v);
+  return d == null || d == s;
 }
 boolean sluiceAscii(String s) {
   for (int i = 0; i < s.length(); ++i) { if (s.charAt(i) > 127) { return false; } }
