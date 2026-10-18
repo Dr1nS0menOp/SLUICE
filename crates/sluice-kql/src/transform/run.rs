@@ -3,37 +3,28 @@
 use std::collections::BTreeMap;
 
 use crate::syntax;
-/// Runs a transformation's `kql` on `events` in the Kusto emulator at `url`, as a DCR runs it on
-/// a stream with `columns` (name and type, as a stream declaration gives them). Returns each
-/// event's record afterwards, in the order of `events`, with its non-empty columns only (an
-/// empty column and a missing one are the same to the table).
-///
-/// # Errors
-///
-/// Returns [`crate::KustoError`] if the emulator cannot be used or rejects the transformation.
-pub fn run_transformation(
-    url: &str,
-    columns: &[(&str, &str)],
-    kql: &str,
-    events: &[&sluice_core::event::Event],
-) -> Result<Vec<serde_json::Map<String, serde_json::Value>>, crate::KustoError> {
-    let mut runs = run_transformations(url, columns, &[kql], events)?;
-    Ok(runs.pop().unwrap_or_default())
-}
 
-/// As [`run_transformation`], for several transformations in one query, so that what they
-/// share (`now()` in a data flow's own transformation) is the same for all of them. One list
-/// of records per transformation, in the order of `kqls`.
+/// What a transformation leaves of each event: its record at the event's place, with its
+/// non-empty columns only (an empty column and a missing one are the same to the table), or
+/// `None` where the transformation dropped it.
+pub type Records = Vec<Option<serde_json::Map<String, serde_json::Value>>>;
+
+/// Runs each of `kqls` on `events` in the Kusto emulator at `url`, as a DCR runs a
+/// transformation on a stream with `columns` (name and type, as a stream declaration gives
+/// them), in one query so that what they share (`now()` in a data flow's own transformation)
+/// is the same for all of them. Records are matched to events by a row number the emulator
+/// carries along, not by their order: a transformation may drop rows.
 ///
 /// # Errors
 ///
-/// As [`run_transformation`].
+/// Returns [`crate::KustoError`] if the emulator cannot be used or rejects a transformation,
+/// and if a transformation loses the row number (a `project`) or makes rows of its own.
 pub fn run_transformations(
     url: &str,
     columns: &[(&str, &str)],
     kqls: &[&str],
     events: &[&sluice_core::event::Event],
-) -> Result<Vec<Vec<serde_json::Map<String, serde_json::Value>>>, crate::KustoError> {
+) -> Result<Vec<Records>, crate::KustoError> {
     use serde_json::{Map, Value, json};
 
     const ROW: &str = "__sluice_n";
@@ -80,26 +71,41 @@ pub fn run_transformations(
         "union kind=outer {}\n| order by {RUN} asc, {ROW} asc",
         runs.join(", ")
     );
-    let mut out: Vec<Vec<Map<String, Value>>> = vec![Vec::new(); kqls.len()];
+    let mut out: Vec<Records> = vec![vec![None; events.len()]; kqls.len()];
     for row in database.query(&query)? {
         let row: Value =
             serde_json::from_str(&row).map_err(|e| crate::KustoError::Response(e.to_string()))?;
-        let run = row[0]
-            .as_array()
-            .zip(row[1].as_array())
-            .and_then(|(names, values)| {
-                names
-                    .iter()
-                    .position(|n| n.as_str() == Some(RUN))
-                    .and_then(|i| values.get(i))
-            })
-            .and_then(Value::as_u64)
-            .and_then(|n| usize::try_from(n).ok())
+        let run = number(&row, RUN)
             .filter(|n| *n < kqls.len())
             .ok_or_else(|| crate::KustoError::Response("a row of no run".to_owned()))?;
-        out[run].push(record(&row, &aliases, &[ROW, RUN])?);
+        let n = number(&row, ROW)
+            .filter(|n| *n < events.len())
+            .ok_or_else(|| {
+                crate::KustoError::Response(format!(
+                    "a row without its record number ({ROW}): the transformation drops it, so \
+                     its records cannot be matched to the sample's"
+                ))
+            })?;
+        let slot = &mut out[run][n];
+        if slot.is_some() {
+            return Err(crate::KustoError::Response(format!(
+                "record {n} came out twice: the transformation makes rows of its own"
+            )));
+        }
+        *slot = Some(record(&row, &aliases, &[ROW, RUN])?);
     }
     Ok(out)
+}
+
+/// The whole number in column `column` of a result row (`[names, values]`).
+fn number(row: &serde_json::Value, column: &str) -> Option<usize> {
+    let names = row[0].as_array()?;
+    let values = row[1].as_array()?;
+    let at = names.iter().position(|n| n.as_str() == Some(column))?;
+    values
+        .get(at)?
+        .as_u64()
+        .and_then(|n| usize::try_from(n).ok())
 }
 
 /// One result row (`[names, values]`) as a record: its non-empty columns, under their stream

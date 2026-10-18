@@ -26,7 +26,7 @@ use sluice_core::ids::TemplateId;
 use sluice_core::predicate::Predicate;
 use sluice_core::template::{Template, TemplateShape};
 
-pub use self::run::{run_transformation, run_transformations};
+pub use self::run::{Records, run_transformations};
 use crate::predicate::compile_known;
 use crate::syntax;
 use crate::table::Table;

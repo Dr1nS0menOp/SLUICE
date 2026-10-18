@@ -5,7 +5,6 @@
 //! flow, and next to it a flow of the same stream, untransformed, into an archive table of the
 //! low-cost Auxiliary plan, so every record is kept whole (contract rule 2).
 
-use std::collections::BTreeSet;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -237,42 +236,14 @@ fn prove(
         );
         return Ok(None);
     }
-    let declared = flow.declared();
-    // Both in one query: the flow's own transformation may read the clock (`now()`).
-    // Sluice's part alone too, where it runs first: there the columns have the stream's names.
-    let mut kqls = vec![flow.before.as_str(), kql.as_str()];
-    if flow.first {
-        kqls.push(&generated.kql);
-    }
-    let mut runs = run_transformations(url, &declared, &kqls, &events)
-        .with_context(|| format!("{source}: running the transformation in the emulator"))?;
-    let alone = if flow.first { runs.pop() } else { None };
-    let (Some(after), Some(untouched)) = (runs.pop(), runs.pop()) else {
-        bail!("{source}: the emulator returned no records");
-    };
-    let named_as_stream = alone.as_ref().unwrap_or(&after);
-    let violations = beyond_vector(analysis, &events, named_as_stream, &generated.columns)?;
-    if let Some(first) = violations.first() {
-        bail!(
-            "{source}: the transformation empties {} column(s) the proven data plane keeps, \
-             first {first}; nothing was written",
-            violations.len()
-        );
-    }
     // The rules on the records as the table gets them, without Sluice's part and with it.
-    let stored: Vec<Event> = events
-        .iter()
-        .zip(&untouched)
-        .map(|(event, record)| Event {
-            fields: record.clone(),
-            ..(*event).clone()
-        })
-        .collect();
-    let stored: Vec<&Event> = stored.iter().collect();
+    let kept = through_flow(analysis, url, source, flow, (&generated.kql, &kql), &events)?;
+    let stored: Vec<&Event> = kept.iter().map(|(event, _)| event).collect();
+    let reduced: Vec<Map<String, Value>> = kept.iter().map(|(_, record)| record.clone()).collect();
     let alerts = input
         .sentinel
         .and_then(|s| s.engine)
-        .map(|engine| super::same_alerts(engine, source, &stored, &after))
+        .map(|engine| super::same_alerts(engine, source, &stored, &reduced))
         .transpose()?;
     let proven = Proven {
         source: source.to_owned(),
@@ -280,18 +251,101 @@ fn prove(
         generated,
         kql,
     };
-    summary(&proven, &untouched, &after, alerts);
+    summary(&proven, &kept, alerts);
     Ok(Some(proven))
 }
 
-fn summary(
-    proven: &Proven,
-    untouched: &[Map<String, Value>],
-    after: &[Map<String, Value>],
-    alerts: Option<usize>,
-) {
-    let before: usize = untouched.iter().map(size).sum();
-    let kept: usize = after.iter().map(size).sum();
+/// Runs the flow with and without Sluice's part (`kqls`: the part, and the whole
+/// `transformKql`) on `events` in the emulator, and returns each event the table gets: as
+/// stored without the part, and with it. Refuses a part that drops an event the flow keeps,
+/// makes the flow keep one it drops, or empties a column Vector keeps.
+fn through_flow(
+    analysis: &Analysis,
+    url: &str,
+    source: &str,
+    flow: &Flow,
+    (part, whole): (&str, &str),
+    events: &[&Event],
+) -> Result<Vec<(Event, Map<String, Value>)>> {
+    let declared = flow.declared();
+    // Both in one query: the flow's own transformation may read the clock (`now()`). Where
+    // Sluice's part runs first, the columns have the stream's names there: it also runs alone,
+    // next to the records as loaded, to see exactly what it removes.
+    let mut kqls = vec![flow.before.as_str(), whole];
+    if flow.first {
+        kqls.push(part);
+        kqls.push("source");
+    }
+    let mut runs = run_transformations(url, &declared, &kqls, events)
+        .with_context(|| format!("{source}: running the transformation in the emulator"))?;
+    let (loaded, alone) = if flow.first {
+        (runs.pop(), runs.pop())
+    } else {
+        (None, None)
+    };
+    let (Some(after), Some(untouched)) = (runs.pop(), runs.pop()) else {
+        bail!("{source}: the emulator returned no records");
+    };
+    // What Sluice's part gets, and what it leaves.
+    let (given, left) = match (&loaded, &alone) {
+        (Some(loaded), Some(alone)) => (loaded, alone),
+        _ => (&untouched, &after),
+    };
+    if let Some(n) = dropped(given, left).or_else(|| dropped(&untouched, &after)) {
+        bail!(
+            "{source}: the transformation drops event {}, which the data flow keeps; nothing was \
+             written",
+            events[n].id
+        );
+    }
+    if let Some(n) = dropped(&after, &untouched) {
+        bail!(
+            "{source}: with the transformation the data flow keeps event {}, which it drops \
+             otherwise; nothing was written",
+            events[n].id
+        );
+    }
+    let violations = beyond_vector(analysis, events, given, left)?;
+    if let Some(first) = violations.first() {
+        bail!(
+            "{source}: the transformation empties {} column(s) the proven data plane keeps, \
+             first {first}; nothing was written",
+            violations.len()
+        );
+    }
+    // A record the flow's own transformation drops reaches the table in neither.
+    Ok(events
+        .iter()
+        .zip(untouched.iter().zip(&after))
+        .filter_map(|(event, records)| match records {
+            (Some(untouched), Some(after)) => Some((
+                Event {
+                    fields: untouched.clone(),
+                    ..(*event).clone()
+                },
+                after.clone(),
+            )),
+            _ => None,
+        })
+        .collect())
+}
+
+/// An event's record after a transformation, if it kept the event.
+type Record = Option<Map<String, Value>>;
+
+/// The first event whose record `before` holds and `after` does not: one dropped in between.
+fn dropped(before: &[Record], after: &[Record]) -> Option<usize> {
+    before
+        .iter()
+        .zip(after)
+        .position(|(before, after)| before.is_some() && after.is_none())
+}
+
+/// Prints what the transformation saves on the records the table gets: each event as stored
+/// without Sluice's part, and with it.
+fn summary(proven: &Proven, records: &[(Event, Map<String, Value>)], alerts: Option<usize>) {
+    let before: usize = records.iter().map(|(event, _)| size(&event.fields)).sum();
+    let kept: usize = records.iter().map(|(_, after)| size(after)).sum();
     let generated = &proven.generated;
     println!(
         "  native  {} → {}: {} kinds of event, columns {}; {} → {} ({}), every emptied column \
@@ -404,15 +458,20 @@ fn archive_table(table: &Table, flow: &Flow) -> Value {
     })
 }
 
-/// Columns the transformation emptied on a record that the data plane keeps on it.
+/// Columns Sluice's part emptied on a record that the data plane keeps on it: every column the
+/// record holds before the part (`given`) and lacks after it (`left`), not only those the
+/// transformation names, so the check does not rest on the code it checks.
 fn beyond_vector(
     analysis: &Analysis,
     events: &[&Event],
-    after: &[Map<String, Value>],
-    columns: &BTreeSet<String>,
+    given: &[Record],
+    left: &[Record],
 ) -> Result<Vec<String>> {
     let mut violations = Vec::new();
-    for (event, record) in events.iter().zip(after) {
+    for ((event, given), left) in events.iter().zip(given).zip(left) {
+        let (Some(given), Some(left)) = (given, left) else {
+            continue; // Dropped by the flow's own transformation: the table gets neither.
+        };
         let reduced = analysis
             .data_plane
             .reduce(event)
@@ -420,10 +479,8 @@ fn beyond_vector(
         let Outcome::Forwarded(body) = reduced.outcome else {
             continue; // Vector counts it instead of sending it.
         };
-        for column in columns {
-            let emptied = event.fields.get(column).is_some_and(|v| !is_empty(v))
-                && !record.contains_key(column);
-            if emptied && body.contains_key(column) {
+        for column in given.keys().filter(|column| !left.contains_key(*column)) {
+            if body.contains_key(column) {
                 violations.push(format!("{column} on event {}", event.id));
             }
         }
