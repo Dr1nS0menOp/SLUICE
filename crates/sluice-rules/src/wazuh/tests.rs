@@ -52,6 +52,24 @@ fn regex_and_pcre2_values_widen_to_a_present_field() {
 }
 
 #[test]
+fn c3_a_size_limit_reads_every_field_and_a_quiet_period_is_stateful() {
+    let rules = parse(
+        r#"<rule id="1003" level="13" maxsize="1025"><description>size too large</description></rule>"#,
+    );
+    assert_eq!(only(&rules).fields, RequiredFields::Unknown);
+    assert!(only(&rules).matches_raw_text);
+    assert_eq!(only(&rules).prefilter, Predicate::Always);
+    assert!(rules.problems().is_empty(), "{:?}", rules.problems());
+
+    let rules = parse(r#"<rule id="2" level="3" ignore="60"><field name="x">a</field></rule>"#);
+    assert!(only(&rules).stateful);
+    assert!(rules.problems().is_empty(), "{:?}", rules.problems());
+
+    let rules = parse(r#"<rule id="3" level="3" future="1"><field name="x">a</field></rule>"#);
+    assert_eq!(only(&rules).fields, RequiredFields::Unknown);
+}
+
+#[test]
 fn negated_values_widen_fully() {
     // A negated match may also pass when the field is missing.
     let rules =

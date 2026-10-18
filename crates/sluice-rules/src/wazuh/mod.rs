@@ -189,11 +189,22 @@ fn requirement(
         };
     };
     let rule = RuleId::new(format!("wazuh:{id}"));
-    let mut builder = Builder {
-        stateful: raw.attributes.contains_key("frequency")
-            || raw.attributes.contains_key("timeframe"),
-        ..Builder::default()
-    };
+    let mut builder = Builder::default();
+    for attribute in raw.attributes.keys() {
+        match attribute.as_str() {
+            "id" | "level" | "overwrite" | "noalert" => {}
+            // Counting over time, or staying quiet for a while after an alert: the rule depends
+            // on other events.
+            "frequency" | "timeframe" | "ignore" => builder.stateful = true,
+            // The rule needs an event of at least this many bytes (rule 1003, "size too large"):
+            // removing any field may bring one under it, as for a `<match>` on the whole line.
+            "maxsize" => {
+                builder.unknown_fields = true;
+                builder.raw_text = true;
+            }
+            other => builder.unknown(&rule, &format!("unknown attribute `{other}`"), problems),
+        }
+    }
     let mut parents = Vec::new();
     let mut text_lines_only = false;
     for child in &raw.children {
