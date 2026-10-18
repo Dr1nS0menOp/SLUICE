@@ -12,6 +12,7 @@
 
 pub mod advice;
 pub mod alert;
+pub mod codegen;
 pub mod event;
 pub mod field;
 pub mod guard;

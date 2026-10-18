@@ -13,6 +13,7 @@
 //! Keywords test the text of every column, joined: that also sees object keys and booleans, so
 //! it matches more than VRL's scan of values, never less.
 
+use sluice_core::codegen::balanced;
 use sluice_core::predicate::{FieldTest, KeywordTest, MatchOp, Predicate};
 
 use crate::syntax;
@@ -56,6 +57,7 @@ fn compile_in(predicate: &Predicate, columns: &[&str], known: Option<&syntax::Co
                 .map(|p| compile_in(p, columns, known))
                 .collect::<Vec<_>>(),
             " or ",
+            "false",
         ),
         Predicate::All(parts) => balanced(
             &parts
@@ -63,6 +65,7 @@ fn compile_in(predicate: &Predicate, columns: &[&str], known: Option<&syntax::Co
                 .map(|p| compile_in(p, columns, known))
                 .collect::<Vec<_>>(),
             " and ",
+            "true",
         ),
         Predicate::Field(test) => field(test, known),
         Predicate::Keywords(test) => keywords(test, columns, known),
@@ -92,7 +95,7 @@ fn field(test: &FieldTest, known: Option<&syntax::Columns>) -> String {
     alternatives.extend(comparisons);
     format!(
         "(isnotnull({value}) and {})",
-        balanced(&alternatives, " or ")
+        balanced(&alternatives, " or ", "false")
     )
 }
 
@@ -138,7 +141,7 @@ fn keywords(test: &KeywordTest, columns: &[&str], known: Option<&syntax::Columns
         alternatives.push(format!("{rendered} matches regex {NON_ASCII}"));
     }
     alternatives.extend(comparisons);
-    balanced(&alternatives, " or ")
+    balanced(&alternatives, " or ", "false")
 }
 
 /// `texts` joined with newlines, nesting `strcat_delim` where it would take too many arguments.
@@ -169,27 +172,6 @@ fn comparison(text: &str, op: MatchOp, value: &str, case_sensitive: bool) -> Opt
         (MatchOp::Regex | MatchOp::Exists, _) => return None,
     };
     Some(format!("{text} {operator} {literal}"))
-}
-
-/// Joins `parts` as a balanced tree of parentheses, so thousands of rule tests stay shallow.
-fn balanced(parts: &[String], operator: &str) -> String {
-    match parts {
-        [] => if operator.contains("or") {
-            "false"
-        } else {
-            "true"
-        }
-        .to_owned(),
-        [one] => one.clone(),
-        _ => {
-            let (left, right) = parts.split_at(parts.len() / 2);
-            format!(
-                "({}{operator}{})",
-                balanced(left, operator),
-                balanced(right, operator)
-            )
-        }
-    }
 }
 
 #[cfg(test)]

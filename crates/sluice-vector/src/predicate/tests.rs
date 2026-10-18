@@ -461,17 +461,6 @@ fn five_or_more_values_become_one_alternation_and_fewer_stay_comparisons() {
 }
 
 #[test]
-fn joining_nothing_gives_the_operators_neutral_value() {
-    assert_eq!(super::balanced(&[], " || "), "false");
-    assert_eq!(super::balanced(&[], " && "), "true");
-    assert_eq!(super::balanced(&["a".into()], " || "), "a");
-    assert_eq!(
-        super::balanced(&["a".into(), "b".into(), "c".into()], " && "),
-        "(a && (b && c))"
-    );
-}
-
-#[test]
 fn a_predicate_program_shows_the_vrl_it_runs() {
     let program = PredicateProgram::compile(&test("A", MatchOp::Equals, &["1"], true)).unwrap();
     let source = program.source();

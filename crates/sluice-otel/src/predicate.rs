@@ -16,6 +16,7 @@
 //! - keywords Go's JSON writer escapes (`"`, `\`, `<`, `>`, `&`, control and non-ASCII
 //!   characters), as keywords search the record's JSON text, keys included.
 
+use sluice_core::codegen::{balanced, float_may_match};
 use sluice_core::predicate::{FieldTest, KeywordTest, MatchOp, Predicate};
 
 use crate::ottl;
@@ -29,10 +30,12 @@ pub fn compile(predicate: &Predicate, root: &str) -> String {
         Predicate::Any(parts) => balanced(
             &parts.iter().map(|p| compile(p, root)).collect::<Vec<_>>(),
             " or ",
+            "false",
         ),
         Predicate::All(parts) => balanced(
             &parts.iter().map(|p| compile(p, root)).collect::<Vec<_>>(),
             " and ",
+            "true",
         ),
         Predicate::Field(test) => guarded(root, &test.field, &field(test, root)),
         Predicate::Keywords(test) => keywords(test, root),
@@ -142,36 +145,6 @@ fn pattern(values: &[String], case_sensitive: bool, start: &str, end: &str) -> O
     let alternatives: Vec<String> = values.iter().map(|v| ottl::quote_meta(v)).collect();
     let flags = if case_sensitive { "(?s)" } else { "(?is)" };
     Some(format!("{flags}{start}(?:{}){end}", alternatives.join("|")))
-}
-
-/// Whether one of `values` could be part of how an engine writes a float (`4625.0`, `1e21`,
-/// `-inf`, `NaN`), which is when VRL lets a float value match. The same test as the VRL
-/// compilation's.
-fn float_may_match(values: &[String]) -> bool {
-    values.iter().any(|value| {
-        let value = value.to_ascii_lowercase();
-        value.chars().all(|c| "0123456789.-+e".contains(c))
-            || ["-infinity", "+infinity", "nan"]
-                .iter()
-                .any(|word| word.contains(value.as_str()))
-    })
-}
-
-/// Joins `parts` as a balanced tree of parentheses, so thousands of rule tests stay shallow for
-/// OTTL's parser. Nothing joined is the operator's neutral element.
-fn balanced(parts: &[String], operator: &str) -> String {
-    match parts {
-        [] => if operator == " or " { "false" } else { "true" }.to_owned(),
-        [one] => one.clone(),
-        _ => {
-            let (left, right) = parts.split_at(parts.len() / 2);
-            format!(
-                "({}{operator}{})",
-                balanced(left, operator),
-                balanced(right, operator)
-            )
-        }
-    }
 }
 
 #[cfg(test)]

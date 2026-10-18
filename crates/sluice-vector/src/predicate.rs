@@ -18,6 +18,7 @@
 //!
 //! Missing and null fields make a test false, as they do in Sigma.
 
+use sluice_core::codegen::{balanced, float_may_match};
 use sluice_core::predicate::{FieldTest, KeywordTest, MatchOp, Predicate};
 
 use crate::syntax;
@@ -155,7 +156,7 @@ impl Compiler<'_> {
                 .map(|v| comparison(&rendered, test.op, v, test.case_sensitive))
                 .collect();
             match comparisons.filter(|c| !c.is_empty()) {
-                Some(comparisons) => balanced(&comparisons, " || "),
+                Some(comparisons) => balanced(&comparisons, " || ", "false"),
                 None => return vec![format!("{target} = true")],
             }
         };
@@ -187,18 +188,6 @@ impl Compiler<'_> {
             ),
         ]
     }
-}
-
-/// Whether one of `values` could be part of how an engine writes a float (`4625.0`, `1e21`,
-/// `-inf`, `NaN`): only then may a float value match a test for them.
-fn float_may_match(values: &[String]) -> bool {
-    values.iter().any(|value| {
-        let value = value.to_ascii_lowercase();
-        value.chars().all(|c| "0123456789.-+e".contains(c))
-            || ["-infinity", "+infinity", "nan"]
-                .iter()
-                .any(|word| word.contains(value.as_str()))
-    })
 }
 
 fn indent(statements: &[String]) -> String {
@@ -272,40 +261,13 @@ fn keyword_checks(rendered: &str, test: &KeywordTest) -> String {
                 .map(|k| call("contains", rendered, k, test.case_sensitive))
                 .collect::<Vec<_>>(),
             " || ",
+            "false",
         )
     };
     if test.values.len() < KEYWORD_REGEX_MIN {
         return contains();
     }
     alternation(rendered, &test.values, test.case_sensitive, "", "").unwrap_or_else(contains)
-}
-
-/// Joins `parts` with a binary `operator` as a balanced tree of parentheses. VRL parses and
-/// type-checks `a || b || c …` recursively, one level per operand, so a pre-filter over the
-/// thousands of `SigmaHQ` rules overflowed the stack; halving keeps the depth logarithmic.
-fn balanced(parts: &[String], operator: &str) -> String {
-    match parts {
-        [] => unreachable_empty(operator),
-        [one] => one.clone(),
-        _ => {
-            let (left, right) = parts.split_at(parts.len() / 2);
-            format!(
-                "({}{operator}{})",
-                balanced(left, operator),
-                balanced(right, operator)
-            )
-        }
-    }
-}
-
-/// Callers never join nothing; should one, the neutral element keeps the program valid.
-fn unreachable_empty(operator: &str) -> String {
-    if operator.contains("||") {
-        "false"
-    } else {
-        "true"
-    }
-    .to_owned()
 }
 
 /// One comparison of the stringified field value in variable `text` with `value`, or `None` if

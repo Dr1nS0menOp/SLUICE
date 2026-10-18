@@ -10,6 +10,7 @@
 //!
 //! Keywords search every leaf value of the record, as VRL's scan of `flatten(.)` does.
 
+use sluice_core::codegen::{balanced, float_may_match};
 use sluice_core::predicate::{FieldTest, KeywordTest, MatchOp, Predicate};
 
 use crate::lua;
@@ -18,10 +19,11 @@ use crate::lua;
 /// Vector runs matches.
 #[must_use]
 pub fn compile(predicate: &Predicate) -> String {
+    let all = |parts: &[Predicate]| parts.iter().map(compile).collect::<Vec<_>>();
     match predicate {
         Predicate::Always => "true".to_owned(),
-        Predicate::Any(parts) => balanced(&parts.iter().map(compile).collect::<Vec<_>>(), " or "),
-        Predicate::All(parts) => balanced(&parts.iter().map(compile).collect::<Vec<_>>(), " and "),
+        Predicate::Any(parts) => balanced(&all(parts), " or ", "false"),
+        Predicate::All(parts) => balanced(&all(parts), " and ", "true"),
         Predicate::Field(test) => field(test),
         Predicate::Keywords(test) => keywords(test),
     }
@@ -62,19 +64,6 @@ fn keywords(test: &KeywordTest) -> String {
     )
 }
 
-/// Whether one of `values` could be part of how an engine writes a float (`4625.0`, `1e21`,
-/// `-inf`, `NaN`), which is when VRL lets a float value match. The same test as the VRL
-/// compilation's, so a float matches here wherever it does there.
-fn float_may_match(values: &[String]) -> bool {
-    values.iter().any(|value| {
-        let value = value.to_ascii_lowercase();
-        value.chars().all(|c| "0123456789.-+e".contains(c))
-            || ["-infinity", "+infinity", "nan"]
-                .iter()
-                .any(|word| word.contains(value.as_str()))
-    })
-}
-
 /// The values as a list literal, lowercased for a case-insensitive test; `None` where the test
 /// must widen: no values, or a case-insensitive one that is not ASCII.
 fn values(values: &[String], case_sensitive: bool) -> Option<String> {
@@ -92,23 +81,6 @@ fn values(values: &[String], case_sensitive: bool) -> Option<String> {
         })
         .collect();
     Some(lua::list(values.iter().map(String::as_str)))
-}
-
-/// Joins `parts` as a balanced tree of parentheses, so thousands of rule tests stay shallow for
-/// Lua's parser. Nothing joined is the operator's neutral element.
-fn balanced(parts: &[String], operator: &str) -> String {
-    match parts {
-        [] => if operator == " or " { "false" } else { "true" }.to_owned(),
-        [one] => one.clone(),
-        _ => {
-            let (left, right) = parts.split_at(parts.len() / 2);
-            format!(
-                "({}{operator}{})",
-                balanced(left, operator),
-                balanced(right, operator)
-            )
-        }
-    }
 }
 
 #[cfg(test)]
