@@ -261,7 +261,9 @@ Run again on 2026-10-17 after the Splunk, custom-table and agent work (`next/m12
 every number below came out the same. Again on 2026-10-18 after the review's fail-closed fixes
 (generators that stop where they cannot decide, Sentinel rules over custom tables, fields parsed
 from text lines, Wazuh `maxsize`, Splunk raw text): the same again. None of those cases occur
-in this data, or its savings were already nothing.
+in this data, or its savings were already nothing. The ECS runs below, repeated the same day
+after the Elastic KQL number fix, also gave the same numbers: 29.3 %, 29.3 % with 2,035 Elastic
+rules (1,934 of them run in Elasticsearch), and 0.6 % with 2,059.
 
 | Run, 2026-10-16 | Data | Saved | Alerts (full = forwarded) | Before (ADR 0009, 0015) |
 |---|---|---:|---|---|
@@ -292,7 +294,7 @@ for the proof):
 
 | Elastic rules | Saved | Alerts (full = forwarded) |
 |---|---:|---|
-| none | 18.9 % | 196 = 196 |
+| none | 18.9 %; 29.3 % since arrays are searched | 196 = 196 |
 | 2,035: no machine learning, none over alert indices | 18.9 %; 29.3 % since arrays are searched | 42,531 = 42,531 |
 | 2,059: no machine learning | 0.6 % | 42,531 = 42,531 |
 

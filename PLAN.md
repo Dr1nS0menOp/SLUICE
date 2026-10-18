@@ -761,7 +761,8 @@ Still open:
    `common_security_log`, `asim_*`, `windows`) were for `sluice up` sources. Archive them, or
    document how to shape records without Sluice.
 2. **Not verified against the real engine:** that Wazuh fires `maxsize` rules on large events
-   (read from rule 1003's description).
+   (read from rule 1003's description). Verifying it with `logtest` needs the manager's
+   credentials.
 3. **The ECS real-data runs** (`to-ecs.sh`, with Elastic's prebuilt rules in Elasticsearch)
    were not repeated after the KQL number fix. Elastic KQL numbers now test their significant
    digits, which may save a little less there.
@@ -777,12 +778,16 @@ Refactors done:
 - The CLI's native proofs share their check and summary.
 - `native/sentinel/dcr.rs` is split out.
 
-Refactors still proposed, in order of value:
+Also done: `RuleSets` (the rule flags once, for `analyze` and `rules requirements`), the
+`sluice-http` crate for the eight HTTP clients, `recipes.rs` and `engines.rs` split out of the
+CLI, refusals for flags that would be ignored, and "not read" decided by
+`RuleRequirements::is_opaque` instead of markers in rule ids.
 
+Still proposed:
+
+- one `--native sentinel,elastic,fluent-bit,otel` flag instead of four switches (a CLI change
+  for users: Ward's decision);
 - case folding and `Any` alternatives shared from core;
-- one `RuleSets` argument struct (the rule flags are declared three times);
-- one `--native sentinel,elastic,fluent-bit,otel` flag;
-- a small `sluice-http` crate for the eight ureq clients, with one body limit and one error excerpt;
 - `RuleId::of(Engine, …)` and typed problems instead of `format!` ids and strings.
 
 ## Project layout (Rust Cargo workspace)

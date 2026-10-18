@@ -82,6 +82,19 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
 - **Sigma pipelines.** A rule's copy mapped onto the records' naming convention stood in for the
   rule even where the copy's log source could not apply (after `change_logsource`), so the rule
   protected nothing there. The copy now counts only where it can apply.
+- **Sentinel workspace functions in lower case.** Only a call with an upper-case letter counted
+  as a workspace function. Now a lower-case call where only a tabular function can stand
+  (`| invoke f()`, a statement that starts with `f()`) widens the rule as well.
+- **Rules Sluice could not read** show as "not read" in the report whatever their id says, and
+  an unreadable Elastic rule keeps its name.
+- **Flags that did nothing are refused**, naming what is missing:
+  - `--fluent-bit` and `--otel-collector` without their `--*-native`;
+  - the demo's `--elasticsearch` without `--elastic-native`;
+  - `--wazuh-user` and `--wazuh-insecure` without `--wazuh-api`;
+  - `analyze --elasticsearch` with neither `--elastic-rules` nor `--elastic-native`.
+- **One HTTP client** (`sluice-http`) for every adapter. A large Azure query log is no longer cut
+  off at 10 MB, refusals quote a short excerpt instead of whole answers, and the Kibana space is
+  percent-encoded.
 - **The Sentinel proof** matched transformed records with the sample's events by position, which
   a data flow's own `where` shifts. Records are now matched by row number. Every column a record
   loses is checked, and dropped or added events are refused.
