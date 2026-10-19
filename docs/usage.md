@@ -2,7 +2,9 @@
 
 This page walks through what you can do with Sluice, from a first look to the configurations
 that carry out the savings in the tools you run. Each section is a complete path you can follow.
-For every command and file, see the [user guide](guide.md); for how it works inside, see
+The [README](../README.md) has a short guide per SIEM (Microsoft Sentinel, Wazuh, Elastic
+Security), with the read-only account each needs; this page goes into more depth. For every
+command and file, see the [user guide](guide.md); for how it works inside, see
 [architecture](architecture.md).
 
 Sluice reads and writes files. It never sits in your data path and changes nothing in your
@@ -24,8 +26,8 @@ analysis with example Sigma rules and prints what it would save and whether ever
 survived:
 
 ```
-80,536 events from 6 sources, 29 templates
-  ingest  121.0 MB → 29.8 MB  (75.3% saved, 44,562 events summarized)
+80,536 events from 6 sources, 76 templates
+  ingest  121.0 MB → 31.5 MB  (74.0% saved, 41,562 events summarized)
   proof   41 alerts on full data, 41 on forwarded data  ✓ no detection changed
 ```
 
@@ -39,7 +41,11 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
 
 1. **Export a sample** per source as NDJSON (one JSON object per line), for example
    `samples/windows-security.ndjson` and `samples/firewall.ndjson`. Text logs go one line per
-   event in a `message` field.
+   event in a `message` field. `scripts/real-data/` has exporters, each read-only:
+   - `collect-sentinel.sh`: a Log Analytics workspace's tables;
+   - `collect-elastic.sh`: an Elasticsearch index pattern;
+   - `collect-linux.sh`: a Linux host's `auth.log` and `syslog`, over SSH;
+   - `collect-windows.ps1`: a Windows host's event logs, in Sigma's field names.
 2. **Describe the sources** in `sources.yaml`, with the Sigma log source of each. Be as precise
    as you can, since anything left out counts as unknown and keeps more rules in scope:
 

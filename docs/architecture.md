@@ -35,8 +35,9 @@ takes in Vector. The terms are explained in the [glossary](glossary.md).
 
 - **Rules.** `sluice rules fetch` reads what a SIEM runs, read-only, into a directory with an
   `inventory.json` that marks it complete (ADR 0021): a Sentinel workspace's analytics rules,
-  hunting queries, functions and query log; a Wazuh manager's rule and decoder files; the
-  detection rules of a Kibana space; Splunk's saved searches, macros, props and transforms.
+  hunting queries, functions, query log and tables (ADR 0031); a Wazuh manager's rule and
+  decoder files; the detection rules of a Kibana space; Splunk's saved searches, macros, props
+  and transforms.
   Sigma rules come from a directory, and the operator says whether they are complete.
 - **A sample.** One NDJSON file per source, an hour or a day of it, and a sources file that
   describes each source: its Sigma log source, its format (JSON or text) and the field naming
@@ -206,7 +207,7 @@ that M9 and M10 addressed. What remains:
   `sluice prove` again when it changes; it does not see your traffic afterwards. A format that
   changes fits no template and passes through unchanged, which costs savings, not detections.
   A rule added in the SIEM, however, is protected only from the next fetch and analysis on
-  (ADR 0030).
+  (ADR 0030), and so is a rule over a Sentinel table created after the fetch (ADR 0031).
 
 ## The parts
 

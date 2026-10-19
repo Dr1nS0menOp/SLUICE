@@ -3,8 +3,8 @@
 #   -Format sigma (default): System, Application and PowerShell Operational as flat JSON objects
 #     in Sigma's field names (each named EventData item at the top level), for `run.sh`.
 #   -Format agent: the same channels, or with -Security the Security channel alone (needs an
-#     elevated shell), as Vector's `windows_event_log` source emits them, the way `sluice agent
-#     windows` sends them, for `send-sentinel.sh`.
+#     elevated shell), as Vector's `windows_event_log` source emits them: the sample for a Vector
+#     that reads the event log itself.
 #
 #   powershell -File scripts/real-data/collect-windows.ps1 -Out \\wsl.localhost\Ubuntu-24.04\home\<you>\.cache\sluice-realdata\windows
 #

@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
-# Copies recent `SecurityEvent` and `WindowsEvent` records from a Log Analytics workspace as
-# NDJSON for `scripts/real-data/run.sh`, one record per line, as the workspace stores them.
+# Copies recent records of a Log Analytics workspace's tables as NDJSON for `sluice analyze`,
+# one record per line as the workspace stores them, into OUT/<TABLE>.ndjson.
 #
 #   AZURE_TENANT_ID=… AZURE_CLIENT_ID=… AZURE_CLIENT_SECRET=… \
-#     scripts/real-data/collect-sentinel.sh /subscriptions/…/workspaces/NAME OUT [DAYS] [ROWS]
+#     scripts/real-data/collect-sentinel.sh /subscriptions/…/workspaces/NAME OUT [DAYS] [ROWS] [TABLE…]
 #
-# The app registration needs Log Analytics Reader on the workspace. The records are real: keep
-# OUT outside the repository. Nothing here prints a token or the secret.
+# The tables default to `SecurityEvent` and `WindowsEvent`. The app registration needs Log
+# Analytics Reader on the workspace. The records are real: keep OUT outside the repository.
+# Nothing here prints a token or the secret.
 set -euo pipefail
 
-workspace=${1:?usage: collect-sentinel.sh WORKSPACE_RESOURCE_ID OUT [DAYS] [ROWS]}
-out=${2:?usage: collect-sentinel.sh WORKSPACE_RESOURCE_ID OUT [DAYS] [ROWS]}
+usage="usage: collect-sentinel.sh WORKSPACE_RESOURCE_ID OUT [DAYS] [ROWS] [TABLE...]"
+workspace=${1:?$usage}
+out=${2:?$usage}
 days=${3:-30}
 rows=${4:-20000}
+shift $(($# < 4 ? $# : 4))
 : "${AZURE_TENANT_ID:?}" "${AZURE_CLIENT_ID:?}" "${AZURE_CLIENT_SECRET:?}"
 
 mkdir -p "$out"
-python3 -I - "$workspace" "$out" "$days" "$rows" <<'EOF'
+python3 -I - "$workspace" "$out" "$days" "$rows" "$@" <<'EOF'
 import json
 import os
 import sys
@@ -24,6 +27,7 @@ import urllib.parse
 import urllib.request
 
 workspace, out, days, rows = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+tables = sys.argv[5:] or ["SecurityEvent", "WindowsEvent"]
 
 
 def token(scope):
@@ -53,7 +57,7 @@ customer = call(
     f"https://management.azure.com{workspace}?api-version=2022-10-01", arm
 )["properties"]["customerId"]
 logs = token("https://api.loganalytics.io/.default")
-for table in ["SecurityEvent", "WindowsEvent"]:
+for table in tables:
     query = f"{table} | where TimeGenerated > ago({days}d) | take {rows}"
     result = call(
         f"https://api.loganalytics.io/v1/workspaces/{customer}/query", logs, {"query": query}

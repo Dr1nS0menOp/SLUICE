@@ -28,7 +28,9 @@ bash scripts/check.sh
 ```
 
 This runs `cargo fmt`, `cargo clippy` (pedantic, warnings are errors), the tests, `cargo doc` and
-`cargo deny`.
+`cargo deny`. With Vector installed and Docker running, it also runs the generated code in the
+real engines (Vector, the Kusto emulator, Elasticsearch, Fluent Bit and the OpenTelemetry
+Collector) and fails when one removes more than Vector does.
 
 Sluice supports only Linux ([ADR 0003](docs/adr/0003-linux-only.md)). On Windows, develop in
 WSL2. You can keep the sources on the Windows filesystem and run every cargo command inside WSL:
@@ -39,13 +41,23 @@ WSL2. You can keep the sources on the Windows filesystem and run every cargo com
 
 On macOS, use a Linux container or VM.
 
-Beyond the gates, these scripts check behaviour against the real tools. CI runs all but the last:
+These scripts check behaviour against the real tools. `check.sh` runs the first five when their
+engine is there. CI runs all of them but `kql-check.sh`, whose emulator image is 4.5 GB, and
+`bench.sh`:
 
 | Script | Checks |
 |--------|--------|
-| `scripts/vector-check.sh` | `vector validate` and `vector test` on generated configurations (part of `check.sh` when Vector is installed) |
+| `scripts/vector-check.sh` | `vector validate` and `vector test` on generated configurations |
+| `scripts/kql-check.sh` | Generated KQL and Sentinel's analytics rules in the Kusto emulator, including a custom table end to end (`sentinel-custom-check.sh`) |
+| `scripts/elastic-check.sh` | Generated ingest pipelines and Elastic's rules in Elasticsearch |
+| `scripts/fluentbit-check.sh` | Generated Lua filters in Fluent Bit |
+| `scripts/otel-check.sh` | Generated `transform` statements in the OpenTelemetry Collector |
 | `scripts/sigma-differential.sh [--sigmahq]` | Rule requirements against pySigma, on the examples or the full SigmaHQ set |
 | `scripts/bench.sh [source] [scale]` | Data plane throughput with the real Vector ([docs/notes/benchmarks.md](docs/notes/benchmarks.md)) |
+
+`scripts/real-data/` takes samples from real systems (`collect-sentinel.sh`, `collect-elastic.sh`,
+`collect-linux.sh`, `collect-windows.ps1`) and repeats the real-data runs of
+[docs/testing-plan.md](docs/testing-plan.md) (`run.sh`). Keep the samples outside the repository.
 
 Install Vector with `scripts/install-vector.sh` and the release toolchain with
 `scripts/install-zig.sh`; both verify checksums and need no root.

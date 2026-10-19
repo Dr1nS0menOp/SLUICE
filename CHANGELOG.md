@@ -137,6 +137,19 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
   (`codegen::folded_values`); OTTL and KQL now compare the lowercased values too, which match
   the same.
 
+### Trying it on your own SIEM (2026-10-19)
+
+- The README has a guide per SIEM, for Microsoft Sentinel, Wazuh and Elastic Security. Each one
+  creates a read-only account, fetches the rules, exports a sample, analyzes and deploys. The
+  Wazuh and Elastic steps were checked against Wazuh 4.14.0 and Kibana 9.1.0; the accounts they
+  create may read and nothing else.
+- `scripts/real-data/collect-elastic.sh` exports an Elasticsearch index pattern as a sample, and
+  `collect-sentinel.sh` takes the tables to export.
+- **Wazuh's rate limit.** The manager allows 300 API requests a minute, and the fetch reads one
+  file per request: with a few files more than the stock ruleset's 289, or a second fetch
+  within the minute, it failed with HTTP 429. The fetch and the `logtest` spot check now wait a
+  minute and try again, up to three times.
+
 ### Offline autopilot
 
 - `sluice demo` and `sluice analyze`: template discovery (JSON key sets, Drain for text with

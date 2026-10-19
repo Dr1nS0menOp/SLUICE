@@ -11,7 +11,7 @@ configuration use in brackets where it differs.
 | **Sample** (`--input`) | The events an analysis works on: one NDJSON file per source, an hour or a day of them. |
 | **Analysis** (`sluice analyze`) | Sluice looks at the sample and the rules once and decides what the configurations do, steps A to F. It changes nothing itself. |
 | **Data path** (data plane) | What your tool does with each single event, following the configuration Sluice wrote: in Vector, steps 1 to 5. Sluice is never in it. |
-| **Archive** | A full copy of every event, written before anything changes it: in `vector.yaml`, a file per source and hour; in a Sentinel data collection rule, an untransformed flow into an Auxiliary table. Safety contract rule 2. |
+| **Archive** | A full copy of every event, written before anything changes it: in `vector.yaml`, a file per source and hour; in a Sentinel data collection rule, an untransformed flow into an Auxiliary table. An ingest pipeline or an agent filter cannot write one, so the copy is kept where the data is sent from (ADR 0024). Safety contract rule 2. |
 | **Route** (`forward`, `summarize`) | What the generated program does with an event: forward it, whole or trimmed, or count it into a summary. |
 | **Summary** | A count per minute, per template and per combination of the recipe's key fields. Rules never see summaries; the originals are in the archive. |
 | **Savings plan** (`plan.json`) | Per source and kind of event, what may be removed or counted, which events keep every field, where the saving can run (`runs_in`), and the proof. Every configuration is built from the same proven selection. |

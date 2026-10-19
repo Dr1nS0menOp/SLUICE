@@ -70,6 +70,14 @@ installed pipeline. ADR 0024 uses these facts.
   500 "Error installing new prebuilt rules" once they are there.
 - The Security solution needs Elasticsearch with security on and Kibana's encryption keys
   (`xpack.encryptedSavedObjects.encryptionKey` and the like).
+- A read-only role (2026-10-19, the README's steps). `PUT /api/security/role/NAME` with the
+  feature `siemV3: ["read"]` in all spaces and `read`, `view_index_metadata` on `logs-*` is all
+  `sluice rules fetch elastic` and `scripts/real-data/collect-elastic.sh` need. Elasticsearch
+  stores the feature as the application privilege `feature_siemV3.read` of `kibana-.kibana`.
+  In 9.1.0 the Security feature is `siemV3` (`GET /api/features`; Cases is
+  `securitySolutionCasesV3`). Both work with a user that has the role, and with an API key the
+  administrator creates with the same `indices` and `applications` as role descriptors. With
+  the role, creating a rule, writing a document and writing a pipeline answer 403.
 
 ## Deploying
 
