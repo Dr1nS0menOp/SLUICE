@@ -46,7 +46,7 @@ fn sentinel_elastic_and_splunk_rule_problems_are_listed_in_the_analysis() {
     .expect("analysis");
     for needle in ["broken.yaml", "broken.ndjson", "`nowhere`"] {
         assert!(
-            analysis.problems.iter().any(|p| p.contains(needle)),
+            analysis.problems.iter().any(|p| p.message.contains(needle)),
             "{needle}: {:?}",
             analysis.problems
         );

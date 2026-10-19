@@ -11,8 +11,12 @@ use crate::azure::{ARM, Client, Credentials, LOG_ANALYTICS, SentinelError, Trans
 const ALERT_RULES_API: &str = "2024-09-01";
 /// The `savedSearches` API version (Microsoft.OperationalInsights).
 const SAVED_SEARCHES_API: &str = "2020-08-01";
-/// The workspace API version, for its `customerId`.
+/// The workspace API version, for its `customerId`, and of its `tables` API.
 const WORKSPACE_API: &str = "2022-10-01";
+
+/// The file a fetch writes the workspace's tables to, as `{"tables": [names]}`. A rule reads
+/// nothing through a table the workspace does not have (ADR 0031).
+pub const TABLES_FILE: &str = "tables.json";
 /// The most distinct queries read from the query log.
 const MAX_LOGGED_QUERIES: usize = 5_000;
 
@@ -59,6 +63,17 @@ pub fn fetch(
     ))?;
     for search in &searches {
         out.saved_search(search, options.all_saved_searches);
+    }
+    // Without the list every table a rule names counts as existing, so a refusal costs savings
+    // and is noted, not fatal.
+    match arm.list(&format!(
+        "{ARM}{workspace}/tables?api-version={WORKSPACE_API}"
+    )) {
+        Ok(tables) => out.tables(&tables),
+        Err(error) => out.inventory.manifest.not_modeled.push(format!(
+            "the workspace's tables could not be read ({error}): every table a rule names \
+             counts as existing; Log Analytics Reader on the workspace lets the fetch read them"
+        )),
     }
     if let Some(days) = options.query_log_days {
         let customer_id = arm.get(&format!("{ARM}{workspace}?api-version={WORKSPACE_API}"))?
@@ -280,6 +295,20 @@ impl Out {
         } else {
             self.count("saved_searches_not_read");
         }
+    }
+
+    /// The workspace's tables, as [`TABLES_FILE`]: every table it defines, each Microsoft table
+    /// whether or not data came in, and each custom table that was created.
+    fn tables(&mut self, tables: &[Value]) {
+        let names: BTreeSet<&str> = tables.iter().filter_map(|t| t["name"].as_str()).collect();
+        let text = serde_json::to_string_pretty(&json!({ "tables": names }))
+            .expect("a JSON value always serializes: its keys are strings")
+            + "\n";
+        self.inventory.files.push((TABLES_FILE.to_owned(), text));
+        self.inventory
+            .manifest
+            .counts
+            .insert("tables".to_owned(), names.len());
     }
 
     fn logged_query(&mut self, query: &str) {

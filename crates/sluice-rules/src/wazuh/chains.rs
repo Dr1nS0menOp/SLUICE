@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 
+use sluice_core::ids::{Engine, RuleId};
 use sluice_core::predicate::Predicate;
 use sluice_core::rules::{RequiredFields, RuleRequirements};
 
@@ -18,10 +19,10 @@ pub(super) struct Parsed {
 
 /// Applies every chain; returns the rules in their original order.
 pub(super) fn inherit(parsed: Vec<Parsed>) -> Vec<RuleRequirements> {
-    let index: BTreeMap<String, usize> = parsed
+    let index: BTreeMap<RuleId, usize> = parsed
         .iter()
         .enumerate()
-        .map(|(i, p)| (p.requirements.rule.as_str().to_owned(), i))
+        .map(|(i, p)| (p.requirements.rule.clone(), i))
         .collect();
     let mut resolved: Vec<Option<RuleRequirements>> = vec![None; parsed.len()];
     let mut visiting = vec![false; parsed.len()];
@@ -38,7 +39,7 @@ pub(super) fn inherit(parsed: Vec<Parsed>) -> Vec<RuleRequirements> {
 fn resolve(
     i: usize,
     parsed: &[Parsed],
-    index: &BTreeMap<String, usize>,
+    index: &BTreeMap<RuleId, usize>,
     resolved: &mut [Option<RuleRequirements>],
     visiting: &mut [bool],
 ) -> Option<RuleRequirements> {
@@ -57,7 +58,7 @@ fn resolve(
         let mut parents_text_only = true;
         for id in &own.parents {
             let parent = index
-                .get(&format!("wazuh:{id}"))
+                .get(&RuleId::of(Engine::Wazuh, id))
                 .and_then(|&p| resolve(p, parsed, index, resolved, visiting));
             if let Some(parent) = parent {
                 parent_prefilters.push(parent.prefilter);

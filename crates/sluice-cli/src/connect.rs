@@ -1,14 +1,14 @@
 //! `sluice connect sentinel`: the Microsoft Sentinel tables and data collection rules a source
 //! needs, as JSON files to create in Azure.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 use sluice_vector::CustomTable;
 use sluice_vector::summary_table::{SUMMARY_COUNTS, SUMMARY_TABLE, summary_dcr, summary_table};
 
-use crate::cli::{ConnectArgs, ConnectTarget, StandardTable};
+use crate::cli::{ConnectArgs, ConnectTarget};
 
 pub(crate) fn connect(args: &ConnectArgs) -> Result<()> {
     let ConnectTarget::Sentinel = args.target;
@@ -32,64 +32,14 @@ pub(crate) fn connect(args: &ConnectArgs) -> Result<()> {
         );
         wrote = true;
     }
-    if let Some(table) = args.standard_table {
-        let (path, shape) = standard_table_dcr(args, table)?;
-        println!(
-            "Create the data collection rule from {}; records sent to it must be shaped as \
-             `{shape}`.",
-            path.display()
-        );
-        wrote = true;
-    }
     if args.summary_table {
         write_summary_table(args)?;
         wrote = true;
     }
     if !wrote {
-        bail!("nothing to write: give --sample and --table, --standard-table, or --summary-table");
+        bail!("nothing to write: give --sample and --table, or --summary-table");
     }
     Ok(())
-}
-
-/// With `--standard-table`, writes the data collection rule that stores records of that shape
-/// in the table. Returns the file and the shape.
-fn standard_table_dcr(args: &ConnectArgs, table: StandardTable) -> Result<(PathBuf, &'static str)> {
-    let (file, shape, dcr) = match table {
-        StandardTable::Syslog => (
-            "Syslog.dcr.json",
-            "sentinel_syslog",
-            sluice_vector::syslog::syslog_dcr(&args.location, workspace(args)),
-        ),
-        StandardTable::CommonSecurityLog => (
-            "CommonSecurityLog.dcr.json",
-            "sentinel_common_security_log",
-            sluice_vector::common_security_log::common_security_log_dcr(
-                &args.location,
-                workspace(args),
-            ),
-        ),
-        StandardTable::AsimNetworkSession => (
-            "ASimNetworkSessionLogs.dcr.json",
-            "sentinel_asim_network_session",
-            sluice_vector::asim_network_session::asim_network_session_dcr(
-                &args.location,
-                workspace(args),
-            ),
-        ),
-        StandardTable::AsimDns => (
-            "ASimDnsActivityLogs.dcr.json",
-            "sentinel_asim_dns",
-            sluice_vector::asim_dns::asim_dns_dcr(&args.location, workspace(args)),
-        ),
-        StandardTable::AsimWebSession => (
-            "ASimWebSessionLogs.dcr.json",
-            "sentinel_asim_web_session",
-            sluice_vector::asim_web_session::asim_web_session_dcr(&args.location, workspace(args)),
-        ),
-    };
-    let path = args.out.join(file);
-    write_json(&path, &dcr)?;
-    Ok((path, shape))
 }
 
 /// With `--summary-table`, writes the summary table, its data collection rule and the

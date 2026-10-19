@@ -138,9 +138,8 @@ the configuration in a pull request as it is, and fails when it would change a d
 the sample raises no alert at all (`action.yml` runs it on GitHub; ADR 0022).
 
 For Microsoft Sentinel, `sluice connect sentinel` writes the tables and data collection rules: a
-custom table derived from a sample (`--sample`), the rule of a standard table
-(`--standard-table`), and a table for summaries with a function that counts them in
-(`--summary-table`).
+custom table derived from a sample (`--sample`), and a table for summaries with a function that
+counts them in (`--summary-table`).
 
 Until 2026-10-17, Sluice could also run Vector itself (`sluice up`), with a live control plane,
 archive search and replay, and an MCP server. That code is in [`archive/`](archive/), outside the

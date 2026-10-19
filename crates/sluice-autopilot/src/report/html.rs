@@ -1,5 +1,11 @@
 //! The report as one self-contained HTML page: no scripts, no external resources.
 
+use std::collections::BTreeMap;
+use std::fmt::Write as _;
+
+use sluice_core::ids::{Engine, RuleId};
+use sluice_core::problem::{Problem, ProblemKind};
+
 use super::{Report, RuleRow, TemplateRow, percent, rules::label};
 
 const STYLE: &str = r#"
@@ -26,6 +32,8 @@ th { background:var(--card); font-size:12px; color:var(--muted); font-weight:600
 td.n { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
 code { font:12px ui-monospace,SFMono-Regular,Menlo,monospace; word-break:break-all; }
 ul { margin:0; padding-left:18px; } .muted { color:var(--muted); }
+pre { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 10px;
+      overflow-x:auto; } pre code { word-break:normal; white-space:pre; }
 "#;
 
 /// Renders the report as HTML.
@@ -47,7 +55,7 @@ pub fn render_html(report: &Report) -> String {
     ];
     if !report.problems.is_empty() {
         parts.push("<h2>Problems</h2>".to_owned());
-        parts.push(list(&report.problems));
+        parts.push(problems(&report.problems));
     }
     parts.push("</main></body></html>\n".to_owned());
     parts.concat()
@@ -144,7 +152,10 @@ fn rules(report: &Report) -> String {
         escape(&report.rules_verdict())
     );
     if !report.inventory_notes.is_empty() {
-        out.push_str("<p class=\"muted\">Rules that run without a query to read:</p>");
+        out.push_str(
+            "<p class=\"muted\">What fetching the rules noted, such as rules that run without a \
+             query to read:</p>",
+        );
         out.push_str(&list(&report.inventory_notes));
     }
     out.push_str(&rule_table(&report.rule_rows));
@@ -208,6 +219,129 @@ fn template_row(row: &TemplateRow) -> String {
         bin = bytes(v.bytes_in),
         bout = bytes(v.bytes_out),
     )
+}
+
+/// The problems grouped by kind, each group with what it costs and what the reader can do.
+/// Functions the rules call without their source come first, one line per function: giving that
+/// source is what can save the most.
+fn problems(problems: &[Problem]) -> String {
+    let mut out = functions(problems);
+    for kind in [
+        ProblemKind::Unreadable,
+        ProblemKind::Unchecked,
+        ProblemKind::ReadBroadly,
+        ProblemKind::SharedId,
+        ProblemKind::MissingRule,
+        ProblemKind::LeftOut,
+        ProblemKind::Recipe,
+    ] {
+        let messages: Vec<String> = problems
+            .iter()
+            .filter(|p| p.kind == kind)
+            .map(|p| p.message.clone())
+            .collect();
+        if !messages.is_empty() {
+            let _ = write!(out, "<p class=\"muted\">{}</p>", escape(advice(&kind)));
+            out.push_str(&list(&messages));
+        }
+    }
+    out
+}
+
+/// What a kind of problem costs, and what the reader can do about it.
+fn advice(kind: &ProblemKind) -> &'static str {
+    match kind {
+        ProblemKind::Unreadable => {
+            "Files and rules Sluice could not read. Each stands in as a rule that may read \
+             anything, which keeps every field of every event: fix it, or leave it out if your \
+             SIEM does not run it."
+        }
+        ProblemKind::UnknownFunction { .. } => FUNCTIONS,
+        ProblemKind::Unchecked => {
+            "Names Sluice could not check. Each is read as it most likely is; give Sluice a way \
+             to check them, as each problem says."
+        }
+        ProblemKind::ReadBroadly => {
+            "Parts of rules Sluice reads as broadly as they could reach, such as free text or a \
+             wildcard field name. Those rules keep more than they may need: that costs savings, \
+             not detections."
+        }
+        ProblemKind::SharedId => {
+            "Rules that share an id, so the proof cannot tell their alerts apart. Give each rule \
+             its own id."
+        }
+        ProblemKind::MissingRule => {
+            "Rules that name a rule that is not loaded. They keep every field of every event \
+             until the rule they name is given too."
+        }
+        ProblemKind::LeftOut => "Left out on purpose.",
+        ProblemKind::Recipe => "Recipes Sluice could not apply, and AI advice it did not take.",
+    }
+}
+
+/// What a function without its source costs.
+const FUNCTIONS: &str = "Each rule that calls a function whose source Sluice does not have is \
+     read as reading every column of every record, so that data is kept whole. Give Sluice the \
+     source and it reads what the function reads.";
+
+/// One line per function the rules call without its source, with the rules that call it, and
+/// how to give the source.
+fn functions(problems: &[Problem]) -> String {
+    let mut calls: BTreeMap<(Engine, &str), Vec<&str>> = BTreeMap::new();
+    for problem in problems {
+        if let ProblemKind::UnknownFunction { engine, name } = &problem.kind {
+            calls
+                .entry((*engine, name.as_str()))
+                .or_default()
+                .push(problem.rule.as_ref().map_or("", RuleId::as_str));
+        }
+    }
+    let Some(&(_, example)) = calls.keys().next() else {
+        return String::new();
+    };
+    let items: Vec<String> = calls
+        .iter()
+        .map(|((_, name), rules)| {
+            let shown: Vec<String> = rules
+                .iter()
+                .take(5)
+                .map(|r| format!("<code>{}</code>", escape(r)))
+                .collect();
+            let more = match rules.len() {
+                n if n > 5 => format!(" and {} more", n - 5),
+                _ => String::new(),
+            };
+            format!(
+                "<li><code>{}</code>: called by {} ({}{more})</li>",
+                escape(name),
+                if rules.len() == 1 {
+                    "1 rule".to_owned()
+                } else {
+                    format!("{} rules", rules.len())
+                },
+                shown.join(", ")
+            )
+        })
+        .collect();
+    let mut out = format!(
+        "<p>Functions your rules call whose source Sluice does not have. {}</p><ul>{}</ul>",
+        escape(FUNCTIONS),
+        items.concat()
+    );
+    if calls.keys().any(|(engine, _)| *engine == Engine::Sentinel) {
+        let _ = write!(
+            out,
+            "<p class=\"muted\">For Microsoft Sentinel, run <code>sluice rules fetch \
+             sentinel</code>, which reads every function in the workspace, or save each \
+             function next to the rules as a YAML file with its query (in the Azure portal: \
+             Logs, Functions):</p><pre><code>FunctionName: {}\nFunctionQuery: |\n  …the \
+             function's query…</code></pre><p class=\"muted\">ASIM parsers come with \
+             Azure/Azure-Sentinel: add its <code>Parsers/ASim*/Parsers</code> and \
+             <code>ASIM/lib/functions</code>.</p>",
+            escape(example)
+        );
+    }
+    out
 }
 
 fn list(items: &[String]) -> String {

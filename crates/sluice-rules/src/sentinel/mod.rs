@@ -10,11 +10,14 @@
 //! custom tables included, which any source may fill; `pack_all()` any column, and any other
 //! condition keeps every row.
 
+mod calls;
 mod extract;
 mod functions;
 mod lexer;
 #[cfg(test)]
 mod tests;
+
+pub use self::calls::{FetchedNames, KqlNames, UncheckedNames};
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -23,10 +26,32 @@ use serde::Deserialize;
 use self::functions::Functions;
 use serde_yaml_ng::Value;
 use sluice_core::field::FieldPath;
-use sluice_core::ids::RuleId;
+use sluice_core::ids::{Engine, RuleId};
 use sluice_core::logsource::LogSource;
 use sluice_core::predicate::Predicate;
+use sluice_core::problem::{Problem, ProblemKind};
 use sluice_core::rules::{RequiredFields, RuleRequirements};
+
+/// What Sluice knows of the workspace the rules run in, besides the rule files.
+#[derive(Clone, Copy)]
+pub struct SentinelWorkspace<'a> {
+    /// Tells KQL's own functions from workspace functions, for the lower-case calls the rules
+    /// make.
+    pub names: &'a dyn KqlNames,
+    /// The tables the workspace has (`sluice rules fetch sentinel` lists them), with those the
+    /// analysed sources are sent to. A rule reads nothing through any other table. `None` when
+    /// not known: then any table may exist.
+    pub tables: Option<&'a BTreeSet<String>>,
+}
+
+impl Default for SentinelWorkspace<'_> {
+    fn default() -> Self {
+        Self {
+            names: &UncheckedNames,
+            tables: None,
+        }
+    }
+}
 
 /// A loaded set of Sentinel analytics rules.
 #[derive(Debug, Clone, Default)]
@@ -34,7 +59,7 @@ pub struct SentinelRules {
     requirements: Vec<RuleRequirements>,
     queries: Vec<(RuleId, String)>,
     names: BTreeMap<RuleId, String>,
-    problems: Vec<String>,
+    problems: Vec<Problem>,
 }
 
 impl SentinelRules {
@@ -49,6 +74,17 @@ impl SentinelRules {
     /// column of any Windows table.
     #[must_use]
     pub fn parse<'a>(files: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
+        Self::parse_with(files, &SentinelWorkspace::default())
+    }
+
+    /// As [`SentinelRules::parse`], knowing more of the workspace: which lower-case calls are
+    /// workspace functions, and which tables exist. The lower-case calls nothing could check
+    /// are listed in one problem ([`ProblemKind::Unchecked`]).
+    #[must_use]
+    pub fn parse_with<'a>(
+        files: impl IntoIterator<Item = (&'a str, &'a str)>,
+        workspace: &SentinelWorkspace<'_>,
+    ) -> Self {
         let mut rules = Self::default();
         let mut functions = Functions::default();
         let mut documents = Vec::new();
@@ -65,15 +101,16 @@ impl SentinelRules {
                         }
                     }
                     Err(error) => {
-                        rules.problems.push(format!(
-                            "Sentinel rule {place} could not be read ({error}); it is treated \
-                             as a rule that may read anything"
+                        let rule = RuleId::unreadable(Engine::Sentinel, &place);
+                        rules.problems.push(Problem::new(
+                            ProblemKind::Unreadable,
+                            Some(rule.clone()),
+                            format!(
+                                "Sentinel rule {place} could not be read ({error}); it is \
+                                 treated as a rule that may read anything"
+                            ),
                         ));
-                        rules
-                            .requirements
-                            .push(RuleRequirements::opaque(RuleId::new(format!(
-                                "sentinel:unreadable:{place}"
-                            ))));
+                        rules.requirements.push(RuleRequirements::opaque(rule));
                         // After a syntax error the document iterator yields the same error
                         // forever; the rest of the file cannot be read either.
                         break;
@@ -81,13 +118,24 @@ impl SentinelRules {
                 }
             }
         }
+        let mut unchecked = BTreeSet::new();
         for (place, doc) in &documents {
-            rules.add(place, doc, &functions);
+            rules.add(place, doc, &functions, workspace, &mut unchecked);
+        }
+        if !unchecked.is_empty() {
+            rules.problems.push(unchecked_names(&unchecked));
         }
         rules
     }
 
-    fn add(&mut self, place: &str, doc: &Value, functions: &Functions) {
+    fn add(
+        &mut self,
+        place: &str,
+        doc: &Value,
+        functions: &Functions,
+        workspace: &SentinelWorkspace<'_>,
+        unchecked: &mut BTreeSet<String>,
+    ) {
         let Some(query) = doc.get("query").and_then(Value::as_str) else {
             return;
         };
@@ -95,7 +143,8 @@ impl SentinelRules {
             .get("id")
             .and_then(Value::as_str)
             .map_or_else(|| format!("unnamed:{place}"), str::to_owned);
-        let reads = functions.reads(query);
+        let reads = functions.reads(query, workspace);
+        unchecked.extend(reads.unchecked.iter().cloned());
         // Custom tables count too: the emulator holds the ones sources are sent to.
         let modeled =
             !reads.tables.is_empty() || reads.any_table || !reads.custom_tables.is_empty();
@@ -128,9 +177,11 @@ impl SentinelRules {
         &self.queries
     }
 
-    /// Rule parts that could not be understood; the affected rules were widened.
+    /// Rule parts that could not be understood; the affected rules were widened. A function
+    /// whose source is missing is reported once per rule that calls it
+    /// ([`ProblemKind::UnknownFunction`]).
     #[must_use]
-    pub fn problems(&self) -> &[String] {
+    pub fn problems(&self) -> &[Problem] {
         &self.problems
     }
 
@@ -141,11 +192,50 @@ impl SentinelRules {
     }
 }
 
-fn requirement(id: &str, reads: extract::Reads, problems: &mut Vec<String>) -> RuleRequirements {
-    let rule = RuleId::new(format!("sentinel:{id}"));
-    if let Some(why) = &reads.any_field {
-        problems.push(format!(
-            "{rule}: {why}; treated as reading every column of every record"
+/// The one problem that lists the lower-case calls nothing could check.
+fn unchecked_names(names: &BTreeSet<String>) -> Problem {
+    let mut shown: Vec<&str> = names.iter().take(8).map(String::as_str).collect();
+    if names.len() > 8 {
+        shown.push("…");
+    }
+    Problem::new(
+        ProblemKind::Unchecked,
+        None,
+        format!(
+            "Sentinel rules call {} lower-case names Sluice could not check ({}): each is read \
+             as one of KQL's own functions. If one is a workspace function, its rules may read \
+             more: fetch the rules with `sluice rules fetch sentinel`, which reads every function \
+             of the workspace, or put the function's source next to the rules",
+            names.len(),
+            shown.join(", ")
+        ),
+    )
+}
+
+fn requirement(id: &str, reads: extract::Reads, problems: &mut Vec<Problem>) -> RuleRequirements {
+    let rule = RuleId::of(Engine::Sentinel, id);
+    for name in &reads.unknown_functions {
+        problems.push(Problem::new(
+            ProblemKind::UnknownFunction {
+                engine: Engine::Sentinel,
+                name: name.clone(),
+            },
+            Some(rule.clone()),
+            format!(
+                "{rule}: uses `{name}`, a parser or function whose source is not known; treated \
+                 as reading every column of every record"
+            ),
+        ));
+    }
+    if let Some(why) = reads
+        .any_field
+        .as_ref()
+        .filter(|_| reads.unknown_functions.is_empty())
+    {
+        problems.push(Problem::new(
+            ProblemKind::ReadBroadly,
+            Some(rule.clone()),
+            format!("{rule}: {why}; treated as reading every column of every record"),
         ));
     }
     RuleRequirements {

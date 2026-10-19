@@ -1,4 +1,6 @@
+use sluice_core::ids::{Engine, RuleId};
 use sluice_core::predicate::{FieldTest, MatchOp, Predicate};
+use sluice_core::problem::ProblemKind;
 use sluice_core::rules::{RequiredFields, RuleRequirements};
 
 use super::SentinelRules;
@@ -184,7 +186,7 @@ fn unreadable_files_fail_closed_and_rules_without_a_query_are_skipped() {
     assert_eq!(rules.requirements()[0].fields, RequiredFields::Unknown);
     assert_eq!(rules.problems().len(), 1);
     assert!(
-        rules.problems()[0].contains("bad.yaml"),
+        rules.problems()[0].message.contains("bad.yaml"),
         "{:?}",
         rules.problems()
     );
@@ -311,6 +313,36 @@ fn unknown_or_recursive_parsers_fail_closed() {
         assert_eq!(r.prefilter, Predicate::Always);
         assert_eq!(r.fields, RequiredFields::Unknown);
     }
+}
+
+#[test]
+fn c3_a_function_whose_source_is_missing_is_named_for_the_report() {
+    // `vimDnsMissing` is called by the parser `imDns`, whose source is among the files.
+    let files = [
+        (
+            "rule.yaml",
+            "id: r1\nquery: |\n  imDns | where DnsQuery has 'x'\n  | union (MyLookup())\n",
+        ),
+        (
+            "parser.yaml",
+            "ParserName: imDns\nParserQuery: |\n  vimDnsMissing | take 1\n",
+        ),
+    ];
+    let rules = SentinelRules::parse(files);
+    let kinds: Vec<&ProblemKind> = rules.problems().iter().map(|p| &p.kind).collect();
+    let unknown = |name: &str| ProblemKind::UnknownFunction {
+        engine: Engine::Sentinel,
+        name: name.into(),
+    };
+    assert_eq!(kinds, [&unknown("MyLookup"), &unknown("vimDnsMissing")]);
+    assert!(
+        rules
+            .problems()
+            .iter()
+            .all(|p| p.rule.as_ref().map(RuleId::as_str) == Some("sentinel:r1")),
+        "{:?}",
+        rules.problems()
+    );
 }
 
 #[test]

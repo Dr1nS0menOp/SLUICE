@@ -159,7 +159,7 @@ fn rules(names: &[&str]) -> Vec<(RuleId, String)> {
         .iter()
         .map(|q| {
             (
-                RuleId::new(format!("sentinel:{q}")),
+                RuleId::of(sluice_core::ids::Engine::Sentinel, q),
                 format!("{q} | take 1"),
             )
         })

@@ -171,7 +171,7 @@ fn unparseable_document_becomes_an_opaque_requirement() {
     assert_eq!(rules.problems().len(), 1, "{:?}", rules.problems());
     assert_eq!(
         rules.requirements(),
-        [RuleRequirements::opaque("sigma:unparsed:0".into())]
+        [RuleRequirements::opaque("sigma:unreadable:0".into())]
     );
 }
 

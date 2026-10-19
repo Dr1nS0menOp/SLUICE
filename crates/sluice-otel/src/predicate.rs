@@ -16,7 +16,7 @@
 //! - keywords Go's JSON writer escapes (`"`, `\`, `<`, `>`, `&`, control and non-ASCII
 //!   characters), as keywords search the record's JSON text, keys included.
 
-use sluice_core::codegen::{balanced, float_may_match};
+use sluice_core::codegen::{balanced, float_may_match, folded_values};
 use sluice_core::predicate::{FieldTest, KeywordTest, MatchOp, Predicate};
 
 use crate::ottl;
@@ -136,12 +136,10 @@ fn guarded(root: &str, field: &sluice_core::field::FieldPath, condition: &str) -
     format!("({})", parts.join(" and "))
 }
 
-/// The RE2 pattern matching any of `values` between `start` and `end` anchors; `None` where the
-/// test must widen: no values, or case-insensitive ones that are not ASCII.
+/// The RE2 pattern matching any of the [`folded_values`] between `start` and `end` anchors;
+/// `None` where the test must widen.
 fn pattern(values: &[String], case_sensitive: bool, start: &str, end: &str) -> Option<String> {
-    if values.is_empty() || (!case_sensitive && values.iter().any(|v| !v.is_ascii())) {
-        return None;
-    }
+    let values = folded_values(values, case_sensitive)?;
     let alternatives: Vec<String> = values.iter().map(|v| ottl::quote_meta(v)).collect();
     let flags = if case_sensitive { "(?s)" } else { "(?is)" };
     Some(format!("{flags}{start}(?:{}){end}", alternatives.join("|")))
@@ -170,7 +168,7 @@ mod tests {
             out.contains(r#"IsString(log.body["process"]["name"])"#),
             "{out}"
         );
-        assert!(out.contains(r#""(?is)(?:CMD\\.exe)$""#), "{out}");
+        assert!(out.contains(r#""(?is)(?:cmd\\.exe)$""#), "{out}");
         assert!(out.contains("x7f"), "non-ASCII text widens: {out}");
         let number = compile(
             &test("EventID", MatchOp::Equals, &["4625"], true),
@@ -217,7 +215,7 @@ mod tests {
                 }),
                 "log.body"
             ),
-            r#"(IsMatch(String(log.body), "(?is)(?:Mimikatz)") or IsMatch(String(log.body), "(?s)\\[.*[\\[{]"))"#
+            r#"(IsMatch(String(log.body), "(?is)(?:mimikatz)") or IsMatch(String(log.body), "(?s)\\[.*[\\[{]"))"#
         );
     }
 

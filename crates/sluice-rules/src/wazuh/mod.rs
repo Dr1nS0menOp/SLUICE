@@ -15,9 +15,10 @@ mod xml;
 use std::collections::{BTreeMap, BTreeSet};
 
 use sluice_core::field::FieldPath;
-use sluice_core::ids::RuleId;
+use sluice_core::ids::{Engine, RuleId};
 use sluice_core::logsource::LogSource;
 use sluice_core::predicate::{FieldTest, MatchOp, Predicate};
+use sluice_core::problem::{Problem, ProblemKind};
 use sluice_core::rules::{RequiredFields, RuleRequirements};
 
 use self::chains::Parsed;
@@ -71,7 +72,7 @@ const NEUTRAL_TAGS: [&str; 15] = [
 pub struct WazuhRules {
     requirements: Vec<RuleRequirements>,
     names: BTreeMap<RuleId, String>,
-    problems: Vec<String>,
+    problems: Vec<Problem>,
 }
 
 impl WazuhRules {
@@ -111,22 +112,26 @@ impl WazuhRules {
                             raw.children.iter().find(|c| c.tag == "description"),
                         ) {
                             names.insert(
-                                RuleId::new(format!("wazuh:{id}")),
+                                RuleId::of(Engine::Wazuh, id),
                                 description.text.trim().to_owned(),
                             );
                         }
-                        parsed.push(requirement(&raw, n, &decoders, &mut problems));
+                        let place = format!("{index}#{n}");
+                        parsed.push(requirement(&raw, &place, &decoders, &mut problems));
                     }
                 }
                 Err(error) => {
-                    problems.push(format!(
-                        "Wazuh rule file {index} could not be read ({error}); it is treated as \
-                         a rule that may read anything"
+                    let rule = RuleId::unreadable(Engine::Wazuh, &index.to_string());
+                    problems.push(Problem::new(
+                        ProblemKind::Unreadable,
+                        Some(rule.clone()),
+                        format!(
+                            "Wazuh rule file {index} could not be read ({error}); it is treated \
+                             as a rule that may read anything"
+                        ),
                     ));
                     parsed.push(Parsed {
-                        requirements: RuleRequirements::opaque(RuleId::new(format!(
-                            "wazuh:unreadable:{index}"
-                        ))),
+                        requirements: RuleRequirements::opaque(rule),
                         parents: Vec::new(),
                     });
                 }
@@ -157,7 +162,7 @@ impl WazuhRules {
 
     /// Rule parts that could not be understood; the affected rules were widened.
     #[must_use]
-    pub fn problems(&self) -> &[String] {
+    pub fn problems(&self) -> &[Problem] {
         &self.problems
     }
 }
@@ -173,22 +178,26 @@ fn whole_json_line(rule: &mut RuleRequirements) {
     }
 }
 
+/// What one rule needs. `place` is `FILE#RULE`, both counted from 0, for a rule without an id.
 fn requirement(
     raw: &RawElement,
-    position: usize,
+    place: &str,
     decoders: &Decoders,
-    problems: &mut Vec<String>,
+    problems: &mut Vec<Problem>,
 ) -> Parsed {
     let Some(id) = raw.attributes.get("id") else {
-        problems.push(format!("Wazuh rule #{position} has no id"));
+        let rule = RuleId::unreadable(Engine::Wazuh, place);
+        problems.push(Problem::new(
+            ProblemKind::Unreadable,
+            Some(rule.clone()),
+            format!("Wazuh rule {place} has no id; it is treated as a rule that may read anything"),
+        ));
         return Parsed {
-            requirements: RuleRequirements::opaque(RuleId::new(format!(
-                "wazuh:unknown:{position}"
-            ))),
+            requirements: RuleRequirements::opaque(rule),
             parents: Vec::new(),
         };
     };
-    let rule = RuleId::new(format!("wazuh:{id}"));
+    let rule = RuleId::of(Engine::Wazuh, id);
     let mut builder = Builder::default();
     for attribute in raw.attributes.keys() {
         match attribute.as_str() {
@@ -263,7 +272,7 @@ struct Builder {
 }
 
 impl Builder {
-    fn add(&mut self, child: &RawChild, rule: &RuleId, problems: &mut Vec<String>) {
+    fn add(&mut self, child: &RawChild, rule: &RuleId, problems: &mut Vec<Problem>) {
         let tag = child.tag.as_str();
         if tag == "field" {
             let Some(name) = child.attributes.get("name") else {
@@ -336,8 +345,12 @@ impl Builder {
         self.conditions.push(condition);
     }
 
-    fn unknown(&mut self, rule: &RuleId, what: &str, problems: &mut Vec<String>) {
-        problems.push(format!("{rule}: {what}; treated as reading every field"));
+    fn unknown(&mut self, rule: &RuleId, what: &str, problems: &mut Vec<Problem>) {
+        problems.push(Problem::new(
+            ProblemKind::ReadBroadly,
+            Some(rule.clone()),
+            format!("{rule}: {what}; treated as reading every field"),
+        ));
         self.unknown_fields = true;
         self.raw_text = true;
         self.conditions.push(Predicate::Always);

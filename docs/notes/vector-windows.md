@@ -40,10 +40,11 @@ down, under `event_data`, and numbers inside it are strings.
 
 ## Shaped as `SecurityEvent` (`sluice agent windows`)
 
-`sluice agent windows` and the `shape` of a `sluice up` source are archived
-([ADR 0030](../adr/0030-advice-only.md)); what follows was verified with them.
+`sluice agent windows`, the `shape` of a `sluice up` source and the shaping programs are
+archived ([ADR 0030](../adr/0030-advice-only.md); the programs in
+`archive/sluice-vector/src/windows`); what follows was verified with them.
 
-`sluice_vector::windows::security_event_program` maps this shape to Sentinel's `SecurityEvent`
+`security_event_program` maps this shape to Sentinel's `SecurityEvent`
 columns (ADR 0014). Checked on this machine, same day: the generated agent configuration passes
 `vector validate` with the Windows build, and run on the last two hours of System, Application
 and PowerShell events it shaped 193 events with no error or warning; every output column was a

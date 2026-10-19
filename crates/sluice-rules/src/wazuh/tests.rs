@@ -135,7 +135,12 @@ fn rule_without_id_is_opaque() {
     let rules = parse(r#"<rule level="5"><match>x</match></rule>"#);
     assert_eq!(
         only(&rules),
-        &RuleRequirements::opaque("wazuh:unknown:0".into())
+        &RuleRequirements::opaque("wazuh:unreadable:0#0".into())
+    );
+    assert!(
+        rules.problems()[0].message.contains("rule 0#0 has no id"),
+        "{:?}",
+        rules.problems()
     );
 }
 
@@ -610,7 +615,7 @@ fn c3_an_unreadable_rule_file_blocks_every_saving_and_names_its_position() {
     .unwrap();
     assert_eq!(rules.problems().len(), 1);
     assert!(
-        rules.problems()[0].contains("file 1"),
+        rules.problems()[0].message.contains("file 1"),
         "{:?}",
         rules.problems()
     );

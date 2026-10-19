@@ -9,7 +9,8 @@ use chrono::DateTime;
 use serde::Deserialize;
 use serde_json::Value;
 use sluice_core::event::{Event, Timestamp};
-use sluice_core::ids::EventId;
+use sluice_core::ids::{Engine, EventId, RuleId};
+use sluice_core::problem::{Problem, ProblemKind};
 use sluice_core::source::{Source, SourceFormat};
 
 use crate::cli::RuleSets;
@@ -132,7 +133,8 @@ impl Loaded {
 }
 
 /// Reads every rule set `sets` names; Sigma rules through their `--sigma-pipeline`s.
-pub(crate) fn rule_sets(sets: &RuleSets) -> Result<Loaded> {
+/// `sentinel_tables` are the `--sentinel-table SOURCE=TABLE`s: the tables the sources go to.
+pub(crate) fn rule_sets(sets: &RuleSets, sentinel_tables: &[String]) -> Result<Loaded> {
     let sigma_files = match &sets.rules {
         Some(dir) => files(dir, &["yml", "yaml"])?,
         None => Vec::new(),
@@ -144,7 +146,7 @@ pub(crate) fn rule_sets(sets: &RuleSets) -> Result<Loaded> {
     Ok(Loaded {
         sigma,
         wazuh: wazuh(sets.wazuh_rules.as_deref(), sets.wazuh_decoders.as_deref())?,
-        sentinel: sentinel(sets.sentinel_rules.as_deref())?,
+        sentinel: sentinel(sets.sentinel_rules.as_deref(), sentinel_tables)?,
         elastic: elastic(sets.elastic_rules.as_deref())?,
         splunk: splunk(sets.splunk_rules.as_deref())?,
     })
@@ -203,26 +205,65 @@ pub(crate) fn wazuh(
 }
 
 /// Sentinel analytics rules, hunting queries and functions from `dir`, if given; problems are
-/// printed as warnings.
-pub(crate) fn sentinel(dir: Option<&Path>) -> Result<Option<sluice_rules::SentinelRules>> {
+/// printed as warnings ([`warn`]). Fetched with `sluice rules fetch sentinel`, the directory
+/// holds every function of the workspace, so a lower-case call to no other is KQL's own, and
+/// the workspace's tables: a rule reads nothing through another, unless a source goes there
+/// (`specs`, the `--sentinel-table SOURCE=TABLE`s).
+pub(crate) fn sentinel(
+    dir: Option<&Path>,
+    specs: &[String],
+) -> Result<Option<sluice_rules::SentinelRules>> {
     let Some(dir) = dir else {
         return Ok(None);
     };
     let files = files(dir, &["yaml", "yml"])?;
-    let rules = sluice_rules::SentinelRules::parse(
+    let fetched = crate::inventory::find_manifest(dir)
+        .is_some_and(|manifest| manifest.complete && manifest.system == "sentinel");
+    let names: &dyn sluice_rules::KqlNames = if fetched {
+        &sluice_rules::FetchedNames
+    } else {
+        &sluice_rules::UncheckedNames
+    };
+    let tables = workspace_tables(dir, specs)?;
+    let rules = sluice_rules::SentinelRules::parse_with(
         files
             .iter()
             .map(|(path, text)| (path.as_str(), text.as_str())),
+        &sluice_rules::SentinelWorkspace {
+            names,
+            tables: tables.as_ref(),
+        },
     );
-    for problem in rules.problems() {
-        eprintln!("warning: {problem}");
-    }
+    warn("Sentinel", rules.problems());
     Ok(Some(rules))
 }
 
+/// The tables `sluice rules fetch sentinel` found in the workspace, with those the sources go
+/// to; `None` without that list, so that any table may exist.
+fn workspace_tables(dir: &Path, specs: &[String]) -> Result<Option<BTreeSet<String>>> {
+    #[derive(Deserialize)]
+    struct Tables {
+        tables: BTreeSet<String>,
+    }
+    let path = dir.join(sluice_sentinel::TABLES_FILE);
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).with_context(|| format!("reading {}", path.display())),
+    };
+    let mut tables: Tables =
+        serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    tables.tables.extend(
+        specs
+            .iter()
+            .filter_map(|spec| spec.split_once('='))
+            .map(|(_, table)| table.trim().to_owned()),
+    );
+    Ok(Some(tables.tables))
+}
+
 /// Elastic Security detection rules from `dir` (Kibana's `_export` NDJSON or JSON, or the
-/// prebuilt rules package), if given; the first problems are printed as warnings, all of them
-/// are in the report.
+/// prebuilt rules package), if given; problems are printed as warnings ([`warn`]).
 pub(crate) fn elastic(dir: Option<&Path>) -> Result<Option<sluice_rules::ElasticRules>> {
     let Some(dir) = dir else {
         return Ok(None);
@@ -234,20 +275,12 @@ pub(crate) fn elastic(dir: Option<&Path>) -> Result<Option<sluice_rules::Elastic
             .filter(|(path, _)| !is_manifest(dir, path))
             .map(|(path, text)| (path.as_str(), text.as_str())),
     );
-    for problem in rules.problems().iter().take(5) {
-        eprintln!("warning: {problem}");
-    }
-    if rules.problems().len() > 5 {
-        eprintln!(
-            "warning: … and {} more Elastic rules read broadly (listed in the report)",
-            rules.problems().len() - 5
-        );
-    }
+    warn("Elastic", rules.problems());
     Ok(Some(rules))
 }
 
 /// The Splunk saved searches and macros in `dir` (`.conf` files or REST JSON answers), if
-/// given; the first problems are printed as warnings, all of them are in the report.
+/// given; problems are printed as warnings ([`warn`]).
 pub(crate) fn splunk(dir: Option<&Path>) -> Result<Option<sluice_rules::SplunkRules>> {
     let Some(dir) = dir else {
         return Ok(None);
@@ -259,16 +292,55 @@ pub(crate) fn splunk(dir: Option<&Path>) -> Result<Option<sluice_rules::SplunkRu
             .filter(|(path, _)| !is_manifest(dir, path))
             .map(|(path, text)| (path.as_str(), text.as_str())),
     );
-    for problem in rules.problems().iter().take(5) {
-        eprintln!("warning: {problem}");
+    warn("Splunk", rules.problems());
+    Ok(Some(rules))
+}
+
+/// Prints a rule set's problems as warnings: first the functions its rules call without their
+/// source, in one line that says how to give them, then the first five others. The report has
+/// all of them.
+fn warn(set: &str, problems: &[Problem]) {
+    let mut functions: BTreeSet<&str> = BTreeSet::new();
+    let mut callers: BTreeSet<&RuleId> = BTreeSet::new();
+    let mut sentinel = false;
+    for problem in problems {
+        if let ProblemKind::UnknownFunction { engine, name } = &problem.kind {
+            functions.insert(name);
+            callers.extend(&problem.rule);
+            sentinel |= *engine == Engine::Sentinel;
+        }
     }
-    if rules.problems().len() > 5 {
+    if !functions.is_empty() {
+        let mut names: Vec<&str> = functions.iter().take(5).copied().collect();
+        if functions.len() > 5 {
+            names.push("…");
+        }
+        let how = if sentinel {
+            "run `sluice rules fetch sentinel`, which reads every workspace function, or save each \
+             one next to the rules as YAML with `FunctionName` and `FunctionQuery`"
+        } else {
+            "give their source among the rule files"
+        };
         eprintln!(
-            "warning: … and {} more Splunk searches read broadly (listed in the report)",
-            rules.problems().len() - 5
+            "warning: {} {set} rules call functions Sluice has no source for ({}), so they keep \
+             every column of every record: {how}",
+            callers.len(),
+            names.join(", ")
         );
     }
-    Ok(Some(rules))
+    let others: Vec<&Problem> = problems
+        .iter()
+        .filter(|p| !matches!(p.kind, ProblemKind::UnknownFunction { .. }))
+        .collect();
+    for problem in others.iter().take(5) {
+        eprintln!("warning: {problem}");
+    }
+    if others.len() > 5 {
+        eprintln!(
+            "warning: … and {} more {set} problems (listed in the report)",
+            others.len() - 5
+        );
+    }
 }
 
 /// Whether `path` is the manifest `sluice rules fetch` wrote at the top of `dir`: JSON too, and

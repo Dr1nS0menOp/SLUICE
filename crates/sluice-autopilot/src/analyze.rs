@@ -7,6 +7,7 @@ use sluice_core::alert::{Engines, EventRules, RuleEngine};
 use sluice_core::event::Event;
 use sluice_core::guard::{EffectiveRecipe, GuardContext, GuardrailConfig, guard};
 use sluice_core::ids::TemplateId;
+use sluice_core::problem::{Problem, ProblemKind};
 use sluice_core::proof::{ProofError, Selection, select_proven};
 use sluice_core::recipe::Recipe;
 use sluice_core::rules::RuleRequirements;
@@ -141,7 +142,7 @@ pub struct Analysis {
     /// The data plane enforcing the selection.
     pub data_plane: VrlReducer,
     /// Rules or recipes that could not be fully understood.
-    pub problems: Vec<String>,
+    pub problems: Vec<Problem>,
     /// The spot check with the SIEM's own rules, if one ran.
     pub spot_check: Option<SpotCheck>,
     /// On what grounds the rules counted as complete.
@@ -185,10 +186,16 @@ pub fn analyze(
     };
     let discovery = discover(config, input.sources, input.events);
     let mut resolution = book.resolve(&discovery.templates);
-    let mut problems: Vec<String> = resolution
+    let mut problems: Vec<Problem> = resolution
         .conflicts
         .iter()
-        .map(|c| format!("conflicting recipes for {c}"))
+        .map(|c| {
+            Problem::new(
+                ProblemKind::Recipe,
+                None,
+                format!("conflicting recipes for {c}"),
+            )
+        })
         .collect();
     problems.extend(input.sigma.problems().iter().cloned());
     if let Some(wazuh) = input.wazuh {
@@ -227,7 +234,7 @@ pub fn analyze(
 #[derive(Default)]
 struct Advice {
     recipes: BTreeMap<TemplateId, Recipe>,
-    problems: Vec<String>,
+    problems: Vec<Problem>,
 }
 
 /// Asks the advisor about every frequent, classifiable template without a recipe. Rare
@@ -269,7 +276,11 @@ fn advise(
                 advice.recipes.insert(template.id.clone(), recipe);
             }
             Ok(None) => {}
-            Err(error) => advice.problems.push(format!("{}: {error}", template.id)),
+            Err(error) => advice.problems.push(Problem::new(
+                ProblemKind::Recipe,
+                None,
+                format!("{}: {error}", template.id),
+            )),
         }
     }
     advice
@@ -287,7 +298,7 @@ pub fn analyze_proposals(
     proposals: BTreeMap<TemplateId, Recipe>,
     settings: &Settings,
     helpers: Helpers<'_>,
-    problems: Vec<String>,
+    problems: Vec<Problem>,
 ) -> Result<Analysis, AutopilotError> {
     let requirements: Vec<RuleRequirements> = input
         .sigma

@@ -1,6 +1,7 @@
 use sluice_core::field::FieldPath;
 use sluice_core::guard::{Adjustment, ContractRule, Reason};
-use sluice_core::ids::RuleId;
+use sluice_core::ids::{Engine, RuleId};
+use sluice_core::problem::ProblemKind;
 use sluice_core::schema::Schema;
 
 use super::*;
@@ -45,7 +46,17 @@ fn hostile() -> Report {
             runs_in: Some(HOSTILE.into()),
         }],
         coverage_gaps: vec![HOSTILE.into()],
-        problems: vec![HOSTILE.into()],
+        problems: vec![
+            Problem::new(ProblemKind::ReadBroadly, None, HOSTILE),
+            Problem::new(
+                ProblemKind::UnknownFunction {
+                    engine: Engine::Sentinel,
+                    name: HOSTILE.into(),
+                },
+                Some(RuleId::new(HOSTILE)),
+                HOSTILE,
+            ),
+        ],
         scope_hints: vec![HOSTILE.into()],
         rule_rows: vec![RuleRow {
             set: HOSTILE.into(),
@@ -106,10 +117,41 @@ fn an_empty_proof_says_so_and_a_non_empty_one_does_not() {
 fn problems_appear_only_when_there_are_some() {
     assert!(!render_html(&report()).contains("<h2>Problems</h2>"));
     let with = Report {
-        problems: vec!["bad.yml: unreadable".into()],
+        problems: vec![Problem::new(
+            ProblemKind::Unreadable,
+            None,
+            "bad.yml: unreadable",
+        )],
         ..report()
     };
     assert!(render_html(&with).contains("bad.yml: unreadable"));
+}
+
+#[test]
+fn a_function_without_its_source_is_listed_once_with_its_rules_and_how_to_give_it() {
+    let call = |rule: &str| {
+        Problem::new(
+            ProblemKind::UnknownFunction {
+                engine: Engine::Sentinel,
+                name: "my_parser".into(),
+            },
+            Some(RuleId::new(rule)),
+            format!("{rule}: uses `my_parser`"),
+        )
+    };
+    let page = render_html(&Report {
+        problems: vec![call("sentinel:a"), call("sentinel:b")],
+        ..report()
+    });
+    assert!(
+        page.contains(
+            "<li><code>my_parser</code>: called by 2 rules (<code>sentinel:a</code>, \
+             <code>sentinel:b</code>)</li>"
+        ),
+        "{page}"
+    );
+    assert!(page.contains("sluice rules fetch sentinel"));
+    assert!(page.contains("FunctionName: my_parser\nFunctionQuery: |"));
 }
 
 #[test]

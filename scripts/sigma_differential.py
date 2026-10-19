@@ -64,7 +64,7 @@ def covered(field, required):
 
 def main(requirements_path, rules_dir):
     sluice = {r["rule"]: r for r in json.loads(pathlib.Path(requirements_path).read_text())}
-    opaque = sum(1 for key in sluice if key.startswith("sigma:unparsed:"))
+    opaque = sum(1 for key in sluice if key.startswith("sigma:unreadable:"))
     expected, correlations, pysigma_errors = reference(rules_dir)
 
     unsafe, wider, compared = [], 0, 0

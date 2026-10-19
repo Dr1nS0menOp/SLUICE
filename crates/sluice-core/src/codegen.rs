@@ -16,6 +16,24 @@ pub fn float_may_match(values: &[String]) -> bool {
     })
 }
 
+/// The values a generated test compares: as given for a case-sensitive test, lowercased for a
+/// case-insensitive one. `None` where the test must widen to true instead: it has no values, or
+/// it is case-insensitive and a value is not ASCII. Java, Go, Lua and KQL fold letters beyond
+/// ASCII each their own way, unlike Rust, whose folding VRL uses, so only an ASCII comparison is
+/// decided alike in every engine. The text a test reads is checked the same way where it runs:
+/// each generator's runtime widens on non-ASCII text.
+#[must_use]
+pub fn folded_values(values: &[String], case_sensitive: bool) -> Option<Vec<String>> {
+    if values.is_empty() || (!case_sensitive && values.iter().any(|v| !v.is_ascii())) {
+        return None;
+    }
+    Some(if case_sensitive {
+        values.to_vec()
+    } else {
+        values.iter().map(|v| v.to_ascii_lowercase()).collect()
+    })
+}
+
 /// `parts` joined with the binary `operator` as a balanced tree of parentheses. Parsers that
 /// recurse once per operand (VRL's, OTTL's) overflowed on a pre-filter over the thousands of
 /// `SigmaHQ` rules; halving keeps the depth logarithmic. `empty` is what joining nothing gives:
@@ -62,6 +80,26 @@ mod tests {
             })
             .max();
         assert_eq!(depth, Some(10));
+    }
+
+    #[test]
+    fn c3_a_case_insensitive_test_on_non_ascii_values_widens() {
+        let values = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            folded_values(&values(&["Admin", "ROOT"]), false),
+            Some(values(&["admin", "root"]))
+        );
+        assert_eq!(
+            folded_values(&values(&["Admin"]), true),
+            Some(values(&["Admin"]))
+        );
+        assert_eq!(folded_values(&values(&["İSTANBUL"]), false), None);
+        assert_eq!(
+            folded_values(&values(&["İSTANBUL"]), true),
+            Some(values(&["İSTANBUL"])),
+            "a case-sensitive test compares the bytes"
+        );
+        assert_eq!(folded_values(&[], true), None, "a test without values");
     }
 
     #[test]

@@ -5,8 +5,9 @@ Learn page "Supported KQL features in Azure Monitor transformations" (updated 20
 Kusto emulator (`mcr.microsoft.com/azuredataexplorer/kustainer-linux:latest`, digest
 `sha256:e176ca3e…`, 4.5 GB).
 
-Some end-to-end checks below ran through `sluice up` and `sluice agent windows`, which are
-archived since [ADR 0030](../adr/0030-advice-only.md); what they found about Azure still holds.
+Some end-to-end checks below ran through `sluice up`, `sluice agent windows` and `sluice connect
+sentinel --standard-table`, which are archived since [ADR 0030](../adr/0030-advice-only.md) (the
+last on 2026-10-18, with the shaping VRL); what they found about Azure still holds.
 
 ## What a transformation can do
 
@@ -258,3 +259,14 @@ The way Microsoft's rules read them works: `split(Account, @'\')[1]` gives the n
   changed.
 - A transformation written before the flow's own one can empty a column the flow then renames:
   the rename keeps the emptied value.
+
+## The emulator does not say why a query fails (2026-10-18)
+
+Every semantic error comes back as HTTP 400 with the same text, `General_BadRequest: Request is
+invalid and cannot be executed`, and a request id: a call to a function that does not exist
+(`print my_parser()`) as much as a known one called wrongly (`print tostring()`), a keyword
+(`print inner()`) or an aggregation outside `summarize` (`print count()`). `/v1/rest/query` and
+`/v2/rest/query` answer alike (kustainer-linux, engine 1.0.9779.30528). So the emulator cannot
+tell Sluice which lower-case names are KQL's own functions; a fetched workspace can, since
+`sluice rules fetch sentinel` reads every function in it (ADR 0031). `.show functions` lists only
+functions created in the emulator's database, and `.show plugins` the `evaluate` plugins.

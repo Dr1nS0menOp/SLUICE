@@ -15,6 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use sluice_core::predicate::{KeywordTest, Predicate};
+use sluice_core::problem::{Problem, ProblemKind};
 
 use super::xml::{self, RawElement};
 
@@ -55,7 +56,7 @@ impl Decoders {
     /// whose decoder is unknown keeps an unbounded scope).
     pub(crate) fn parse<'a>(
         files: impl IntoIterator<Item = &'a str>,
-        problems: &mut Vec<String>,
+        problems: &mut Vec<Problem>,
     ) -> Self {
         let mut definitions: BTreeMap<String, Vec<Selects>> = BTreeMap::new();
         let mut types: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -65,8 +66,10 @@ impl Decoders {
             let elements = match xml::decoders(file) {
                 Ok(elements) => elements,
                 Err(error) => {
-                    problems.push(format!(
-                        "Wazuh decoder file {index} could not be read ({error})"
+                    problems.push(Problem::new(
+                        ProblemKind::Unreadable,
+                        None,
+                        format!("Wazuh decoder file {index} could not be read ({error})"),
                     ));
                     continue;
                 }

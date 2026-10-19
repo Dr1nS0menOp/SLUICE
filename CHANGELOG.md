@@ -21,14 +21,16 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
 - Moved to `archive/`, outside the Cargo workspace and kept to delete later: `sluice up` (crate
   `sluice-server`, with its console, operator actions, single sign-on, proposals and
   `--reload-rules`), `sluice status`, `sluice search` and `sluice replay` (crate
-  `sluice-archive`), `sluice mcp` (crate `sluice-mcp`), `sluice agent`, the `sluice up`
-  configuration keys (`shape`, `sluice_rules`, `sluice_records`, `sluice_formats`,
+  `sluice-archive`), `sluice mcp` (crate `sluice-mcp`), `sluice agent`, `sluice connect
+  sentinel --standard-table` with the VRL that shaped records for Sentinel's standard tables
+  (`Syslog`, `CommonSecurityLog`, the ASIM tables, `SecurityEvent`, `WindowsEvent`), which only
+  `sluice up` and `sluice agent` ran (2026-10-18), the `sluice up` configuration keys (`shape`, `sluice_rules`, `sluice_records`, `sluice_formats`,
   `sluice_sources`), the Helm chart, the container image, `examples/up`, `examples/docker`,
   `scripts/helm-check.sh`, `scripts/live-smoke.sh`, `scripts/replay-smoke.sh`,
   `scripts/load-test.sh`, `scripts/real-data/send-sentinel.sh`, the live cycle and recipe
   lifecycle of `sluice-autopilot`, `sluice prove --profile` and the diagrams of the live design.
 - **Breaking:** `sluice connect` takes `sentinel` only and writes files only: `--sample` with
-  `--table`, `--standard-table` and `--summary-table`. It no longer prints a destination.
+  `--table`, and `--summary-table`. It no longer prints a destination.
 - The entries below record what was built, the archived features included. The documentation
   describes the advice-only product; `docs/architecture.md` now draws its diagrams in Mermaid,
   since the SVGs show the live loop.
@@ -109,6 +111,31 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
 - **Report.** "N rules loaded" and `plan.json`'s `proof.rules` count each rule once: a Sigma
   rule mapped through a pipeline, or an Elastic rule per index pattern, has several
   requirements. A rule is a coverage gap only when none of its requirements sees data.
+
+### What the workspace knows, and problems as data (2026-10-18)
+
+- **A fetched Sentinel workspace bounds its rules by the tables it has** (ADR 0031). `sluice
+  rules fetch sentinel` also writes `tables.json`, the tables the workspace has. A rule, or a
+  parser branch, over a table that is not there reads nothing; before, a custom table nobody
+  created (`CiscoMeraki_CL` in an ASIM parser) kept every row of every source. The tables
+  `--sentinel-table` names count as existing. Without the list (a role that may not read it,
+  rules from files) every table counts as existing, as before.
+- **Lower-case workspace functions.** In a fetched inventory, a lower-case call that is none of
+  the workspace's functions is KQL's own, wherever it stands. For rules from files, the
+  lower-case names Sluice could not check are listed in one problem, with how to make sure.
+- **Problems are data** (`sluice_core::problem`): each has a kind and, where it has one, its
+  rule. The report groups them and says per kind what to do. A function whose source is missing
+  is listed once, with the rules that call it and how to give its source (a YAML file with
+  `FunctionName` and `FunctionQuery`, or `sluice rules fetch sentinel`); the command line says
+  the same in one line.
+- **Rule ids are written in one place** (`RuleId::of`, `RuleId::unreadable`). Sigma's stand-in
+  for a document that does not parse is `sigma:unreadable:N` (was `sigma:unparsed:N`), and a
+  Wazuh rule without an id `wazuh:unreadable:FILE#RULE` (was `wazuh:unknown:N`, which two files
+  could share). Sigma rules that share an id are reported: the proof cannot tell their alerts
+  apart.
+- **Case-insensitive tests** are folded by one function for every generator
+  (`codegen::folded_values`); OTTL and KQL now compare the lowercased values too, which match
+  the same.
 
 ### Offline autopilot
 

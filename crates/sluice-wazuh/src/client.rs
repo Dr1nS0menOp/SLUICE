@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 use sluice_core::alert::{EngineError, EventRules};
-use sluice_core::ids::RuleId;
+use sluice_core::ids::{Engine, RuleId};
 
 /// The Wazuh API could not be used.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -207,7 +207,7 @@ fn rule_ids(alert: Result<Option<String>, WazuhError>) -> Result<BTreeSet<RuleId
     let alert = alert.map_err(|e| EngineError(e.to_string()))?;
     Ok(alert
         .into_iter()
-        .map(|id| RuleId::new(format!("wazuh:{id}")))
+        .map(|id| RuleId::of(Engine::Wazuh, &id))
         .collect())
 }
 

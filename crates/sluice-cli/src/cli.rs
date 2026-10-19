@@ -26,7 +26,7 @@ pub(crate) enum Command {
     /// rules' alerts on what it forwards differ from their alerts on the full sample. For CI.
     Prove(ProveArgs),
     /// Write the Microsoft Sentinel tables and data collection rules a source needs: a custom
-    /// table for JSON records, the rule of a standard table, or the table for summaries.
+    /// table for JSON records, or the table for summaries.
     Connect(ConnectArgs),
 }
 
@@ -54,29 +54,9 @@ pub(crate) struct ConnectArgs {
     /// Sentinel: the Azure region of the workspace.
     #[arg(long, default_value = "westeurope")]
     pub(crate) location: String,
-    /// Sentinel: records shaped as a standard table (`shape: sentinel_syslog`,
-    /// `sentinel_common_security_log`, `sentinel_asim_network_session`, `sentinel_asim_dns` or `sentinel_asim_web_session`): write the data
-    /// collection rule that stores them there.
-    #[arg(long, value_enum, conflicts_with = "sample")]
-    pub(crate) standard_table: Option<StandardTable>,
     /// Directory to write the tables and data collection rules to.
     #[arg(long)]
     pub(crate) out: PathBuf,
-}
-
-/// A standard Sentinel table Sluice can shape records for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub(crate) enum StandardTable {
-    /// `Syslog`.
-    Syslog,
-    /// `CommonSecurityLog`.
-    CommonSecurityLog,
-    /// `ASimNetworkSessionLogs`.
-    AsimNetworkSession,
-    /// `ASimDnsActivityLogs`.
-    AsimDns,
-    /// `ASimWebSessionLogs`.
-    AsimWebSession,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]

@@ -10,7 +10,7 @@
 //!
 //! Keywords search every leaf value of the record, as VRL's scan of `flatten(.)` does.
 
-use sluice_core::codegen::{balanced, float_may_match};
+use sluice_core::codegen::{balanced, float_may_match, folded_values};
 use sluice_core::predicate::{FieldTest, KeywordTest, MatchOp, Predicate};
 
 use crate::lua;
@@ -64,22 +64,9 @@ fn keywords(test: &KeywordTest) -> String {
     )
 }
 
-/// The values as a list literal, lowercased for a case-insensitive test; `None` where the test
-/// must widen: no values, or a case-insensitive one that is not ASCII.
+/// The [`folded_values`] as a list literal; `None` where the test must widen.
 fn values(values: &[String], case_sensitive: bool) -> Option<String> {
-    if values.is_empty() || (!case_sensitive && values.iter().any(|v| !v.is_ascii())) {
-        return None;
-    }
-    let values: Vec<String> = values
-        .iter()
-        .map(|v| {
-            if case_sensitive {
-                v.clone()
-            } else {
-                v.to_ascii_lowercase()
-            }
-        })
-        .collect();
+    let values = folded_values(values, case_sensitive)?;
     Some(lua::list(values.iter().map(String::as_str)))
 }
 

@@ -109,7 +109,7 @@ fn a_search_with_an_unknown_macro_may_read_anything() {
         rules
             .problems()
             .iter()
-            .any(|p| p.contains("`nobody_knows`"))
+            .any(|p| p.message.contains("`nobody_knows`"))
     );
     assert_eq!(
         rules.names()[&RuleId::new("splunk:Unknown Macro")],
@@ -165,7 +165,7 @@ fn a_generating_search_is_reported_as_one_whatever_its_macros() {
         rules.requirements(),
         [RuleRequirements::opaque(RuleId::new("splunk:s"))]
     );
-    assert!(rules.problems()[0].contains("a generating command"));
+    assert!(rules.problems()[0].message.contains("a generating command"));
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn comments_are_no_macro_calls() {
         "x.conf",
         "[s]\nsearch = a=1 ```why``` | table a\nenableSched = 1\n",
     )]);
-    assert_eq!(rules.problems(), [] as [String; 0]);
+    assert!(rules.problems().is_empty(), "{:?}", rules.problems());
 }
 
 #[test]
@@ -208,10 +208,10 @@ fn macro_chain(n: usize) -> SplunkRules {
 #[test]
 fn macros_nest_up_to_the_limit() {
     let within = macro_chain(MAX_MACRO_DEPTH + 1);
-    assert_eq!(within.problems(), [] as [String; 0]);
+    assert!(within.problems().is_empty(), "{:?}", within.problems());
     let beyond = macro_chain(MAX_MACRO_DEPTH + 2);
     assert!(
-        beyond.problems()[0].contains("deeper"),
+        beyond.problems()[0].message.contains("deeper"),
         "{:?}",
         beyond.problems()
     );

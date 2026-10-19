@@ -12,6 +12,8 @@ struct Azure {
     paged: bool,
     /// The query log's answer.
     log: Value,
+    /// The tables API's answer: `None` refuses it.
+    tables: Option<Vec<Value>>,
     requests: RefCell<Vec<(String, Option<String>)>>,
 }
 
@@ -56,6 +58,10 @@ impl Azure {
             log: json!({ "tables": [{ "name": "PrimaryResult",
                 "columns": [{ "name": "QueryText", "type": "string" }, { "name": "Runs", "type": "long" }],
                 "rows": [["SecurityEvent | count", 9], ["Heartbeat | take 5", 2]] }] }),
+            tables: Some(vec![
+                json!({ "name": "SecurityEvent", "properties": { "schema": { "tableType": "Microsoft" } } }),
+                json!({ "name": "MyApp_CL", "properties": { "schema": { "tableType": "CustomLog" } } }),
+            ]),
             requests: RefCell::new(Vec::new()),
         }
     }
@@ -100,6 +106,17 @@ impl Transport for Azure {
             }
         } else if url.contains("/savedSearches") {
             json!({ "value": self.searches })
+        } else if url.contains("/workspaces/ws/tables?") {
+            match &self.tables {
+                Some(tables) => json!({ "value": tables }),
+                None => {
+                    return Ok((
+                        403,
+                        json!({"error": {"code": "AuthorizationFailed", "message": "no access"}})
+                            .to_string(),
+                    ));
+                }
+            }
         } else if url.contains("api.loganalytics.io") {
             self.log.clone()
         } else if url.contains("/workspaces/ws?") {
@@ -180,6 +197,31 @@ fn hunting_queries_and_functions_are_read_and_other_searches_counted() {
     };
     let inventory = fetch(&Azure::new(), &credentials(), &all).unwrap();
     assert!(file(&inventory, "saved/l1.yaml").is_some());
+}
+
+#[test]
+fn the_tables_the_workspace_has_are_written_and_a_refusal_only_noted() {
+    let inventory = fetch(&Azure::new(), &credentials(), &options()).unwrap();
+    assert_eq!(
+        file(&inventory, TABLES_FILE).unwrap(),
+        json!({ "tables": ["MyApp_CL", "SecurityEvent"] })
+    );
+    assert_eq!(inventory.manifest.counts["tables"], 2);
+
+    let mut refusing = Azure::new();
+    refusing.tables = None;
+    let inventory = fetch(&refusing, &credentials(), &options()).unwrap();
+    assert!(file(&inventory, TABLES_FILE).is_none());
+    assert!(inventory.manifest.complete, "the rules are all there");
+    assert!(
+        inventory
+            .manifest
+            .not_modeled
+            .iter()
+            .any(|note| note.contains("every table a rule names counts as existing")),
+        "{:?}",
+        inventory.manifest.not_modeled
+    );
 }
 
 #[test]
@@ -334,7 +376,7 @@ fn saved_searches_without_a_query_or_with_an_empty_alias_are_handled() {
     let searches = inventory
         .files
         .iter()
-        .filter(|(p, _)| !p.starts_with("rules/"))
+        .filter(|(p, _)| !p.starts_with("rules/") && p != TABLES_FILE)
         .count();
     assert_eq!(searches, 1);
 }

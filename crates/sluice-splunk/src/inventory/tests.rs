@@ -90,7 +90,7 @@ fn the_files_read_as_splunk_rules_with_their_macros() {
             .map(|(name, text)| (name.as_str(), text.as_str())),
     );
     assert_eq!(rules.requirements().len(), 5);
-    assert_eq!(rules.problems(), [] as [String; 0]);
+    assert!(rules.problems().is_empty(), "{:?}", rules.problems());
     // `a` is an alias of `orig` in props.json.
     assert!(
         format!("{:?}", rules.requirements()[0].prefilter).contains("\"orig\""),

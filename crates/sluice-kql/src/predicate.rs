@@ -13,7 +13,7 @@
 //! Keywords test the text of every column, joined: that also sees object keys and booleans, so
 //! it matches more than VRL's scan of values, never less.
 
-use sluice_core::codegen::balanced;
+use sluice_core::codegen::{balanced, folded_values};
 use sluice_core::predicate::{FieldTest, KeywordTest, MatchOp, Predicate};
 
 use crate::syntax::{self, STRCAT_MAX};
@@ -70,15 +70,17 @@ fn compile_in(predicate: &Predicate, columns: &[&str], known: Option<&syntax::Co
 }
 
 fn field(test: &FieldTest, known: Option<&syntax::Columns>) -> String {
-    if test.op == MatchOp::Exists || test.values.is_empty() {
+    if test.op == MatchOp::Exists {
         return "true".to_owned();
     }
+    let Some(values) = folded_values(&test.values, test.case_sensitive) else {
+        return "true".to_owned();
+    };
     let Some(value) = syntax::path_in(&test.field, known) else {
         return "true".to_owned();
     };
     let rendered = format!("tostring({value})");
-    let comparisons: Option<Vec<String>> = test
-        .values
+    let comparisons: Option<Vec<String>> = values
         .iter()
         .map(|v| comparison(&rendered, test.op, v, test.case_sensitive))
         .collect();
@@ -103,6 +105,9 @@ fn keywords(test: &KeywordTest, columns: &[&str], known: Option<&syntax::Columns
     if columns.is_empty() {
         return "true".to_owned();
     }
+    let Some(values) = folded_values(&test.values, test.case_sensitive) else {
+        return "true".to_owned();
+    };
     let Some(names) = columns
         .iter()
         .map(|c| {
@@ -122,8 +127,7 @@ fn keywords(test: &KeywordTest, columns: &[&str], known: Option<&syntax::Columns
             .map(|n| format!("tostring({n})"))
             .collect::<Vec<_>>(),
     );
-    let comparisons: Option<Vec<String>> = test
-        .values
+    let comparisons: Option<Vec<String>> = values
         .iter()
         .map(|v| comparison(&rendered, MatchOp::Contains, v, test.case_sensitive))
         .collect();
@@ -151,11 +155,9 @@ fn joined(texts: &[String]) -> String {
     }
 }
 
-/// One comparison of `text` with `value`, or `None` where the test must widen.
+/// One comparison of `text` with one of the [`folded_values`], or `None` where the test must
+/// widen.
 fn comparison(text: &str, op: MatchOp, value: &str, case_sensitive: bool) -> Option<String> {
-    if !case_sensitive && !value.is_ascii() {
-        return None;
-    }
     let literal = syntax::string(value)?;
     let operator = match (op, case_sensitive) {
         (MatchOp::Equals, false) => "=~",

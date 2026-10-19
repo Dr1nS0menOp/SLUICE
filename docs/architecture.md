@@ -270,7 +270,7 @@ The crates of the archived live part (`sluice-server`, `sluice-archive`, `sluice
 
 | Technology | What Sluice uses it for |
 |---|---|
-| Azure Monitor data collection rules | Microsoft Sentinel tables: custom `_CL` tables derived from a sample, the rules of standard tables and of the summary table (`sluice connect sentinel`), and DCR transformations that make the plan's field removals (`--sentinel-native`). Verified in a real workspace ([notes](notes/sentinel-dcr.md)). |
+| Azure Monitor data collection rules | Microsoft Sentinel tables: custom `_CL` tables derived from a sample and the summary table, with their rules (`sluice connect sentinel`), and DCR transformations that make the plan's field removals (`--sentinel-native`). Verified in a real workspace ([notes](notes/sentinel-dcr.md)). |
 | Elasticsearch ingest pipelines (Painless) | The plan's field removals in Elastic's own ingestion, without Vector ([ADR 0024](adr/0024-elastic-ingest-pipelines.md), [notes](notes/elasticsearch.md)). |
 | Fluent Bit Lua filters | The plan's field removals in the agent ([ADR 0027](adr/0027-fluent-bit-lua-filters.md), [notes](notes/fluent-bit.md)). |
 | OpenTelemetry Collector `transform` statements (OTTL) | The plan's field removals in the collector ([ADR 0028](adr/0028-otel-transform-statements.md), [notes](notes/otel-collector.md)). |

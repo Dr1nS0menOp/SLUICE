@@ -28,9 +28,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 use sluice_core::field::FieldPath;
-use sluice_core::ids::RuleId;
+use sluice_core::ids::{Engine, RuleId};
 use sluice_core::logsource::LogSource;
 use sluice_core::predicate::Predicate;
+use sluice_core::problem::{Problem, ProblemKind};
 use sluice_core::rules::{RequiredFields, RuleRequirements};
 use sluice_core::schema::Schema;
 
@@ -40,7 +41,7 @@ pub struct ElasticRules {
     requirements: Vec<RuleRequirements>,
     queries: Vec<(RuleId, ElasticQuery)>,
     names: BTreeMap<RuleId, String>,
-    problems: Vec<String>,
+    problems: Vec<Problem>,
 }
 
 /// A rule's query, as Elasticsearch runs it.
@@ -100,9 +101,13 @@ impl ElasticRules {
             rules.add(place, item);
         }
         if disabled > 0 {
-            rules.problems.push(format!(
-                "{disabled} Elastic rules are disabled and were left out: they detect nothing \
-                 while disabled; analyze again after enabling rules"
+            rules.problems.push(Problem::new(
+                ProblemKind::LeftOut,
+                None,
+                format!(
+                    "{disabled} Elastic rules are disabled and were left out: they detect \
+                     nothing while disabled; analyze again after enabling rules"
+                ),
             ));
         }
         rules
@@ -152,14 +157,16 @@ impl ElasticRules {
     }
 
     fn unreadable(&mut self, place: &str, why: &str) {
-        self.problems.push(format!(
-            "Elastic rule {place} could not be read ({why}); it is treated as a rule that may \
-             read anything"
+        let rule = RuleId::unreadable(Engine::Elastic, place);
+        self.problems.push(Problem::new(
+            ProblemKind::Unreadable,
+            Some(rule.clone()),
+            format!(
+                "Elastic rule {place} could not be read ({why}); it is treated as a rule that \
+                 may read anything"
+            ),
         ));
-        self.requirements
-            .push(RuleRequirements::opaque(RuleId::new(format!(
-                "elastic:unreadable:{place}"
-            ))));
+        self.requirements.push(RuleRequirements::opaque(rule));
     }
 
     fn add(&mut self, place: &str, item: &Value) {
@@ -180,7 +187,7 @@ impl ElasticRules {
             .or_else(|| item.get("id"))
             .and_then(Value::as_str)
             .map_or_else(|| format!("unnamed:{place}"), str::to_owned);
-        let rule = RuleId::new(format!("elastic:{id}"));
+        let rule = RuleId::of(Engine::Elastic, &id);
         if let Some(name) = item.get("name").and_then(Value::as_str) {
             self.names.insert(rule.clone(), name.to_owned());
         }
@@ -219,14 +226,19 @@ impl ElasticRules {
                     self.requirements.push(requirement);
                 }
                 if let Some(why) = read.any_field {
-                    self.problems
-                        .push(format!("{rule}: {why}; treated as reading every field"));
+                    self.problems.push(Problem::new(
+                        ProblemKind::ReadBroadly,
+                        Some(rule.clone()),
+                        format!("{rule}: {why}; treated as reading every field"),
+                    ));
                 }
                 self.queries.push((rule, read.query));
             }
             Err(why) => {
-                self.problems.push(format!(
-                    "{rule}: {why}; it is treated as a rule that may read anything"
+                self.problems.push(Problem::new(
+                    ProblemKind::Unreadable,
+                    Some(rule.clone()),
+                    format!("{rule}: {why}; it is treated as a rule that may read anything"),
                 ));
                 for scope in scopes {
                     // Under the rule's own id, so the report names it.
@@ -253,7 +265,7 @@ impl ElasticRules {
 
     /// Rule parts that could not be understood; the affected rules were widened.
     #[must_use]
-    pub fn problems(&self) -> &[String] {
+    pub fn problems(&self) -> &[Problem] {
         &self.problems
     }
 

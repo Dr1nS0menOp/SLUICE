@@ -16,8 +16,9 @@ mod tests;
 
 use std::collections::BTreeMap;
 
-use sluice_core::ids::RuleId;
+use sluice_core::ids::{Engine, RuleId};
 use sluice_core::logsource::LogSource;
+use sluice_core::problem::{Problem, ProblemKind};
 use sluice_core::rules::{RequiredFields, RuleRequirements};
 use sluice_core::schema::Schema;
 
@@ -32,7 +33,7 @@ const MAX_MACRO_DEPTH: usize = 32;
 pub struct SplunkRules {
     requirements: Vec<RuleRequirements>,
     names: BTreeMap<RuleId, String>,
-    problems: Vec<String>,
+    problems: Vec<Problem>,
 }
 
 impl SplunkRules {
@@ -74,8 +75,10 @@ impl SplunkRules {
                 Some(conf::conf(text))
             };
             let Some(read) = read else {
-                rules.problems.push(format!(
-                    "{name} is no Splunk REST answer (`entry`); it was left out"
+                rules.problems.push(Problem::new(
+                    ProblemKind::LeftOut,
+                    None,
+                    format!("{name} is no Splunk REST answer (`entry`); it was left out"),
                 ));
                 continue;
             };
@@ -85,9 +88,13 @@ impl SplunkRules {
         }
         let derived = Derived::new(&props, &transforms);
         if let Some(why) = &derived.dynamic {
-            rules.problems.push(format!(
-                "Splunk derives {why}: any field may be derived, so every search's field tests \
-                 match every event"
+            rules.problems.push(Problem::new(
+                ProblemKind::ReadBroadly,
+                None,
+                format!(
+                    "Splunk derives {why}: any field may be derived, so every search's field \
+                     tests match every event"
+                ),
             ));
         }
         let macros = Macros::new(&stanzas);
@@ -111,7 +118,7 @@ impl SplunkRules {
     }
 
     fn add(&mut self, name: &str, search: &str, macros: &Macros<'_>, derived: &Derived) {
-        let rule = RuleId::new(format!("splunk:{name}"));
+        let rule = RuleId::of(Engine::Splunk, name);
         let reads = match macros.expand(&without_comments(search), 0) {
             Ok(search) => derived.apply(spl::read(&search)),
             Err(why) => {
@@ -121,8 +128,10 @@ impl SplunkRules {
                 } else {
                     why
                 };
-                self.problems.push(format!(
-                    "{rule}: {why}; treated as reading every field of every event"
+                self.problems.push(Problem::new(
+                    ProblemKind::Unreadable,
+                    Some(rule.clone()),
+                    format!("{rule}: {why}; treated as reading every field of every event"),
                 ));
                 self.names.insert(rule.clone(), name.to_owned());
                 self.requirements.push(RuleRequirements::opaque(rule));
@@ -130,8 +139,11 @@ impl SplunkRules {
             }
         };
         if let Some(why) = reads.any_field {
-            self.problems
-                .push(format!("{rule}: {why}; treated as reading every field"));
+            self.problems.push(Problem::new(
+                ProblemKind::ReadBroadly,
+                Some(rule.clone()),
+                format!("{rule}: {why}; treated as reading every field"),
+            ));
         }
         self.names.insert(rule.clone(), name.to_owned());
         self.requirements.push(RuleRequirements {
@@ -158,7 +170,7 @@ impl SplunkRules {
 
     /// Search parts that could not be understood; the affected searches were widened.
     #[must_use]
-    pub fn problems(&self) -> &[String] {
+    pub fn problems(&self) -> &[Problem] {
         &self.problems
     }
 

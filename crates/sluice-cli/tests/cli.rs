@@ -366,47 +366,6 @@ fn connect_sentinel_derives_a_custom_table_and_its_rule_from_a_sample() {
 }
 
 #[test]
-fn connect_sentinel_writes_the_rule_of_each_standard_table() {
-    let dir = scratch("connect-standard");
-    for (table, file, shape) in [
-        ("syslog", "Syslog.dcr.json", "sentinel_syslog"),
-        (
-            "common-security-log",
-            "CommonSecurityLog.dcr.json",
-            "sentinel_common_security_log",
-        ),
-        (
-            "asim-network-session",
-            "ASimNetworkSessionLogs.dcr.json",
-            "sentinel_asim_network_session",
-        ),
-        (
-            "asim-dns",
-            "ASimDnsActivityLogs.dcr.json",
-            "sentinel_asim_dns",
-        ),
-        (
-            "asim-web-session",
-            "ASimWebSessionLogs.dcr.json",
-            "sentinel_asim_web_session",
-        ),
-    ] {
-        let out = sluice(&[
-            "connect",
-            "sentinel",
-            "--standard-table",
-            table,
-            "--out",
-            dir.to_str().unwrap(),
-        ]);
-        assert!(out.contains(&format!("`{shape}`")), "{out}");
-        let dcr: serde_json::Value =
-            serde_json::from_str(&read(&dir.join(file))).expect("a JSON rule");
-        assert!(dcr.is_object(), "{table}");
-    }
-}
-
-#[test]
 fn connect_sentinel_writes_the_summary_table_and_its_function() {
     let dir = scratch("connect-summaries");
     let out = sluice(&[

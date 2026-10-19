@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 
 use serde_yaml_ng::Value;
 
+use super::SentinelWorkspace;
 use super::extract::{self, Reads};
 use super::lexer;
 
@@ -47,15 +48,20 @@ impl Functions {
     }
 
     /// What `query` reads, with every known function it uses resolved.
-    pub(super) fn reads(&self, query: &str) -> Reads {
-        self.resolve_query(query, &mut Vec::new())
+    pub(super) fn reads(&self, query: &str, workspace: &SentinelWorkspace<'_>) -> Reads {
+        self.resolve_query(query, &mut Vec::new(), workspace)
     }
 
-    fn resolve_query(&self, query: &str, stack: &mut Vec<String>) -> Reads {
+    fn resolve_query(
+        &self,
+        query: &str,
+        stack: &mut Vec<String>,
+        workspace: &SentinelWorkspace<'_>,
+    ) -> Reads {
         let known = |name: &str| self.queries.contains_key(name);
-        let mut reads = extract::reads(&lexer::tokens(query), &known);
+        let mut reads = extract::reads(&lexer::tokens(query), &known, workspace);
         for name in std::mem::take(&mut reads.calls) {
-            let callee = self.resolve(&name, stack);
+            let callee = self.resolve(&name, stack, workspace);
             // A function that reads no table a source may fill (a shaped one, a custom one, or
             // any) adds nothing a source must keep.
             if !callee.tables.is_empty() || !callee.custom_tables.is_empty() || callee.any_table {
@@ -65,7 +71,12 @@ impl Functions {
         reads
     }
 
-    fn resolve(&self, name: &str, stack: &mut Vec<String>) -> Reads {
+    fn resolve(
+        &self,
+        name: &str,
+        stack: &mut Vec<String>,
+        workspace: &SentinelWorkspace<'_>,
+    ) -> Reads {
         if let Some(done) = self.resolved.borrow().get(name) {
             return done.clone();
         }
@@ -76,7 +87,7 @@ impl Functions {
             return Reads::unknown(format!("`{name}` is not known"));
         };
         stack.push(name.to_owned());
-        let reads = self.resolve_query(query, stack);
+        let reads = self.resolve_query(query, stack, workspace);
         stack.pop();
         self.resolved
             .borrow_mut()

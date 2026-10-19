@@ -10,8 +10,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use rsigma_parser::ast::{CorrelationCondition, CorrelationRule, FilterRuleTarget, SigmaRule};
 use rsigma_parser::{SigmaCollection, parse_sigma_yaml};
 use sluice_core::field::FieldPath;
-use sluice_core::ids::RuleId;
+use sluice_core::ids::{Engine, RuleId};
 use sluice_core::logsource::LogSource;
+use sluice_core::problem::{Problem, ProblemKind};
 use sluice_core::rules::RuleRequirements;
 use sluice_core::schema::Schema;
 use sluice_core::source::Source;
@@ -23,7 +24,7 @@ use crate::error::RulesError;
 
 /// The rule id Sluice uses for a Sigma rule: its `id`, else its title.
 pub(crate) fn rule_id(id: Option<&str>, title: &str) -> RuleId {
-    RuleId::new(format!("sigma:{}", id.unwrap_or(title)))
+    RuleId::of(Engine::Sigma, id.unwrap_or(title))
 }
 
 /// A loaded Sigma rule set.
@@ -33,7 +34,7 @@ pub struct SigmaRules {
     /// The collection mapped onto other field naming conventions, one per pipeline.
     mapped: Vec<(Schema, SigmaCollection)>,
     requirements: Vec<RuleRequirements>,
-    problems: Vec<String>,
+    problems: Vec<Problem>,
 }
 
 impl SigmaRules {
@@ -72,7 +73,20 @@ impl SigmaRules {
             collection.filters.extend(parsed.filters);
             collection.errors.extend(parsed.errors);
         }
-        let mut problems = collection.errors.clone();
+        // A document that did not parse stands in as `sigma:unreadable:N`, in this order.
+        let mut problems: Vec<Problem> = collection
+            .errors
+            .iter()
+            .enumerate()
+            .map(|(n, error)| {
+                Problem::new(
+                    ProblemKind::Unreadable,
+                    Some(RuleId::unreadable(Engine::Sigma, &n.to_string())),
+                    error.clone(),
+                )
+            })
+            .collect();
+        problems.extend(shared_ids(&collection));
         let mut requirements = requirements(&collection, &mut problems);
         let mut mapped: Vec<(Schema, SigmaCollection)> = Vec::new();
         for pipeline in pipelines {
@@ -117,7 +131,7 @@ impl SigmaRules {
 
     /// Rules that could not be fully understood; each is covered by an opaque requirement.
     #[must_use]
-    pub fn problems(&self) -> &[String] {
+    pub fn problems(&self) -> &[Problem] {
         &self.problems
     }
 
@@ -147,18 +161,51 @@ impl SigmaRules {
     }
 }
 
+/// Rules and correlations that share an id. Their alerts carry the same id, so the proof cannot
+/// tell one rule's alert from the other's; each still protects what it reads.
+fn shared_ids(collection: &SigmaCollection) -> Vec<Problem> {
+    let mut titles: BTreeMap<RuleId, Vec<&str>> = BTreeMap::new();
+    let rules = collection
+        .rules
+        .iter()
+        .map(|r| (r.id.as_deref(), r.title.as_str()));
+    let correlations = collection
+        .correlations
+        .iter()
+        .map(|c| (c.id.as_deref(), c.title.as_str()));
+    for (id, title) in rules.chain(correlations) {
+        titles.entry(rule_id(id, title)).or_default().push(title);
+    }
+    titles
+        .into_iter()
+        .filter(|(_, titles)| titles.len() > 1)
+        .map(|(id, titles)| {
+            let message = format!(
+                "{} Sigma rules share the id {id} ({}): the proof cannot tell their alerts \
+                 apart; give each its own `id`",
+                titles.len(),
+                titles.join("; ")
+            );
+            Problem::new(ProblemKind::SharedId, Some(id), message)
+        })
+        .collect()
+}
+
 /// The requirements of a mapped collection's own rules and correlations, without the opaque
 /// stand-ins for documents that did not parse (the original collection has those).
 fn requirements_of(
     collection: &SigmaCollection,
-    problems: &mut Vec<String>,
+    problems: &mut Vec<Problem>,
 ) -> impl Iterator<Item = RuleRequirements> {
     requirements(collection, problems)
         .into_iter()
         .filter(|r| r.field_names.is_some())
 }
 
-fn requirements(collection: &SigmaCollection, problems: &mut Vec<String>) -> Vec<RuleRequirements> {
+fn requirements(
+    collection: &SigmaCollection,
+    problems: &mut Vec<Problem>,
+) -> Vec<RuleRequirements> {
     let mut reads: Vec<Reads> = collection
         .rules
         .iter()
@@ -186,14 +233,16 @@ fn requirements(collection: &SigmaCollection, problems: &mut Vec<String>) -> Vec
         let mut visited = BTreeSet::new();
         let resolved = index.base_rules(correlation, &mut visited);
         if resolved.unresolved {
-            problems.push(format!(
-                "correlation {:?} references a rule that is not loaded",
-                correlation.title
+            let id = rule_id(correlation.id.as_deref(), &correlation.title);
+            problems.push(Problem::new(
+                ProblemKind::MissingRule,
+                Some(id.clone()),
+                format!(
+                    "correlation {:?} references a rule that is not loaded",
+                    correlation.title
+                ),
             ));
-            opaque.push(RuleRequirements::opaque(rule_id(
-                correlation.id.as_deref(),
-                &correlation.title,
-            )));
+            opaque.push(RuleRequirements::opaque(id));
         }
         for target in resolved.rules {
             stateful[target] = true;
@@ -220,7 +269,7 @@ fn requirements(collection: &SigmaCollection, problems: &mut Vec<String>) -> Vec
     out.extend(opaque);
     out.extend(
         (0..collection.errors.len())
-            .map(|n| RuleRequirements::opaque(RuleId::new(format!("sigma:unparsed:{n}")))),
+            .map(|n| RuleRequirements::opaque(RuleId::unreadable(Engine::Sigma, &n.to_string()))),
     );
     out
 }

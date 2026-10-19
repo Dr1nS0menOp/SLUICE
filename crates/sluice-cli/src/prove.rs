@@ -51,7 +51,7 @@ pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
         &input::sigma_pipelines(&args.sigma_pipeline)?,
     )?;
     let sigma_engine = sigma.engine(&sources)?;
-    let sentinel = input::sentinel(args.sentinel_rules.as_deref())?;
+    let sentinel = input::sentinel(args.sentinel_rules.as_deref(), &args.sentinel_table)?;
     let kusto = match (&sentinel, &args.kusto) {
         (Some(rules), Some(url)) => Some(crate::engines::kusto(
             url,

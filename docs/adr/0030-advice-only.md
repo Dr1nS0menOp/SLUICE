@@ -106,3 +106,14 @@ real engine, carry the advice out (ADR 0023, 0013, 0024, 0027, 0028).
   takes a new ADR and the quality gates.
 - To delete later, in one change: `archive/`, and the notes only it needs
   (`docs/notes/mcp.md`, `docs/notes/oidc.md`). The superseded ADRs stay as the record of why.
+
+## Update, 2026-10-18
+
+`sluice connect sentinel --standard-table` is archived too, with the VRL in `sluice-vector` that
+shaped records as Sentinel's standard tables (`Syslog`, `CommonSecurityLog`, the ASIM tables,
+`SecurityEvent` and `WindowsEvent`). Only `sluice up` sources (`shape:`) and `sluice agent
+windows` ran that VRL, so the rule `--standard-table` wrote had nothing left to fill it. Shaping
+a source for a standard table is onboarding, not saving, and the analysis does not need it: a
+sample read from a Sentinel table is already shaped. Drafting such rules and their shaping is
+planned as an MCP integration, in which an assistant writes them and Sluice proves them (PLAN,
+M12).

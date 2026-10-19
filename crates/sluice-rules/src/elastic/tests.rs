@@ -61,7 +61,7 @@ fn c3_a_machine_learning_rule_may_read_anything() {
         rules
             .problems()
             .iter()
-            .any(|p| p.contains("machine learning"))
+            .any(|p| p.message.contains("machine learning"))
     );
 }
 
@@ -156,7 +156,7 @@ fn c3_only_rules_that_run_count_the_newest_version_and_not_disabled_ones() {
         rules
             .problems()
             .iter()
-            .any(|p| p.starts_with("1 Elastic rules are disabled")),
+            .any(|p| p.message.starts_with("1 Elastic rules are disabled")),
         "{:?}",
         rules.problems()
     );

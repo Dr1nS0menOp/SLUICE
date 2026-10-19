@@ -58,8 +58,9 @@ fn the_prebuilt_rules_are_read_and_most_are_bounded() {
     let mut reasons: BTreeMap<String, usize> = BTreeMap::new();
     for problem in rules.problems() {
         let reason = problem
+            .message
             .split_once(": ")
-            .map_or(problem.as_str(), |(_, r)| r);
+            .map_or(problem.message.as_str(), |(_, r)| r);
         let reason = reason.split(';').next().unwrap_or(reason);
         *reasons
             .entry(reason.chars().take(70).collect())
@@ -73,7 +74,11 @@ fn the_prebuilt_rules_are_read_and_most_are_bounded() {
     for (reason, n) in &reasons {
         eprintln!("  {n:>5}  {reason}");
     }
-    for problem in rules.problems().iter().filter(|p| p.contains("expected")) {
+    for problem in rules
+        .problems()
+        .iter()
+        .filter(|p| p.message.contains("expected"))
+    {
         eprintln!("  parse: {problem}");
     }
     let ids: BTreeSet<&str> = all.iter().map(|r| r.rule.as_str()).collect();

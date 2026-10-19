@@ -162,6 +162,26 @@ fn names_cover_rules_and_correlations() {
 }
 
 #[test]
+fn rules_that_share_an_id_are_reported_and_each_protects_what_it_reads() {
+    let copy = BASE
+        .replace("Failed logon", "Failed logon, edited")
+        .replace("EventID: 4625", "EventID: 4771");
+    let rules = parse(&[BASE, &copy]);
+    assert_eq!(
+        rules.problems(),
+        [Problem::new(
+            ProblemKind::SharedId,
+            Some(rule_id(Some(BASE_ID), "")),
+            format!(
+                "2 Sigma rules share the id sigma:{BASE_ID} (Failed logon; Failed logon, \
+                 edited): the proof cannot tell their alerts apart; give each its own `id`"
+            )
+        )]
+    );
+    assert_eq!(rules.requirements().len(), 2, "both rules still count");
+}
+
+#[test]
 fn a_rule_without_an_id_is_named_by_its_title() {
     assert_eq!(rule_id(None, "My rule").as_str(), "sigma:My rule");
     assert_eq!(rule_id(Some("x"), "My rule").as_str(), "sigma:x");
@@ -213,13 +233,13 @@ fn c3_a_file_that_is_not_yaml_blocks_every_saving() {
     let rules = SigmaRules::parse(["title: [unclosed"]).expect("loads");
     assert_eq!(rules.problems().len(), 1);
     assert!(
-        rules.problems()[0].contains("YAML"),
+        rules.problems()[0].message.contains("YAML"),
         "{:?}",
         rules.problems()
     );
     assert_eq!(
         rules.requirements(),
-        [RuleRequirements::opaque(RuleId::new("sigma:unparsed:0"))]
+        [RuleRequirements::opaque(RuleId::new("sigma:unreadable:0"))]
     );
 }
 

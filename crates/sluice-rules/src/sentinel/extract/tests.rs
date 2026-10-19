@@ -8,7 +8,7 @@ use super::super::lexer::tokens;
 use super::*;
 
 fn of(query: &str) -> Reads {
-    reads(&tokens(query), &|_| false)
+    reads(&tokens(query), &|_| false, &SentinelWorkspace::default())
 }
 
 fn widened(query: &str) -> bool {

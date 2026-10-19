@@ -18,7 +18,9 @@ mod wazuh;
 
 pub use crate::elastic::{ElasticQuery, ElasticRules};
 pub use crate::error::RulesError;
-pub use crate::sentinel::SentinelRules;
+pub use crate::sentinel::{
+    FetchedNames, KqlNames, SentinelRules, SentinelWorkspace, UncheckedNames,
+};
 pub use crate::sigma::{SigmaEngine, SigmaPipeline, SigmaRules};
 pub use crate::splunk::SplunkRules;
 pub use crate::wazuh::WazuhRules;

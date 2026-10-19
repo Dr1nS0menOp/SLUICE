@@ -38,8 +38,9 @@ fn the_escu_searches_are_read_with_their_macros() {
     let mut reasons: BTreeMap<String, usize> = BTreeMap::new();
     for problem in rules.problems() {
         let reason = problem
+            .message
             .split_once(": ")
-            .map_or(problem.as_str(), |(_, r)| r);
+            .map_or(problem.message.as_str(), |(_, r)| r);
         let reason = reason.split(';').next().unwrap_or(reason);
         // One line per kind: macro names differ per search.
         let kind: String = reason
@@ -61,6 +62,7 @@ fn the_escu_searches_are_read_with_their_macros() {
     let mut unknown_macros: BTreeMap<&str, usize> = BTreeMap::new();
     for problem in rules.problems() {
         if let Some(name) = problem
+            .message
             .split_once("the macro `")
             .and_then(|(_, rest)| rest.split_once("`, which is not among the files"))
         {

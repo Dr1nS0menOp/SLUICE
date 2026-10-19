@@ -241,11 +241,11 @@ Running it:
   as Administrator. WSL's sparse mode is disabled by Microsoft over data corruption; don't force
   it.
 
-Known limits found, not fixed: a workspace function whose name is all lower case still looks
-like one of KQL's own to the Sentinel extractor where an expression may stand
-(`let events = my_parser();`, `join (my_parser()) on …`), so a rule calling it there is not
-widened unless its source is among the rule files, as `sluice rules fetch sentinel` writes it.
-Where only a table may stand (a statement's start, after `invoke`) it widens since 2026-10-18.
+Known limits found, not fixed: for Sentinel rules read from files without a fetch, a workspace
+function whose name is all lower case still looks like one of KQL's own where an expression may
+stand (`let events = my_parser();`), so a rule calling it there is not widened unless its source
+is among the rule files. The report lists every lower-case name it could not check. With
+`sluice rules fetch sentinel` every workspace function is known and the gap is closed (ADR 0031).
 Azure-Sentinel `55296e6` has no such function: none of its 1,008 parser and function names is
 all lower case, and the two lower-case calls in its rules that are not KQL's (`extract_data`,
 `cap`) are defined with `let` in the rule itself.
@@ -268,7 +268,8 @@ every number below came out the same. Again on 2026-10-18 after the review's fai
 from text lines, Wazuh `maxsize`, Splunk raw text): the same again. None of those cases occur
 in this data, or its savings were already nothing. The ECS runs below, repeated the same day
 after the Elastic KQL number fix, also gave the same numbers: 29.3 %, 29.3 % with 2,035 Elastic
-rules (1,934 of them run in Elasticsearch), and 0.6 % with 2,059.
+rules (1,934 of them run in Elasticsearch), and 0.6 % with 2,059. Once more that evening, after
+rule ids, typed problems, shared case folding and the workspace's tables (ADR 0031): the same.
 
 | Run, 2026-10-16 | Data | Saved | Alerts (full = forwarded) | Before (ADR 0009, 0015) |
 |---|---|---:|---|---|
@@ -337,6 +338,15 @@ All reproduce. Findings:
 - With SigmaHQ loaded, nothing is saved on Sentinel records: they use Sentinel's field names, so
   without a `--sigma-pipeline` Sigma rules protect everything they could read (ADR 0018). The
   earlier run predates that.
+- The workspace's tables (ADR 0031, 2026-10-18): every rule and hunting query of Azure-Sentinel
+  `55296e6` (2,452, with its 1,008 parsers and functions) on the Sentinel records, guardrails
+  only. Read as files, 862 of them keep every row of every source; read as a fetch of a workspace
+  with the test workspace's 856 tables, 59 do, and 2,105 see no source at all, since they read
+  only tables the workspace does not have. Both save 0.0 %: one rule that reads everything is
+  enough to keep every record whole, and 59 remain (20 call functions whose source is not in
+  the repository, others use `table()`, `search` or `union *`). A workspace runs a selection of
+  these rules, and there the list removes the ASIM parsers' vendor branches and the vendor
+  solutions' custom tables that kept everything whole.
 
 ## Done when
 

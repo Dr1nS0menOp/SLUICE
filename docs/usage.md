@@ -174,6 +174,21 @@ sluice analyze --input samples/ --sources sources.yaml --sentinel-rules inventor
   `--rules-complete` to allow summaries. Add the ASIM parsers (`Parsers/ASim*/Parsers` and
   `ASIM/lib/functions` from the same repository), so rules that use a parser are bounded by what
   the parser reads.
+- The fetch also lists the workspace's tables (`tables.json`). A rule, or an ASIM parser's
+  branch, over a table the workspace does not have reads nothing, so it no longer keeps every
+  source whole (ADR 0031). Fetch again after creating a table.
+- A rule that calls a function whose source Sluice does not have keeps every column of every
+  record. The report lists each such function with the rules that call it. `sluice rules fetch
+  sentinel` reads every function of the workspace; for rules from files, save the function next
+  to them, with its query from the Azure portal (Logs, Functions):
+
+  ```yaml
+  FunctionName: my_parser
+  FunctionQuery: |
+    SecurityEvent
+    | where EventID in (4624, 4625)
+  ```
+
 - `--sentinel-table SOURCE=TABLE` names the table each source's sample records are stored in.
   With `--kusto`, the [Kusto
   emulator](https://learn.microsoft.com/azure/data-explorer/kusto-emulator-overview) runs those
@@ -215,16 +230,6 @@ sluice connect sentinel --sample samples/nginx.ndjson --table Nginx --time-field
 You get `Nginx_CL.table.json` (one typed column per field, invalid names made valid) and
 `Nginx.dcr.json`. A data collection rule only passes the columns it declares, so use a sample
 that covers the source, and generate again when the source changes.
-
-For records that already carry a standard table's columns, `--standard-table syslog`,
-`common-security-log`, `asim-network-session`, `asim-dns` or `asim-web-session` writes the rule
-that stores them in `Syslog`, `CommonSecurityLog`, `ASimNetworkSessionLogs`,
-`ASimDnsActivityLogs` or `ASimWebSessionLogs`:
-
-```sh
-sluice connect sentinel --standard-table syslog --out dcr/ \
-  --workspace /subscriptions/…/workspaces/my-workspace
-```
 
 Create each rule in Azure and give the app registration that sends *Monitoring Metrics
 Publisher* on it.

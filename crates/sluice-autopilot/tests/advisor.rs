@@ -150,7 +150,12 @@ fn a_failing_advisor_is_reported_not_fatal() {
         },
     )
     .expect("analysis");
-    assert!(analysis.problems.iter().any(|p| p.contains("unreachable")));
+    assert!(
+        analysis
+            .problems
+            .iter()
+            .any(|p| p.message.contains("unreachable"))
+    );
     assert!(analysis.selection.proof.holds());
 }
 

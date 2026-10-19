@@ -34,6 +34,14 @@ using the client credentials flow
   `tables[0].columns` and `tables[0].rows`. On the test workspace, without query auditing
   configured, the query succeeded with no rows: an empty log does not fail, so `sluice rules
   fetch` says so in the manifest.
+- **Tables** (2026-10-18): `GET {workspace}/tables?api-version=2022-10-01` lists every table
+  the workspace has, in one page: 856 on the test workspace, 851 with
+  `properties.schema.tableType` `Microsoft` (every standard table, whether or not data came in:
+  `SecurityEvent`, `Syslog`, `CommonSecurityLog`, `ASimDnsActivityLogs`, `SigninLogs`) and 5
+  `CustomLog` (the `_CL` tables that were created). `properties.plan` is `Analytics`, or
+  `Auxiliary` for the archive table. A custom table nobody created (`CiscoMeraki_CL`) is not
+  listed, which is what ADR 0031 relies on. The test app read them with the role it has on the
+  workspace; the action is `Microsoft.OperationalInsights/workspaces/tables/read`.
 
 ## Wazuh
 

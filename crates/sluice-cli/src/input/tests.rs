@@ -185,7 +185,7 @@ fn a_fetched_elastic_inventory_reads_its_rules_not_its_manifest() {
     )
     .unwrap();
     let rules = elastic(Some(&dir)).unwrap().unwrap();
-    assert_eq!(rules.problems(), &[] as &[String]);
+    assert!(rules.problems().is_empty(), "{:?}", rules.problems());
     assert_eq!(rules.requirements().len(), 1);
 }
 
@@ -222,7 +222,7 @@ fn sentinel_rules_load_and_keep_their_problems() {
     )
     .unwrap();
     fs::write(dir.join("broken.yml"), "id: [unclosed\n").unwrap();
-    let rules = sentinel(Some(&dir)).unwrap().unwrap();
+    let rules = sentinel(Some(&dir), &[]).unwrap().unwrap();
     assert_eq!(rules.problems().len(), 1, "{:?}", rules.problems());
     // The unreadable file stays a rule that may read anything: fail closed.
     assert_eq!(rules.requirements().len(), 2);
@@ -235,7 +235,67 @@ fn sentinel_rules_load_and_keep_their_problems() {
 }
 
 #[test]
+fn c3_a_fetched_sentinel_inventory_knows_its_functions_and_tables() {
+    let dir = scratch("sentinel-fetched");
+    fs::write(
+        dir.join("vendor.yaml"),
+        "id: vendor\nquery: CiscoMeraki_CL | where x == 1\n",
+    )
+    .unwrap();
+    fs::write(dir.join("web.yaml"), "id: web\nquery: Web_CL | take 1\n").unwrap();
+    fs::write(
+        dir.join("own.yaml"),
+        "id: own\nquery: |\n  let e = my_parser();\n  SecurityEvent | where EventID == 1\n",
+    )
+    .unwrap();
+    let product = |rules: &sluice_rules::SentinelRules, id: &str| {
+        rules
+            .requirements()
+            .iter()
+            .find(|r| r.rule.as_str() == format!("sentinel:{id}"))
+            .map(|r| r.logsource.product.clone())
+            .expect("the rule")
+    };
+    // Rules from files: a lower-case call is not checked, and any custom table may exist.
+    let files = sentinel(Some(&dir), &[]).unwrap().unwrap();
+    assert!(
+        files
+            .problems()
+            .iter()
+            .any(|p| p.kind == sluice_core::problem::ProblemKind::Unchecked),
+        "{:?}",
+        files.problems()
+    );
+    assert_eq!(product(&files, "vendor"), None, "applies to every source");
+
+    fs::write(
+        dir.join(sluice_core::inventory::MANIFEST_FILE),
+        "{\"system\":\"sentinel\",\"from\":\"w\",\"fetched_at\":\"t\",\"complete\":true,\"counts\":{}}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join(sluice_sentinel::TABLES_FILE),
+        "{\"tables\":[\"SecurityEvent\"]}\n",
+    )
+    .unwrap();
+    let fetched = sentinel(Some(&dir), &["web=Web_CL".to_owned()])
+        .unwrap()
+        .unwrap();
+    assert!(fetched.problems().is_empty(), "{:?}", fetched.problems());
+    assert_eq!(
+        product(&fetched, "vendor").as_deref(),
+        Some("sentinel-other-tables"),
+        "the workspace has no CiscoMeraki_CL: the rule reads nothing"
+    );
+    assert_eq!(
+        product(&fetched, "web"),
+        None,
+        "a source goes to Web_CL, so it exists"
+    );
+}
+
+#[test]
 fn without_rules_there_is_no_wazuh_or_sentinel_rule_set() {
     assert!(wazuh(None, None).unwrap().is_none());
-    assert!(sentinel(None).unwrap().is_none());
+    assert!(sentinel(None, &[]).unwrap().is_none());
 }

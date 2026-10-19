@@ -53,8 +53,57 @@ string_id! {
 }
 
 string_id! {
-    /// A detection rule, such as a Sigma rule id or a Wazuh rule id (`wazuh:5710`).
+    /// A detection rule, such as a Sigma rule id or a Wazuh rule id (`wazuh:5710`). Rule readers
+    /// name rules with [`RuleId::of`]; `new` is for ids read back, such as from `plan.json`.
     RuleId
+}
+
+/// The rule language a [`RuleId`] comes from. Each has its own namespace, the prefix before the
+/// first `:`, so a Wazuh rule `5710` and a Sigma rule with that id stay apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Engine {
+    /// Sigma rules.
+    Sigma,
+    /// Wazuh's XML rules.
+    Wazuh,
+    /// Microsoft Sentinel's analytics rules, hunting queries and the queries in its log.
+    Sentinel,
+    /// Elastic Security's detection rules.
+    Elastic,
+    /// Splunk's saved searches.
+    Splunk,
+}
+
+impl Engine {
+    /// The prefix of this engine's rule ids.
+    #[must_use]
+    pub const fn prefix(self) -> &'static str {
+        match self {
+            Self::Sigma => "sigma",
+            Self::Wazuh => "wazuh",
+            Self::Sentinel => "sentinel",
+            Self::Elastic => "elastic",
+            Self::Splunk => "splunk",
+        }
+    }
+}
+
+impl RuleId {
+    /// The id of the rule `engine` knows as `id`: `RuleId::of(Engine::Wazuh, "5710")` is
+    /// `wazuh:5710`. Every reader names its rules here, so code that looks a rule up by its
+    /// engine's id (Wazuh's `<if_sid>`, the alerts `logtest` reports) finds it.
+    #[must_use]
+    pub fn of(engine: Engine, id: &str) -> Self {
+        Self(format!("{}:{id}", engine.prefix()))
+    }
+
+    /// The id of a stand-in for what Sluice could not read as a rule, such as a file with a
+    /// syntax error: `wazuh:unreadable:3`. `place` says where it was; the stand-in may read
+    /// anything.
+    #[must_use]
+    pub fn unreadable(engine: Engine, place: &str) -> Self {
+        Self::of(engine, &format!("unreadable:{place}"))
+    }
 }
 
 /// Identity of one event within a sample.
@@ -88,6 +137,29 @@ mod tests {
             rule
         );
         assert_eq!(TemplateId::from("t"), TemplateId::new(String::from("t")));
+    }
+
+    #[test]
+    fn a_rule_id_is_its_engines_prefix_and_the_id_it_has_there() {
+        assert_eq!(RuleId::of(Engine::Wazuh, "5710"), RuleId::new("wazuh:5710"));
+        // `plan.json` and the reports carry these prefixes.
+        for (engine, prefix) in [
+            (Engine::Sigma, "sigma"),
+            (Engine::Wazuh, "wazuh"),
+            (Engine::Sentinel, "sentinel"),
+            (Engine::Elastic, "elastic"),
+            (Engine::Splunk, "splunk"),
+        ] {
+            assert_eq!(RuleId::of(engine, "x").as_str(), format!("{prefix}:x"));
+        }
+    }
+
+    #[test]
+    fn a_stand_in_names_its_engine_and_where_it_was() {
+        assert_eq!(
+            RuleId::unreadable(Engine::Sentinel, "x.yaml#1").as_str(),
+            "sentinel:unreadable:x.yaml#1"
+        );
     }
 
     #[test]

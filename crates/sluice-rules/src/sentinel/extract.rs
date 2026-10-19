@@ -5,6 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use sluice_core::field::FieldPath;
 use sluice_core::predicate::{FieldTest, MatchOp, Predicate};
 
+use super::SentinelWorkspace;
+use super::calls::{self, Call, is_ident, is_symbol};
 use super::lexer::Token;
 
 /// The Sentinel tables Sluice shapes records for (`shape` on a source), and what each query part
@@ -86,6 +88,11 @@ pub(super) struct Reads {
     /// It may read tables it does not name, custom tables included: through `search`, `find`,
     /// `union *`, `table()`, an ASIM parser or a workspace function whose source is not known.
     pub(super) any_table: bool,
+    /// The parsers and workspace functions it calls whose source is not known, which the report
+    /// asks for.
+    pub(super) unknown_functions: BTreeSet<String>,
+    /// Lower-case calls nothing could check, read as KQL's own functions.
+    pub(super) unchecked: BTreeSet<String>,
     /// It aggregates or correlates rows.
     pub(super) stateful: bool,
     /// For each table reference, a superset of the rows it keeps.
@@ -95,14 +102,21 @@ pub(super) struct Reads {
 }
 
 /// What `tokens` read. `known` says whether a name is a function whose source is available;
-/// the caller resolves those (`Reads::calls`).
-pub(super) fn reads(tokens: &[Token], known: &dyn Fn(&str) -> bool) -> Reads {
+/// the caller resolves those (`Reads::calls`). A table the `workspace` does not have is read as
+/// nothing: no record reaches the query through it.
+pub(super) fn reads(
+    tokens: &[Token],
+    known: &dyn Fn(&str) -> bool,
+    workspace: &SentinelWorkspace<'_>,
+) -> Reads {
     let mut reads = Reads {
         tables: BTreeSet::new(),
         custom_tables: BTreeSet::new(),
         fields: BTreeSet::new(),
         any_field: None,
         any_table: false,
+        unknown_functions: BTreeSet::new(),
+        unchecked: BTreeSet::new(),
         stateful: false,
         prefilter: Predicate::never(),
         calls: BTreeSet::new(),
@@ -110,6 +124,7 @@ pub(super) fn reads(tokens: &[Token], known: &dyn Fn(&str) -> bool) -> Reads {
     let local = let_names(tokens);
     let lists = id_lists(tokens);
     let shadowed = parameter_scopes(tokens);
+    let exists = |table: &str| workspace.tables.is_none_or(|tables| tables.contains(table));
     let mut prefilters = Vec::new();
     for (i, token) in tokens.iter().enumerate() {
         let next = tokens.get(i + 1);
@@ -126,6 +141,7 @@ pub(super) fn reads(tokens: &[Token], known: &dyn Fn(&str) -> bool) -> Reads {
             continue;
         }
         if TABLES.contains(&name.as_str())
+            && exists(name)
             && !is_symbol(next, "(")
             && !is_symbol(next, ":")
             && !shadowed
@@ -139,7 +155,7 @@ pub(super) fn reads(tokens: &[Token], known: &dyn Fn(&str) -> bool) -> Reads {
                 None => rows,
             });
         }
-        if is_custom_table(name) && !is_symbol(next, "(") && !is_symbol(next, ":") {
+        if is_custom_table(name) && exists(name) && !is_symbol(next, "(") && !is_symbol(next, ":") {
             // Any source may be sent to a custom table (`sluice connect sentinel --sample`),
             // and a data collection rule may rename its columns: its rows are not bounded.
             reads.custom_tables.insert(name.clone());
@@ -159,11 +175,20 @@ pub(super) fn reads(tokens: &[Token], known: &dyn Fn(&str) -> bool) -> Reads {
         }
         if known(name) {
             reads.calls.insert(name.clone());
-        } else if is_asim_parser(name) || unknown_function(name, previous, next) {
-            reads.any_table = true;
-            reads.any_field.get_or_insert(format!(
-                "uses `{name}`, a parser or function whose source is not known"
-            ));
+            continue;
+        }
+        match calls::classify(tokens, i, workspace.names) {
+            Call::Kql => {}
+            Call::Unknown => {
+                reads.any_table = true;
+                reads.unknown_functions.insert(name.clone());
+                reads.any_field.get_or_insert(format!(
+                    "uses `{name}`, a parser or function whose source is not known"
+                ));
+            }
+            Call::Unchecked => {
+                reads.unchecked.insert(name.clone());
+            }
         }
     }
     reads.prefilter = Predicate::any(prefilters);
@@ -179,6 +204,8 @@ impl Reads {
             fields: BTreeSet::new(),
             any_field: Some(why),
             any_table: true,
+            unknown_functions: BTreeSet::new(),
+            unchecked: BTreeSet::new(),
             stateful: false,
             prefilter: Predicate::Always,
             calls: BTreeSet::new(),
@@ -194,6 +221,8 @@ impl Reads {
             self.any_field = callee.any_field;
         }
         self.any_table |= callee.any_table;
+        self.unknown_functions.extend(callee.unknown_functions);
+        self.unchecked.extend(callee.unchecked);
         self.stateful |= callee.stateful;
         let own = std::mem::replace(&mut self.prefilter, Predicate::Always);
         self.prefilter = Predicate::any([own, callee.prefilter]);
@@ -358,59 +387,6 @@ fn union_wildcard(after: &[Token]) -> bool {
         }
     }
     false
-}
-
-/// Reads a watchlist, never a table.
-const WATCHLIST: &str = "_GetWatchlist";
-
-/// An ASIM parser (`imProcessCreate`, `_Im_Dns`, `ASimDns`, `_ASim_ProcessEvent`,
-/// `vimProcessCreateMicrosoftSysmon`). They may be used without parentheses. `ASim…Logs` names
-/// are tables and `ASimMatching…` names are fields ASIM parsers output, not parsers.
-pub(super) fn is_asim_parser(name: &str) -> bool {
-    ["_Im_", "_ASim_", "vim", "im", "ASim"]
-        .iter()
-        .find_map(|prefix| name.strip_prefix(prefix))
-        .is_some_and(|rest| {
-            rest.starts_with(|c: char| c.is_ascii_uppercase())
-                && !rest.ends_with("Logs")
-                && !rest.starts_with("Matching")
-        })
-}
-
-/// A call to a workspace function, whose body is not known here. KQL's own functions are lower
-/// case, so a call with an upper-case letter is one. So is a lower-case call where only a
-/// tabular function can stand, after `invoke` or at the start of a statement, unless it is one
-/// of KQL's few tabular functions.
-fn unknown_function(name: &str, previous: Option<&Token>, next: Option<&Token>) -> bool {
-    // And the operators that may start a statement with `(`.
-    const TABULAR: [&str; 15] = [
-        "range",
-        "datatable",
-        "print",
-        "externaldata",
-        "materialize",
-        "cluster",
-        "database",
-        "workspace",
-        "app",
-        "table",
-        "view",
-        "union",
-        "find",
-        "search",
-        "evaluate",
-    ];
-    let tabular = is_ident(previous, "invoke") || previous.is_none() || is_symbol(previous, ";");
-    is_symbol(next, "(")
-        && name != WATCHLIST
-        && (name.chars().any(|c| c.is_ascii_uppercase()) || (tabular && !TABULAR.contains(&name)))
-}
-fn is_symbol(token: Option<&Token>, symbol: &str) -> bool {
-    matches!(token, Some(Token::Symbol(s)) if s == symbol)
-}
-
-fn is_ident(token: Option<&Token>, ident: &str) -> bool {
-    matches!(token, Some(Token::Ident(s)) if s == ident)
 }
 
 /// The conjunction of the `where` (or `filter`) clauses after a table reference, up to the first

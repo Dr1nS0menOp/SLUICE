@@ -9,6 +9,8 @@
 //!   read what its body reads.
 //! - `queries/`: with [`Options::query_log_days`], every distinct query people ran
 //!   (`LAQueryLogs`), as rules.
+//! - [`TABLES_FILE`]: the tables the workspace has; a rule reads nothing through any other
+//!   (ADR 0031).
 //!
 //! The files are JSON, which is also YAML. Credentials are an Azure AD application's client
 //! secret (client credentials flow); Sluice only ever reads.
@@ -17,4 +19,4 @@ mod azure;
 mod inventory;
 
 pub use crate::azure::{Credentials, Http, SentinelError, Transport};
-pub use crate::inventory::{Options, fetch};
+pub use crate::inventory::{Options, TABLES_FILE, fetch};

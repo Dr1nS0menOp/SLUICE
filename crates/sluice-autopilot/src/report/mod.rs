@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use sluice_core::guard::EffectiveRecipe;
 use sluice_core::ids::RuleId;
 use sluice_core::logsource::LogSource;
+use sluice_core::problem::Problem;
 use sluice_core::proof::Volume;
 use sluice_core::rules::RuleRequirements;
 use sluice_core::template::Template;
@@ -37,7 +38,7 @@ pub struct Report {
     /// Rules that no template's log source can feed: they can never fire on this data.
     pub coverage_gaps: Vec<String>,
     /// Rules or recipes that could not be fully understood.
-    pub problems: Vec<String>,
+    pub problems: Vec<Problem>,
     /// Sources where many rules apply only because the log source leaves an attribute unknown;
     /// declaring it (or `complete: true`) lets the guardrails ignore those rules.
     pub scope_hints: Vec<String>,
