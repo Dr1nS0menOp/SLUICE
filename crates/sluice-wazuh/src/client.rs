@@ -33,6 +33,35 @@ pub trait Transport {
         headers: &[(&str, String)],
         body: Option<&str>,
     ) -> Result<(u16, String), WazuhError>;
+
+    /// Waits `seconds` before a refused request is sent again; a test transport waits for
+    /// nothing.
+    fn pause(&self, seconds: u64) {
+        std::thread::sleep(Duration::from_secs(seconds));
+    }
+}
+
+/// How often a request is sent again after the API answered 429 (Too Many Requests), a minute
+/// apart. The manager allows `max_request_per_minute` requests (300 by default), and a fetch reads
+/// each of the stock ruleset's 289 files in a request of its own.
+const RETRIES: u32 = 3;
+
+/// [`Transport::send`], sent again a minute later while the API answers 429.
+pub(crate) fn send_paced(
+    transport: &impl Transport,
+    method: &str,
+    url: &str,
+    headers: &[(&str, String)],
+    body: Option<&str>,
+) -> Result<(u16, String), WazuhError> {
+    for _ in 0..RETRIES {
+        let answer = transport.send(method, url, headers, body)?;
+        if answer.0 != 429 {
+            return Ok(answer);
+        }
+        transport.pause(60);
+    }
+    transport.send(method, url, headers, body)
 }
 
 /// HTTP transport. Wazuh managers usually serve the API with a self-signed certificate; pass
@@ -112,7 +141,8 @@ impl<T: Transport> Logtest<T> {
         if let Some(jwt) = self.jwt.borrow().clone() {
             return Ok(jwt);
         }
-        let (status, body) = self.transport.send(
+        let (status, body) = send_paced(
+            &self.transport,
             "POST",
             &self.url("/security/user/authenticate"),
             &[(
@@ -184,7 +214,8 @@ impl<T: Transport> Logtest<T> {
 
     fn put_logtest(&self, request: &str) -> Result<(u16, String), WazuhError> {
         let jwt = self.authenticate()?;
-        self.transport.send(
+        send_paced(
+            &self.transport,
             "PUT",
             &self.url("/logtest"),
             &[("authorization", format!("Bearer {jwt}"))],

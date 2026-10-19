@@ -12,7 +12,7 @@ use serde_json::Value;
 use sluice_core::inventory::{Inventory, Manifest, is_safe_relative_path};
 use sluice_http::percent_encode;
 
-use crate::client::{Transport, WazuhError, basic_auth, excerpt, ok_json};
+use crate::client::{Transport, WazuhError, basic_auth, excerpt, ok_json, send_paced};
 
 /// Files per listing request; the API allows up to 100,000.
 const PAGE: u64 = 500;
@@ -76,7 +76,8 @@ struct Api<'a, T> {
 
 impl<T: Transport> Api<'_, T> {
     fn get(&self, path_and_query: &str) -> Result<(u16, String), WazuhError> {
-        self.transport.send(
+        send_paced(
+            self.transport,
             "GET",
             &format!("{}{path_and_query}", self.base),
             &[("authorization", format!("Bearer {}", self.jwt))],
@@ -155,7 +156,8 @@ fn authenticate(
     user: &str,
     password: &str,
 ) -> Result<String, WazuhError> {
-    let (status, body) = transport.send(
+    let (status, body) = send_paced(
+        transport,
         "POST",
         &format!("{base}/security/user/authenticate"),
         &[("authorization", basic_auth(user, password))],

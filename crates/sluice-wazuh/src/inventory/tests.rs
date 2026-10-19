@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::BTreeSet;
 
 use serde_json::json;
 
@@ -106,6 +107,71 @@ fn files_are_read_raw_with_their_directory_encoded() {
     run(&manager);
     assert!(manager.urls.borrow().iter().any(|u| u
         == "https://wazuh:55000/rules/files/local_rules.xml?raw=true&relative_dirname=etc%2Frules"));
+}
+
+#[test]
+fn a_request_the_manager_refuses_for_its_rate_limit_is_sent_again_a_minute_later() {
+    /// The manager, refusing each file request once with 429.
+    struct Busy {
+        manager: Manager,
+        refused: RefCell<BTreeSet<String>>,
+        pauses: RefCell<Vec<u64>>,
+    }
+    impl Transport for Busy {
+        fn send(
+            &self,
+            method: &str,
+            url: &str,
+            headers: &[(&str, String)],
+            body: Option<&str>,
+        ) -> Result<(u16, String), WazuhError> {
+            if url.contains("raw=true") && self.refused.borrow_mut().insert(url.to_owned()) {
+                return Ok((429, json!({"title": "Too Many Requests"}).to_string()));
+            }
+            self.manager.send(method, url, headers, body)
+        }
+        fn pause(&self, seconds: u64) {
+            self.pauses.borrow_mut().push(seconds);
+        }
+    }
+    let busy = Busy {
+        manager: Manager::new(),
+        refused: RefCell::new(BTreeSet::new()),
+        pauses: RefCell::new(Vec::new()),
+    };
+    let inventory = fetch(&busy, "https://wazuh:55000", "reader", "secret", "t").unwrap();
+    assert_eq!(inventory.files.len(), 3, "every file arrives");
+    assert_eq!(
+        *busy.pauses.borrow(),
+        [60, 60, 60],
+        "a minute before each retry"
+    );
+}
+
+#[test]
+fn a_manager_that_keeps_refusing_for_its_rate_limit_fails_the_fetch() {
+    /// A manager that never lets a file through.
+    struct Saturated(RefCell<u32>);
+    impl Transport for Saturated {
+        fn send(
+            &self,
+            method: &str,
+            url: &str,
+            headers: &[(&str, String)],
+            body: Option<&str>,
+        ) -> Result<(u16, String), WazuhError> {
+            if url.contains("raw=true") {
+                *self.0.borrow_mut() += 1;
+                return Ok((429, json!({"title": "Too Many Requests"}).to_string()));
+            }
+            Manager::new().send(method, url, headers, body)
+        }
+        fn pause(&self, _: u64) {}
+    }
+    let saturated = Saturated(RefCell::new(0));
+    let error = fetch(&saturated, "https://wazuh:55000", "reader", "secret", "t").unwrap_err();
+    assert!(error.to_string().contains("HTTP 429"), "{error}");
+    assert_eq!(*saturated.0.borrow(), 4, "sent once, then three more times");
 }
 
 #[test]

@@ -54,3 +54,20 @@ spec:
 - `GET /rules/files/{filename}?raw=true&relative_dirname=ruleset%2Frules` returns the file as
   plain text. Errors still come back as JSON with an `error` field.
 - That manager loads 168 rule files and 121 decoder files.
+
+A read-only user, verified 2026-10-19 against `wazuh/wazuh-manager:4.14.0` (the README's steps):
+
+- `POST /security/users` creates the user (the password needs upper and lower case, a digit and
+  a symbol); `POST /security/users/{id}/roles?role_ids=…` gives it roles.
+- The stock role `readonly` (id 2) reads the rule and decoder files. It cannot run `logtest`,
+  restart the manager or change users (403).
+- `logtest:run` is in the stock policy `logtest_all_logtest` (id 33, resources `*:*:*`), which
+  only `administrator` holds. Creating a policy with the same body answers 4009 ("already
+  exists"), so a role of one's own links that one: `POST /security/roles/{id}/policies?policy_ids=33`.
+- A change to a user's roles revokes the tokens issued in that second: a fetch right after it
+  answered 401 "Invalid token". A token taken a second later works.
+- The API allows 300 requests a minute by default (`max_request_per_minute`), and answers 429
+  beyond them. A fetch of the stock ruleset takes 292 requests (one per file, the listings and
+  the login), so a second fetch within the minute ran into the limit. The fetch now waits a
+  minute and sends the request again, up to three times; the first of two fetches in a row took
+  64 s, the second 4 s.
