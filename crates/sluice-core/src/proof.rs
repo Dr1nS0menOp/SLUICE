@@ -13,8 +13,11 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
+use serde_json::{Map, Value};
+
 use crate::alert::{Alert, EngineError, RuleEngine};
 use crate::event::{Event, encoded_size};
+use crate::field::FieldPath;
 use crate::guard::{Adjustment, ContractRule, EffectiveRecipe, Reason};
 use crate::ids::{EventId, SourceId, TemplateId};
 use crate::reduce::{Outcome, ReduceError, Reducer};
@@ -87,6 +90,18 @@ pub struct Proof {
     pub total: Volume,
     /// Volume per template the data plane classified (`None`: unclassified).
     pub per_template: BTreeMap<Option<TemplateId>, Volume>,
+    /// Per template, the fields the data plane removed from forwarded events. This is what a
+    /// recipe's removals, "drop null and empty fields" among them, came to on the sample.
+    pub removed: BTreeMap<Option<TemplateId>, BTreeMap<FieldPath, Removal>>,
+}
+
+/// What removing one field came to on the sample.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Removal {
+    /// Forwarded events that lost the field.
+    pub events: u64,
+    /// Bytes the field took in them, as `"name":value,` in compact JSON.
+    pub bytes: u64,
 }
 
 impl Proof {
@@ -120,6 +135,7 @@ struct Run<'a> {
     templates: BTreeMap<EventId, (SourceId, Option<TemplateId>)>,
     total: Volume,
     per_template: BTreeMap<Option<TemplateId>, Volume>,
+    removed: BTreeMap<Option<TemplateId>, BTreeMap<FieldPath, Removal>>,
 }
 
 impl<'a> Run<'a> {
@@ -129,6 +145,7 @@ impl<'a> Run<'a> {
             templates: BTreeMap::new(),
             total: Volume::default(),
             per_template: BTreeMap::new(),
+            removed: BTreeMap::new(),
         };
         for event in events {
             let reduced = data_plane.reduce(event)?;
@@ -139,11 +156,17 @@ impl<'a> Run<'a> {
                 .or_default()
                 .add(bytes_in, &reduced.outcome);
             run.templates
-                .insert(event.id, (event.source.clone(), reduced.template));
+                .insert(event.id, (event.source.clone(), reduced.template.clone()));
             if let Outcome::Forwarded(body) = reduced.outcome {
                 run.forwarded.push(if body == event.fields {
                     Cow::Borrowed(event)
                 } else {
+                    let removals = run.removed.entry(reduced.template).or_default();
+                    for (path, bytes) in removed_paths(&event.fields, &body) {
+                        let removal = removals.entry(path).or_default();
+                        removal.events += 1;
+                        removal.bytes += to_u64(bytes);
+                    }
                     Cow::Owned(Event {
                         fields: body,
                         ..event.clone()
@@ -168,8 +191,51 @@ impl<'a> Run<'a> {
             forwarded_alerts,
             total: self.total,
             per_template: self.per_template,
+            removed: self.removed,
         })
     }
+}
+
+/// The paths of the fields in `before` that `after` no longer has, each with the bytes it took.
+/// An object that lost only some of its fields is followed into; one removed whole counts as its
+/// own path.
+fn removed_paths(
+    before: &Map<String, Value>,
+    after: &Map<String, Value>,
+) -> Vec<(FieldPath, usize)> {
+    let mut paths = Vec::new();
+    removed_under("", before, after, &mut paths);
+    paths
+}
+
+fn removed_under(
+    prefix: &str,
+    before: &Map<String, Value>,
+    after: &Map<String, Value>,
+    paths: &mut Vec<(FieldPath, usize)>,
+) {
+    for (key, value) in before {
+        let path = if prefix.is_empty() {
+            key.clone()
+        } else {
+            format!("{prefix}.{key}")
+        };
+        match (value, after.get(key)) {
+            (_, None) => paths.push((FieldPath::new(path), member_size(key, value))),
+            (Value::Object(inner), Some(Value::Object(kept))) if inner != kept => {
+                removed_under(&path, inner, kept, paths);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The bytes `"key":value,` takes in compact JSON, as [`encoded_size`] counts the event.
+fn member_size(key: &str, value: &Value) -> usize {
+    let mut member = Map::new();
+    member.insert(key.to_owned(), value.clone());
+    // `{"key":value}` without its two braces, plus the comma before the next member.
+    encoded_size(&member).saturating_sub(1)
 }
 
 /// The recipes the autopilot may enforce, and the proof that they are safe.

@@ -1,4 +1,7 @@
-//! The report as one self-contained HTML page: no scripts, no external resources.
+//! The report as one self-contained HTML page: no scripts, no external resources. It reads as
+//! advice: what can be saved first, largest saving first, and the detail folded away.
+
+mod savings;
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -6,34 +9,82 @@ use std::fmt::Write as _;
 use sluice_core::ids::{Engine, RuleId};
 use sluice_core::problem::{Problem, ProblemKind};
 
-use super::{Report, RuleRow, TemplateRow, percent, rules::label};
+use super::{Report, RuleRow, rules::label};
 
 const STYLE: &str = r#"
 :root { --bg:#ffffff; --fg:#1b1f24; --muted:#5b6470; --line:#e3e6ea; --card:#f6f8fa;
-        --good:#1a7f37; --bad:#cf222e; --accent:#0969da; }
+        --good:#1a7f37; --bad:#cf222e; --accent:#0969da;
+        --s0:#8c959f; --s1:#d4a72c; --s2:#a2c03a; --s3:#2da44e; --s4:#1a7f37; --on:#ffffff;
+        --on-light:#1b1f24; }
 @media (prefers-color-scheme: dark) {
   :root { --bg:#0d1117; --fg:#e6edf3; --muted:#9198a1; --line:#30363d; --card:#161b22;
-          --good:#3fb950; --bad:#f85149; --accent:#4493f8; }
+          --good:#3fb950; --bad:#f85149; --accent:#4493f8;
+          --s0:#6e7681; --s1:#d29922; --s2:#a5c63b; --s3:#3fb950; --s4:#56d364; --on:#0d1117;
+          --on-light:#0d1117; }
 }
 * { box-sizing: border-box; }
 body { margin:0; padding:24px 16px; background:var(--bg); color:var(--fg);
        font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
-main { max-width:1200px; margin:0 auto; }
-h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:16px; margin:28px 0 8px; }
-.sub { color:var(--muted); margin:0 0 20px; }
-.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; }
+main { max-width:1100px; margin:0 auto; }
+h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:18px; margin:32px 0 6px; }
+h4 { font-size:13px; margin:16px 0 6px; }
+.sub { color:var(--muted); margin:0 0 16px; }
+.meaning { border-left:4px solid var(--accent); padding:2px 0 2px 14px; margin:0 0 20px; }
+.meaning h2 { font-size:15px; margin:0 0 4px; } .meaning p { margin:0; max-width:80ch; }
+.hero { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px;
+        margin:0 0 16px; }
+.hero .big { font-size:40px; font-weight:700; line-height:1.1; }
+.hero .big small { font-size:18px; font-weight:600; color:var(--muted); }
+.hero .bar { height:14px; margin-top:14px; }
+.t0 { color:var(--s0); } .t1 { color:var(--s1); } .t2 { color:var(--s2); }
+.t3 { color:var(--s3); } .t4 { color:var(--s4); }
+.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; }
 .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
-.card .k { color:var(--muted); font-size:12px; } .card .v { font-size:20px; font-weight:600; }
-.good { color:var(--good); } .bad { color:var(--bad); }
+.card .k, .facts .k { display:block; color:var(--muted); font-size:12px; }
+.card .v { font-size:20px; font-weight:600; }
+.good { color:var(--good); } .bad { color:var(--bad); } .muted { color:var(--muted); }
+.pill { display:inline-block; min-width:56px; text-align:center; padding:2px 10px;
+        border-radius:999px; font-weight:700; font-variant-numeric:tabular-nums; }
+.pill.s0, .pill.s1, .pill.s2 { color:var(--on-light); } .pill.s3, .pill.s4 { color:var(--on); }
+.s0 { background:var(--s0); } .s1 { background:var(--s1); } .s2 { background:var(--s2); }
+.s3 { background:var(--s3); } .s4 { background:var(--s4); }
+.bar { display:block; height:8px; background:var(--line); border-radius:999px; overflow:hidden; }
+.bar > span { display:block; height:100%; border-radius:999px; }
+details.item { border:1px solid var(--line); border-radius:10px; margin:8px 0; background:var(--bg); }
+details.item > summary { display:grid; grid-template-columns:auto 1fr minmax(180px,260px);
+        gap:12px; align-items:center; padding:12px 14px; cursor:pointer; list-style:none; }
+details.item > summary::-webkit-details-marker { display:none; }
+details.item > summary::after { content:"▸"; grid-column:4; color:var(--muted); }
+details.item[open] > summary::after { content:"▾"; }
+details.item[open] > summary { border-bottom:1px solid var(--line); }
+.rank { display:inline-flex; width:28px; height:28px; border-radius:50%; align-items:center;
+        justify-content:center; background:var(--card); border:1px solid var(--line); font-weight:700; }
+.what { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.what code { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.amount { display:flex; flex-direction:column; gap:4px; align-items:flex-end; }
+.amount .bar { width:100%; }
+.body { padding:4px 16px 14px; }
+.facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px;
+         margin-top:12px; font-variant-numeric:tabular-nums; }
+details.section { margin-top:24px; }
+details.section > summary { cursor:pointer; }
+details.section > summary h2 { display:inline; margin-right:8px; }
 .scroll { overflow-x:auto; border:1px solid var(--line); border-radius:8px; }
-table { border-collapse:collapse; width:100%; min-width:900px; }
+table { border-collapse:collapse; width:100%; }
+table.rules { min-width:800px; }
 th, td { text-align:left; vertical-align:top; padding:8px 10px; border-bottom:1px solid var(--line); }
 th { background:var(--card); font-size:12px; color:var(--muted); font-weight:600; }
 td.n { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
 code { font:12px ui-monospace,SFMono-Regular,Menlo,monospace; word-break:break-all; }
-ul { margin:0; padding-left:18px; } .muted { color:var(--muted); }
+ul { margin:0; padding-left:18px; }
 pre { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 10px;
       overflow-x:auto; } pre code { word-break:normal; white-space:pre; }
+@media (max-width:700px) {
+  details.item > summary { grid-template-columns:auto 1fr; }
+  .amount { grid-column:1 / -1; align-items:stretch; }
+  details.item > summary::after { display:none; }
+  .hero .big { font-size:32px; }
+}
 "#;
 
 /// Renders the report as HTML.
@@ -44,21 +95,81 @@ pub fn render_html(report: &Report) -> String {
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">".to_owned(),
         format!("<title>Sluice report</title><style>{STYLE}</style></head><body><main>"),
         "<h1>Sluice report</h1>".to_owned(),
-        "<p class=\"sub\">What the generated configuration saves, why, and the proof that no \
-         detection changes. You decide what runs.</p>"
+        "<p class=\"sub\">Where you can send less to your SIEM without changing a detection, \
+         largest saving first, and the proof.</p>"
             .to_owned(),
+        meaning(report),
+        hero(report),
         summary(report),
         notes(report),
+        savings::advice(&report.templates),
         rules(report),
-        "<h2>Templates</h2>".to_owned(),
-        templates(&report.templates),
     ];
     if !report.problems.is_empty() {
-        parts.push("<h2>Problems</h2>".to_owned());
-        parts.push(problems(&report.problems));
+        parts.push(format!(
+            "<details class=\"section\"><summary><h2>Problems</h2><span class=\"muted\">{} \
+             found</span></summary>{}</details>",
+            report.problems.len(),
+            problems(&report.problems)
+        ));
     }
     parts.push("</main></body></html>\n".to_owned());
     parts.concat()
+}
+
+/// What the report means, for a reader who gets it without context, such as a manager: it is
+/// advice about data no detection uses, not advice to collect less security data. Each claim
+/// holds for this report: the one about alerts only when the sample raised some.
+fn meaning(report: &Report) -> String {
+    let proof = if !report.proven {
+        "On this sample the alerts were <b>not</b> the same, so these savings are not proven."
+    } else if report.alerts_full == 0 {
+        "This sample raised no alerts, so it could not show that every detection still works: \
+         try a sample that does."
+    } else {
+        "On this sample, every alert was raised exactly as before."
+    };
+    format!(
+        "<section class=\"meaning\"><h2>What this report means</h2><p>A SIEM charges for every \
+         byte it receives, but its detection rules use only part of each event. Sluice compared \
+         the rules this SIEM runs with a sample of its data, and lists what no rule uses: mostly \
+         text that repeats fields the event already has, empty fields, and frequent events no \
+         rule can match, which are counted instead of sent one by one. <b>This is not advice to \
+         collect less security data or to throw logs away.</b> The savings assume a full copy of \
+         every event is kept in a cheaper archive; the configurations Sluice writes for Vector \
+         and Microsoft Sentinel keep one. {proof} Nothing changes until your team reviews the \
+         proposed configuration and deploys it.</p></section>"
+    )
+}
+
+/// The saving at a glance: the share, the bytes, and a bar.
+fn hero(report: &Report) -> String {
+    let t = &report.total;
+    let saved = report.saved_percent();
+    format!(
+        "<section class=\"hero\"><div class=\"big t{level}\">{saved:.1}% <small>less ingest\
+         </small></div><div class=\"muted\">{bin} in, {bout} sent to the SIEM; {summarized} of \
+         {events} events counted into summaries instead of sent one by one</div>{bar}</section>",
+        level = savings::level(saved),
+        bin = bytes(t.bytes_in),
+        bout = bytes(t.bytes_out),
+        summarized = thousands(t.summarized),
+        events = thousands(t.events),
+        bar = savings::bar(saved),
+    )
+}
+
+/// `n` with a comma between thousands, as the command line prints counts.
+fn thousands(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, digit) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
 }
 
 fn summary(report: &Report) -> String {
@@ -75,16 +186,10 @@ fn summary(report: &Report) -> String {
         )
     };
     let cards = [
-        ("Events in", t.events.to_string()),
-        (
-            "Bytes in → out",
-            format!("{} → {}", bytes(t.bytes_in), bytes(t.bytes_out)),
-        ),
-        ("Ingest saved", format!("{:.1}%", report.saved_percent())),
-        (
-            "Summarized events",
-            format!("{} of {}", t.summarized, t.events),
-        ),
+        ("Events in", thousands(t.events)),
+        ("Sent, in full or reduced", thousands(t.forwarded)),
+        ("Counted into summaries", thousands(t.summarized)),
+        ("Bytes saved", bytes(t.bytes_in.saturating_sub(t.bytes_out))),
         ("Alerts full = forwarded", verdict),
     ];
     let cards: Vec<String> = cards
@@ -133,13 +238,14 @@ fn rule_table(rows: &[RuleRow]) -> String {
         })
         .collect();
     format!(
-        "<details><summary>Every rule, and what Sluice made of it</summary><div class=\"scroll\">\
-         <table><tr><th>Set</th><th>Rule</th><th>Status</th><th>What Sluice took from it</th>\
-         </tr>{}</table></div></details>",
+        "<h4>Every rule, and what Sluice made of it</h4><div class=\"scroll\"><table \
+         class=\"rules\"><tr><th>Set</th><th>Rule</th><th>Status</th><th>What Sluice took from \
+         it</th></tr>{}</table></div>",
         body.concat()
     )
 }
 
+/// "Rules in the SIEM", folded away: what the advice rests on.
 fn rules(report: &Report) -> String {
     let counts: Vec<String> = report
         .rules
@@ -147,7 +253,8 @@ fn rules(report: &Report) -> String {
         .map(|(engine, n)| format!("{n} {}", escape(engine)))
         .collect();
     let mut out = format!(
-        "<h2>Rules in the SIEM</h2><p>{} rules loaded. {}</p>",
+        "<details class=\"section\"><summary><h2>Rules in the SIEM</h2><span class=\"muted\">{} \
+         rules loaded</span></summary><p>{}</p>",
         counts.join(", "),
         escape(&report.rules_verdict())
     );
@@ -172,53 +279,8 @@ fn rules(report: &Report) -> String {
         );
         out.push_str(&list(&report.coverage_gaps));
     }
+    out.push_str("</details>");
     out
-}
-
-fn templates(rows: &[TemplateRow]) -> String {
-    let header = "<tr><th>Template</th><th>Pattern</th><th>Events</th><th>Forwarded / \
-                  summarized</th><th>Bytes in → out</th><th>What happens</th><th>Why</th></tr>";
-    let body: Vec<String> = rows.iter().map(template_row).collect();
-    format!(
-        "<div class=\"scroll\"><table>{header}{}</table></div>",
-        body.concat()
-    )
-}
-
-fn template_row(row: &TemplateRow) -> String {
-    let v = &row.volume;
-    let saved = percent(v.bytes_in - v.bytes_out.min(v.bytes_in), v.bytes_in);
-    let mut actions = if row.actions.is_empty() {
-        "<span class=\"muted\">forwarded unchanged</span>".to_owned()
-    } else {
-        list(&row.actions)
-    };
-    if let Some(runs_in) = &row.runs_in {
-        actions = format!(
-            "{actions}<div class=\"muted\">runs in: {}</div>",
-            escape(runs_in)
-        );
-    }
-    let mut why = list(&row.adjustments);
-    if let Some(provenance) = &row.provenance {
-        why = format!("<div class=\"muted\">{}</div>{why}", escape(provenance));
-    }
-    let pattern: String = row.pattern.chars().take(90).collect();
-    format!(
-        "<tr><td><code>{id}</code><div class=\"muted\">{source}</div></td>\
-         <td><code title=\"{full}\">{pattern}</code></td><td class=\"n\">{events}</td>\
-         <td class=\"n\">{fwd} / {sum}</td><td class=\"n\">{bin} → {bout}<div class=\"muted\">\
-         −{saved:.0}%</div></td><td>{actions}</td><td>{why}</td></tr>",
-        id = escape(&row.id),
-        source = escape(&row.source),
-        full = escape(&row.pattern),
-        pattern = escape(&pattern),
-        events = v.events,
-        fwd = v.forwarded,
-        sum = v.summarized,
-        bin = bytes(v.bytes_in),
-        bout = bytes(v.bytes_out),
-    )
 }
 
 /// The problems grouped by kind, each group with what it costs and what the reader can do.
@@ -352,16 +414,31 @@ fn list(items: &[String]) -> String {
     format!("<ul>{}</ul>", items.concat())
 }
 
-/// Human-readable byte count.
+/// Human-readable byte count, rounded, in decimal units, in the largest unit that keeps the
+/// number below 1,000 ("8.7 MB", never "8703 KB"). Megabytes and gigabytes get one decimal, as
+/// the command line prints them, so the report and the summary show the same numbers.
 fn bytes(n: u64) -> String {
-    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
-    let mut value = n;
-    let mut unit = 0;
-    while value >= 10_000 && unit < UNITS.len() - 1 {
-        value /= 1_000;
-        unit += 1;
+    if n < 1_000 {
+        return format!("{n} B");
     }
-    format!("{value} {}", UNITS[unit])
+    let kilobytes = n.saturating_add(500) / 1_000;
+    if kilobytes < 1_000 {
+        return format!("{kilobytes} KB");
+    }
+    let tenths_of_megabytes = n.saturating_add(50_000) / 100_000;
+    if tenths_of_megabytes < 10_000 {
+        return format!(
+            "{}.{} MB",
+            tenths_of_megabytes / 10,
+            tenths_of_megabytes % 10
+        );
+    }
+    let tenths_of_gigabytes = n.saturating_add(50_000_000) / 100_000_000;
+    format!(
+        "{}.{} GB",
+        tenths_of_gigabytes / 10,
+        tenths_of_gigabytes % 10
+    )
 }
 
 /// Escapes text for HTML content and attribute values.
@@ -396,16 +473,60 @@ mod tests {
     fn bytes_are_readable() {
         assert_eq!(bytes(999), "999 B");
         assert_eq!(bytes(123_456), "123 KB");
-        assert_eq!(bytes(56_000_000), "56 MB");
+        assert_eq!(bytes(56_000_000), "56.0 MB");
     }
 
     #[test]
-    fn bytes_switch_unit_at_ten_thousand_and_stop_at_gigabytes() {
+    fn bytes_round_as_the_command_line_does() {
+        // The demo's summary line: 120,960,000 bytes is "121.0 MB" there, not "120 MB".
+        assert_eq!(bytes(120_960_000), "121.0 MB");
+        assert_eq!(bytes(31_549_999), "31.5 MB");
+        assert_eq!(bytes(123_500), "124 KB");
+    }
+
+    #[test]
+    fn bytes_never_show_a_number_of_a_thousand_or_more_below_gigabytes() {
+        assert_eq!(bytes(8_703_494), "8.7 MB", "not 8703 KB");
         assert_eq!(bytes(0), "0 B");
-        assert_eq!(bytes(9_999), "9999 B");
-        assert_eq!(bytes(10_000), "10 KB");
-        assert_eq!(bytes(9_999_999_999), "9999 MB");
-        assert_eq!(bytes(u64::MAX), "18446744073 GB");
+        assert_eq!(bytes(999), "999 B");
+        assert_eq!(bytes(1_000), "1 KB");
+        assert_eq!(bytes(999_499), "999 KB");
+        assert_eq!(bytes(999_500), "1.0 MB");
+        assert_eq!(bytes(999_949_999), "999.9 MB");
+        assert_eq!(bytes(999_950_000), "1.0 GB");
+        assert_eq!(bytes(u64::MAX), "18446744073.7 GB");
+    }
+
+    #[test]
+    fn counts_have_a_comma_between_thousands() {
+        assert_eq!(thousands(0), "0");
+        assert_eq!(thousands(999), "999");
+        assert_eq!(thousands(80_536), "80,536");
+        assert_eq!(thousands(1_234_567), "1,234,567");
+    }
+
+    #[test]
+    fn the_meaning_says_it_is_not_advice_to_throw_logs_away_and_claims_only_what_holds() {
+        let proven = Report {
+            alerts_full: 3,
+            alerts_forwarded: 3,
+            proven: true,
+            ..super::super::tests::report()
+        };
+        let text = meaning(&proven);
+        assert!(text.contains("This is not advice to collect less security data"));
+        assert!(text.contains("every alert was raised exactly as before"));
+        let empty = Report {
+            alerts_full: 0,
+            alerts_forwarded: 0,
+            ..proven.clone()
+        };
+        assert!(!meaning(&empty).contains("every alert was raised"));
+        let failed = Report {
+            proven: false,
+            ..proven
+        };
+        assert!(meaning(&failed).contains("not</b> the same"));
     }
 
     #[test]

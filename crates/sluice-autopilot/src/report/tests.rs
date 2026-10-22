@@ -8,7 +8,7 @@ use super::*;
 
 const HOSTILE: &str = "\"><script>alert(1)</script><img src=x onerror='x'>&amp;";
 
-fn report() -> Report {
+pub(super) fn report() -> Report {
     Report {
         total: Volume {
             events: 10,
@@ -44,6 +44,11 @@ fn hostile() -> Report {
             adjustments: vec![HOSTILE.into()],
             provenance: Some(HOSTILE.into()),
             runs_in: Some(HOSTILE.into()),
+            removed: vec![RemovedField {
+                path: HOSTILE.into(),
+                events: 1,
+                bytes: 1,
+            }],
         }],
         coverage_gaps: vec![HOSTILE.into()],
         problems: vec![
@@ -291,4 +296,16 @@ fn coverage_gaps_are_sorted_and_name_rules_no_template_can_reach() {
         coverage_gaps(&copies.iter().collect::<Vec<_>>(), &[template]),
         Vec::<String>::new()
     );
+}
+
+#[test]
+fn equal_adjustments_are_listed_once_in_their_order() {
+    let texts = ["rare", "kept", "rare", "proven"].map(String::from);
+    assert_eq!(unique(texts.into_iter()), ["rare", "kept", "proven"]);
+}
+
+#[test]
+fn a_scope_hint_counts_its_rules_in_words() {
+    assert_eq!(rules_apply(1), "1 rule applies");
+    assert_eq!(rules_apply(4), "4 rules apply");
 }

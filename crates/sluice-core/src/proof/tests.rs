@@ -398,3 +398,23 @@ fn c5_the_selection_never_needs_more_rounds_than_recipes_plus_one() {
     assert!(selection.proof.holds());
     assert!(selection.rounds <= 4, "{} rounds", selection.rounds);
 }
+
+#[test]
+fn removed_fields_are_named_by_path_with_their_bytes() {
+    let before =
+        json!({"Message": "long text", "a": 1, "host": {"name": "h", "os": {"kernel": ""}}});
+    let after = json!({"a": 1, "host": {"name": "h"}});
+    let (Value::Object(before), Value::Object(after)) = (before, after) else {
+        unreachable!("objects")
+    };
+    let removed = removed_paths(&before, &after);
+    assert_eq!(
+        removed,
+        [
+            // `"Message":"long text",` and `"os":{"kernel":""},`
+            (FieldPath::new("Message"), 22),
+            (FieldPath::new("host.os"), 19),
+        ]
+    );
+    assert_eq!(removed_paths(&before, &before), []);
+}

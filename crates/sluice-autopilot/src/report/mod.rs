@@ -33,7 +33,7 @@ pub struct Report {
     pub proven: bool,
     /// Rule count per engine, for context.
     pub rules: Vec<(String, usize)>,
-    /// One row per template, largest volume first.
+    /// One row per template, largest saving first.
     pub templates: Vec<TemplateRow>,
     /// Rules that no template's log source can feed: they can never fire on this data.
     pub coverage_gaps: Vec<String>,
@@ -76,6 +76,27 @@ pub struct TemplateRow {
     pub provenance: Option<String>,
     /// Where the saving can run, in plain words; `None` when the template is sent unchanged.
     pub runs_in: Option<String>,
+    /// The fields removed from its forwarded events on the sample, largest first.
+    pub removed: Vec<RemovedField>,
+}
+
+impl TemplateRow {
+    /// Bytes the template no longer sends.
+    #[must_use]
+    pub fn saved_bytes(&self) -> u64 {
+        self.volume.bytes_in.saturating_sub(self.volume.bytes_out)
+    }
+}
+
+/// A field removed from a template's forwarded events on the sample.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemovedField {
+    /// Its path.
+    pub path: String,
+    /// Forwarded events that lost it.
+    pub events: u64,
+    /// Bytes it took in them.
+    pub bytes: u64,
 }
 
 impl Report {
@@ -91,9 +112,9 @@ impl Report {
             .map(|(template, recipe)| row(analysis, template, recipe))
             .collect();
         templates.sort_by(|a, b| {
-            b.volume
-                .bytes_in
-                .cmp(&a.volume.bytes_in)
+            b.saved_bytes()
+                .cmp(&a.saved_bytes())
+                .then(b.volume.bytes_in.cmp(&a.volume.bytes_in))
                 .then(a.id.cmp(&b.id))
         });
 
@@ -166,25 +187,34 @@ pub(crate) fn percent(part: u64, whole: u64) -> f64 {
 }
 
 fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> TemplateRow {
-    let volume = analysis
-        .selection
-        .proof
-        .per_template
-        .get(&Some(template.id.clone()))
-        .copied()
-        .unwrap_or_default();
+    let proof = &analysis.selection.proof;
+    let key = Some(template.id.clone());
+    let volume = proof.per_template.get(&key).copied().unwrap_or_default();
+    let mut removed: Vec<RemovedField> = proof
+        .removed
+        .get(&key)
+        .into_iter()
+        .flatten()
+        .map(|(path, removal)| RemovedField {
+            path: path.to_string(),
+            events: removal.events,
+            bytes: removal.bytes,
+        })
+        .collect();
+    removed.sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.path.cmp(&b.path)));
     TemplateRow {
         id: template.id.to_string(),
         source: template.source.to_string(),
         pattern: template.pattern.clone(),
         volume,
         actions: text::actions(recipe),
-        adjustments: recipe.adjustments.iter().map(text::adjustment).collect(),
+        adjustments: unique(recipe.adjustments.iter().map(text::adjustment)),
         provenance: analysis
             .proposals
             .get(&template.id)
             .map(|p| text::provenance(p.provenance())),
         runs_in: text::placements(&crate::plan::placements(template, recipe)),
+        removed,
     }
 }
 
@@ -213,13 +243,30 @@ fn scope_hints(requirements: &[&RuleRequirements], templates: &[Template]) -> Ve
                 .count();
             (only_unknown > 0).then(|| {
                 format!(
-                    "{source}: {only_unknown} rules apply only because its log source ({}) leaves \
-                     an attribute unknown; if that is all it is, add `complete: true`",
+                    "{source}: {} only because its log source ({}) leaves an attribute unknown; \
+                     if that is all it is, add `complete: true`",
+                    rules_apply(only_unknown),
                     text::logsource(logsource)
                 )
             })
         })
         .collect()
+}
+
+/// "1 rule applies", "2 rules apply".
+fn rules_apply(count: usize) -> String {
+    if count == 1 {
+        "1 rule applies".to_owned()
+    } else {
+        format!("{count} rules apply")
+    }
+}
+
+/// `texts` in their order, each once. Two adjustments can read the same, such as a rare event
+/// refusing both its field removals and its summary.
+fn unique(texts: impl Iterator<Item = String>) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    texts.filter(|text| seen.insert(text.clone())).collect()
 }
 
 /// The rules among `requirements`: a Sigma rule mapped through a pipeline, or an Elastic rule

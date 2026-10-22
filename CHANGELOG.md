@@ -152,6 +152,14 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
   step failed on it ("no data flow into Microsoft-SecurityEvent"). Both shapes are read now, and
   the rule is written in the shape `az rest --method put` sends back. Found by following the
   README on a live workspace.
+- **The report reads as advice.** It opens with what it means for a reader without context
+  (savings on data no rule uses, a full copy kept, nothing changes until it is deployed), the
+  saving at a glance, then the kinds of event that make 90 % of the saving, largest first, each
+  with what to change, the fields removed on the sample with their bytes, and why. Savings by
+  source follow as coloured bars; smaller savings, data sent unchanged, the rules and the
+  problems are folded away. Bytes show in the largest unit below 1,000 ("8.7 MB", not
+  "8703 KB"), rounded as the command line rounds them, and a reason two adjustments share is
+  listed once. `Proof::removed` records, per kind of event, which fields the data plane removed.
 - **Wazuh `maxsize` verified** with `logtest` on Wazuh 4.14.0. A rule with `maxsize` fires on the
   size of the whole event, JSON lines included, so reading it as a rule on every field is right.
 
