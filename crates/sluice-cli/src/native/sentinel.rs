@@ -36,7 +36,9 @@ pub(crate) fn sentinel(
         .map(|path| -> Result<Value> {
             let text = std::fs::read_to_string(path)
                 .with_context(|| format!("reading {}", path.display()))?;
-            serde_json::from_str(&text).with_context(|| format!("{}: not JSON", path.display()))
+            serde_json::from_str(&text)
+                .map(dcr::arm_shape)
+                .with_context(|| format!("{}: not JSON", path.display()))
         })
         .transpose()?;
     let mut proven = Vec::new();

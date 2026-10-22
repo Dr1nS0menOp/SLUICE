@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use serde_json::{Value, json};
 use sluice_kql::{SLUICE_PART, SLUICE_PART_END, Table, Transformation};
 
-use super::dcr::{archive, archive_table, deployment, without_sluice_part};
+use super::dcr::{archive, archive_table, arm_shape, deployment, without_sluice_part};
 use super::*;
 
 fn rule() -> Value {
@@ -104,6 +104,34 @@ fn the_archive_table_has_the_stream_columns_and_a_time() {
         .filter_map(|c| c["name"].as_str())
         .collect();
     assert_eq!(names, ["TimeGenerated", "EventID", "EventData"]);
+}
+
+/// The rule as `az monitor data-collection rule show` prints it: `properties` flattened into
+/// the top level, with the resource group the CLI adds.
+fn flattened() -> Value {
+    let mut flat = rule()["properties"].clone();
+    let object = flat.as_object_mut().expect("an object");
+    object.insert("id".to_owned(), rule()["id"].clone());
+    object.insert("location".to_owned(), rule()["location"].clone());
+    object.insert("resourceGroup".to_owned(), json!("rg"));
+    flat
+}
+
+#[test]
+fn the_cli_shape_of_a_rule_is_read_and_deployed_as_the_api_shape() {
+    let api = rule();
+    let cli = arm_shape(flattened());
+    assert_eq!(cli["properties"], api["properties"]);
+    assert_eq!(cli["location"], api["location"]);
+    let (from_api, from_cli) = (flow(&api), flow(&cli));
+    let written_api = deployment(api, &[(proven(&from_api), from_api)]).expect("from the API");
+    let written_cli = deployment(cli, &[(proven(&from_cli), from_cli)]).expect("from the CLI");
+    assert_eq!(written_cli, written_api);
+}
+
+#[test]
+fn a_rule_in_the_api_shape_is_left_as_it_is() {
+    assert_eq!(arm_shape(rule()), rule());
 }
 
 #[test]

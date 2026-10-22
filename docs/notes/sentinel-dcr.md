@@ -74,6 +74,16 @@ flow into `SecurityEvent`, an untransformed flow of the same stream into
   emptied on 7 of 50 4672 and 16 of 50 4798 (as with the transformation alone), and all 150
   arrived whole in the archive table, in each of four runs.
 
+## Exporting the rule with the Azure CLI (2026-10-22)
+
+`az monitor data-collection rule show` (Azure CLI 2.91.0, extension `monitor-control-service`)
+does not print the rule as the Resource Manager API returns it: it moves everything under
+`properties` to the top level (`dataFlows`, `streamDeclarations`, …) and adds `resourceGroup`.
+`--sentinel-dcr` read only the API's shape and refused that export with "the data collection rule
+has no data flow into Microsoft-SecurityEvent". It now reads both shapes and writes the API's,
+without `resourceGroup`, which is what `az rest --method put` sends back. The first run of that
+command installs the extension and prints a warning about preview extensions; that is harmless.
+
 ## KQL semantics checked in the emulator
 
 | Expression | Result | Consequence |

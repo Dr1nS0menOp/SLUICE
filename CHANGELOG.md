@@ -145,6 +145,11 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
   RUSTSEC-2026-0381). The older versions could trust certificate paths through distrusted emSign
   intermediates, whose private keys are public. This affects every HTTPS connection Sluice
   makes: the rule fetches, the sample checks and the AI advisor.
+- **`--sentinel-dcr` reads the Azure CLI's export.** `az monitor data-collection rule show`
+  prints the rule with its `properties` flattened into the top level, and the README's deploy
+  step failed on it ("no data flow into Microsoft-SecurityEvent"). Both shapes are read now, and
+  the rule is written in the shape `az rest --method put` sends back. Found by following the
+  README on a live workspace.
 - **Wazuh `maxsize` verified** with `logtest` on Wazuh 4.14.0. A rule with `maxsize` fires on the
   size of the whole event, JSON lines included, so reading it as a rule on every field is right.
 

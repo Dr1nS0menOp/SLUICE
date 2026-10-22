@@ -10,6 +10,42 @@ use sluice_kql::{SLUICE_PART, SLUICE_PART_END, Table};
 
 use super::Proven;
 
+/// The top-level keys of a data collection rule as a resource; the rest of the rule sits under
+/// `properties`.
+const RESOURCE_KEYS: [&str; 10] = [
+    "id",
+    "name",
+    "type",
+    "location",
+    "tags",
+    "kind",
+    "etag",
+    "systemData",
+    "identity",
+    "resourceGroup",
+];
+
+/// `rule` in the shape of the Azure Resource Manager API, with the rule itself under
+/// `properties`. `az monitor data-collection rule show` flattens `properties` into the top
+/// level; the rule Sluice writes is put back through the API, so it reads both shapes and keeps
+/// the API's.
+pub(super) fn arm_shape(rule: Value) -> Value {
+    let Value::Object(mut top) = rule else {
+        return rule;
+    };
+    if top.contains_key("properties") {
+        return Value::Object(top);
+    }
+    let properties: serde_json::Map<String, Value> = top
+        .iter()
+        .filter(|(key, _)| !RESOURCE_KEYS.contains(&key.as_str()))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    top.retain(|key, _| RESOURCE_KEYS.contains(&key.as_str()));
+    top.insert("properties".to_owned(), Value::Object(properties));
+    Value::Object(top)
+}
+
 /// What a data flow into a table gives the transformation: the stream's columns, and the
 /// transformation the flow already has, which Sluice's runs after.
 pub(super) struct Flow {
@@ -153,7 +189,7 @@ pub(super) fn write(rule: Value, proven: &[(Proven, Flow)], dir: &Path) -> Resul
 /// untransformed flow of the same stream into the table's archive.
 pub(super) fn deployment(mut rule: Value, proven: &[(Proven, Flow)]) -> Result<Value> {
     if let Some(object) = rule.as_object_mut() {
-        for key in ["id", "name", "type", "etag", "systemData"] {
+        for key in ["id", "name", "type", "etag", "systemData", "resourceGroup"] {
             object.remove(key);
         }
     }
