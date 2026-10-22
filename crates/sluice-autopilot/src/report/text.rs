@@ -32,11 +32,13 @@ pub(crate) fn actions(recipe: &EffectiveRecipe) -> Vec<String> {
 pub(crate) fn adjustment(adjustment: &Adjustment) -> String {
     let what = match &adjustment.reason {
         Reason::NoRecipe => "no recipe: forwarded unchanged".to_owned(),
-        Reason::NoArchive => "archiving is off, so nothing may be cut".to_owned(),
+        Reason::NoArchive => "archiving is off, so nothing is saved".to_owned(),
         Reason::RareTemplate {
             events,
             source_events,
-        } => format!("rare ({events} of {source_events} events in its source), so never cut"),
+        } => format!(
+            "rare ({events} of {source_events} events in its source), so nothing is saved on it"
+        ),
         Reason::AllFieldsNeededByRule { rule } => {
             format!("{rule} may read any field, so no field is dropped")
         }
@@ -60,7 +62,7 @@ pub(crate) fn adjustment(adjustment: &Adjustment) -> String {
             };
             format!(
                 "{who} fields as {rule_names} does, the records use {data_names}: they may read \
-                 any field, so nothing they could read is cut"
+                 any field, so nothing they could read is removed"
             )
         }
         Reason::FieldsParsedFromText { rule, rules } => {

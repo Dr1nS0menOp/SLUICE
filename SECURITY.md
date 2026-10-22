@@ -19,10 +19,10 @@ report there is.
 - A configuration Sluice writes (`vector.yaml`, a data collection rule transformation, an
   ingest pipeline, a Fluent Bit or OpenTelemetry Collector filter) that changes the alerts of a
   loaded rule, which the proof did not catch.
-- A guardrail that lets a field or event through the cut that a rule reads.
+- A guardrail that lets a saving remove a field or an event that a rule reads.
 - A configuration that loses or alters the full-fidelity copy it is meant to archive.
 - Secrets ending up in generated files, logs or the report.
 
 ## Supported versions
 
-Sluice is in early development; fixes go into the latest release only.
+Sluice is an alpha (0.1); fixes go into the latest release only.

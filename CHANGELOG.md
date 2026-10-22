@@ -8,10 +8,33 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [0.1.0] - 2026-10-22
 
-First public version, an alpha. Linux only (x86_64 and aarch64), including WSL2.
+First public version, an alpha. Linux only (x86_64 and aarch64), including WSL2: one static
+binary per architecture, with its SHA-256 sum.
 
-Documentation: `docs/architecture.md` has diagrams of the analysis and of what each configuration
-does, and one Windows event followed through every step; `docs/glossary.md` explains the terms.
+### What 0.1.0 does
+
+- **Reads the rules your SIEM runs**, read-only: `sluice rules fetch sentinel|wazuh|elastic|splunk`.
+  Sigma rules from a directory stand in for any other SIEM.
+- **Analyzes a sample** of your data (`sluice analyze`): groups it into kinds of event, proposes
+  savings from community recipes (and optionally an AI model), narrows them with the safety
+  contract, and proves that the rules raise exactly the same alerts on what would still be sent.
+- **Writes the advice and the configurations**: `report.html` (largest saving first, with the
+  proof), `plan.json`, `vector.yaml`, and on request a Microsoft Sentinel data collection rule,
+  an Elasticsearch ingest pipeline, a Fluent Bit filter or OpenTelemetry Collector statements,
+  each proven in its real engine. Sluice changes nothing itself.
+- **Proves a configuration again in CI**: `sluice prove` and its GitHub Action.
+- Proven against the real product: Microsoft Sentinel (end to end on a live workspace), Elastic
+  Security, Wazuh, Vector, Fluent Bit and the OpenTelemetry Collector. Experimental: Splunk, and
+  rules read from files instead of fetched.
+- `sluice demo` shows it all on synthetic data in a minute.
+
+Documentation: the README has a guide per SIEM; `docs/architecture.md` has diagrams of the
+analysis and of what each configuration does, and one Windows event followed through every step;
+`docs/glossary.md` explains the terms.
+
+Nothing was released before 0.1.0. The sections below record how this version was built, in the
+order it happened, including features that were removed again before the release; "Breaking"
+marks a change between two development states.
 
 ### Advice only
 
@@ -20,15 +43,16 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
   What stays: `sluice rules fetch` and `rules requirements`, `sluice analyze` and `sluice demo`
   with the report, `plan.json`, `vector.yaml` and the native generators, `sluice recipes`,
   `sluice prove` with its GitHub Action, and `sluice connect sentinel`.
-- Moved to `archive/`, outside the Cargo workspace and kept to delete later: `sluice up` (crate
+- Built during development and removed before the release (first moved to `archive/`, then
+  deleted; the code is in the Git history): `sluice up` (crate
   `sluice-server`, with its console, operator actions, single sign-on, proposals and
   `--reload-rules`), `sluice status`, `sluice search` and `sluice replay` (crate
   `sluice-archive`), `sluice mcp` (crate `sluice-mcp`), `sluice agent`, `sluice connect
   sentinel --standard-table` with the VRL that shaped records for Sentinel's standard tables
   (`Syslog`, `CommonSecurityLog`, the ASIM tables, `SecurityEvent`, `WindowsEvent`), which only
-  `sluice up` and `sluice agent` ran (2026-10-18), the `sluice up` configuration keys (`shape`, `sluice_rules`, `sluice_records`, `sluice_formats`,
-  `sluice_sources`), the Helm chart, the container image, `examples/up`, `examples/docker`,
-  `scripts/helm-check.sh`, `scripts/live-smoke.sh`, `scripts/replay-smoke.sh`,
+  `sluice up` and `sluice agent` ran (2026-10-18), the `sluice up` configuration keys (`shape`,
+  `sluice_rules`, `sluice_records`, `sluice_formats`, `sluice_sources`), the Helm chart, the
+  container image, `examples/up`, `examples/docker`, `scripts/helm-check.sh`, `scripts/live-smoke.sh`, `scripts/replay-smoke.sh`,
   `scripts/load-test.sh`, `scripts/real-data/send-sentinel.sh`, the live cycle and recipe
   lifecycle of `sluice-autopilot`, `sluice prove --profile` and the diagrams of the live design.
 - **Breaking:** `sluice connect` takes `sentinel` only and writes files only: `--sample` with
@@ -160,6 +184,11 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
   problems are folded away. Bytes show in the largest unit below 1,000 ("8.7 MB", not
   "8703 KB"), rounded as the command line rounds them, and a reason two adjustments share is
   listed once. `Proof::removed` records, per kind of event, which fields the data plane removed.
+- **Words.** The report and the documentation speak of savings, not cuts: contract rule 4 reads
+  "rare events are never saved on", and a rare kind of event says "so nothing is saved on it".
+  The summary line names every file an analysis writes, `rules.json` included. The README's
+  Sentinel deploy step says what the first run of the Azure CLI installs, what to do when the
+  new archive table is not ready yet, and that a changed rule can take ten minutes to apply.
 - **Wazuh `maxsize` verified** with `logtest` on Wazuh 4.14.0. A rule with `maxsize` fires on the
   size of the whole event, JSON lines included, so reading it as a rule on every field is right.
 

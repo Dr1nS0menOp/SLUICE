@@ -73,7 +73,8 @@ Please report where you get stuck in an
 ## 1. Install
 
 Sluice runs on Linux (x86_64 and aarch64), including WSL2 on Windows. It is one static binary
-with no dependencies. This is an alpha: see [what is proven and what is experimental](#status-alpha).
+with no dependencies. This is an alpha: see
+[what is proven and what is experimental](#status-alpha).
 
 **Download a release.** Each [release](https://github.com/Dr1nS0menOp/SLUICE/releases) has a
 binary per architecture and its SHA-256 sum:
@@ -125,11 +126,16 @@ example Sigma rules:
   proof   41 alerts on full data, 41 on forwarded data  ✓ no detection changed
 ```
 
-It writes three files into `out/`:
-- `report.html`: what is saved, why, the proof, and every rule;
+It writes into `out/`:
+- `report.html`: the advice, for people. It opens with what the report means, then the largest
+  savings first, each with the fields it removes, why that is safe, and the proof. Every
+  analysis writes one; it is a single page you can mail or open offline.
 - `plan.json`: the same decisions, for tools;
 - `vector.yaml`: a [Vector](https://vector.dev) 0.59 configuration that archives all 80,536
-  events, sends the 38,974 the proof sent, and counts the other 41,562 into summary records.
+  events, sends the 38,974 the proof sent, and counts the other 41,562 into summary records;
+- `rules.json`: every rule, and what Sluice made of it;
+- `samples/` and `sluice.yaml`: the synthetic sample and its source descriptions, so you can run
+  `sluice analyze` on them yourself.
 
 ## 3. Use it with your SIEM
 
@@ -220,6 +226,9 @@ sluice analyze --input samples --sources sources.yaml --sentinel-rules sentinel-
 pipeline tool: deploy `out/vector.yaml` for that. To prove and write the DCR, export it and
 analyze again with it:
 
+The first `az monitor data-collection rule …` command installs the Azure CLI's
+`monitor-control-service` extension.
+
 ```sh
 az monitor data-collection rule show --resource-group my-resource-group --name my-dcr > dcr.json
 sluice analyze --input samples --sources sources.yaml --sentinel-rules sentinel-rules \
@@ -239,9 +248,11 @@ az rest --method put --body @out/sentinel/dcr.json \
   --url "https://management.azure.com$DCR_ID?api-version=2023-03-11"
 ```
 
-The table's name is in the file name under `out/sentinel/`. If the report lists functions whose
-source Sluice does not have, fetch again; the report shows how to give their source. Remove the
-emulator when you are done: `docker rm -f sluice-kusto`.
+The table's name is in the file name under `out/sentinel/`. A new table takes a moment to be
+created: if the rule's update answers `InvalidOutputTable`, wait a minute and run it again. A
+changed rule can take up to ten minutes before records go through it. If the report lists
+functions whose source Sluice does not have, fetch again; the report shows how to give their
+source. Remove the emulator when you are done: `docker rm -f sluice-kusto`.
 
 ### Wazuh (on premises)
 
@@ -319,8 +330,8 @@ sluice analyze --input samples --sources sources.yaml \
 **6. Deploy.** Wazuh has no ingest-time transformation of its own, so the saving runs before the
 data reaches the manager. Use one of these:
 - Vector, with `out/vector.yaml`;
-- the agent's Fluent Bit, with `--fluent-bit-native`;
-- the OpenTelemetry Collector, with `--otel-native`.
+- Fluent Bit, where it collects the logs, with `--fluent-bit-native`;
+- the OpenTelemetry Collector, where it collects the logs, with `--otel-native`.
 
 Mind one thing. With Wazuh's standard ruleset, Sluice saves almost nothing on the data Wazuh
 itself receives, because generic rules such as 1002 read every line whole. The savings are on

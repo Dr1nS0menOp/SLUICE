@@ -36,13 +36,13 @@ configuration use in brackets where it differs.
 
 | Term | Meaning |
 |---|---|
-| **Safety contract** | Unknown data passes through. Everything is archived first. Anything a rule could match is forwarded whole. Rare is never cut. Every cut is proven first. AI proposes, the guardrails decide. |
+| **Safety contract** | Unknown data passes through. Everything is archived first. Anything a rule could match is forwarded whole. Rare events are never saved on. Every saving is proven first. AI proposes, the guardrails decide. |
 | **Guardrails** | The code that narrows a recipe to what the contract and the rules allow, and records why for every refusal. |
 | **Effective recipe** (`EffectiveRecipe`) | What is left of a recipe after the guardrails. Only that goes into a configuration. |
-| **Rarity floor** | A template with fewer than 100 events, or under 0.1 % of its source, is never cut. A rare shape of a frequent kind of event keeps a template of its own. |
+| **Rarity floor** | Nothing is saved on a template with fewer than 100 events, or under 0.1 % of its source. A rare shape of a frequent kind of event keeps a template of its own. |
 | **Conditional protection** (`keep_whole_when`) | A field a rule reads stays on every event the rule could match, and may be removed elsewhere. |
 | **Proof** (shadow proof) | The rules run on the full and on the forwarded events. Only the same alerts, in both directions, count as proof; a recipe that changes an alert is left out. |
-| **Fail closed** | When in doubt, cut nothing and forward everything unchanged. A rule Sluice cannot read counts as reading everything. |
+| **Fail closed** | When in doubt, remove nothing and forward everything unchanged. A rule Sluice cannot read counts as reading everything. |
 | **Known limit** | A place where Sluice falls short today, listed in the architecture and addressed in PLAN.md. |
 
 ## Formats and integrations

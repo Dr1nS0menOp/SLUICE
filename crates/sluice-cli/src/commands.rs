@@ -297,10 +297,11 @@ fn run(
         );
     }
     println!(
-        "  wrote   {} (the savings plan), {} and {}",
+        "  wrote   {} (the advice), {} (the savings plan), {} and {} (every rule)",
+        out.join("report.html").display(),
         out.join("plan.json").display(),
         out.join("vector.yaml").display(),
-        out.join("report.html").display()
+        out.join("rules.json").display()
     );
     if let Some(sentinel) = native.sentinel {
         crate::native::sentinel::sentinel(

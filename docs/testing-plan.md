@@ -22,8 +22,9 @@ first, how, what "done" means, and where the gaps are today (counted 2026-10-14)
 
 ## Where we stand
 
-Since 2026-10-17, `sluice-server`, `sluice-archive` and `sluice-mcp` are archived
-([ADR 0030](adr/0030-advice-only.md)); their rows, bugs and coverage below stay as a record.
+`sluice-server`, `sluice-archive` and `sluice-mcp` were archived on 2026-10-17 and deleted on
+2026-10-22 ([ADR 0030](adr/0030-advice-only.md)); their rows, bugs and coverage below stay as a
+record.
 
 | Crate | Lines | Unit tests | Integration tests | Risk | Modules without tests of their own |
 |---|---:|---:|---:|---|---|

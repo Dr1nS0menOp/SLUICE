@@ -2,6 +2,26 @@
 
 [CLAUDE.md](CLAUDE.md) has the conventions and [docs/adr/](docs/adr/) has the decisions.
 
+**Where the project stands (2026-10-22): v0.1.0, the first release, an alpha.** Sluice advises
+only (ADR 0030). The README's guides were checked against Microsoft Sentinel (end to end, on a
+live workspace), Elastic Security and Wazuh; Splunk and rules read from files are experimental.
+Most of this file is the history of how it got here. After the alpha, in this order:
+
+1. **What each field is worth, beyond the rules** (on a branch of its own first): per field of
+   Windows events and Linux logs, what a SOC analysis never needs whatever the rules say, such
+   as text that can always be looked up again (an EventID's description, which `Message`
+   repeats). Ideally an algorithm that sees it by itself. It must still go through the
+   guardrails and the proof.
+2. Problems in `plan.json` too, not only in the report.
+3. One `--native` flag instead of one per target.
+4. Splunk out of the freezer, once its licence question is settled.
+5. The MCP and AI flow that drafts data collection rules and their shaping (M12).
+
+Known small limit: `sluice … | head` ends with a "Broken pipe" panic when `head` closes the
+pipe early. The files are written by then. Resetting `SIGPIPE` needs `unsafe`, which the
+workspace forbids; the fix is to print through writes that stop quietly on a closed pipe instead
+of `println!`.
+
 **Decisions on 2026-10-09:**
 
 - **Rust, not Python** ([ADR 0001](docs/adr/0001-rust-core.md)). The shadow proof runs the exact
@@ -29,7 +49,7 @@
   - ~~Install method for the Vector binary~~. Decided 2026-10-09: `scripts/install-vector.sh`
     installs the pinned release (0.59.0, which embeds `vrl` 0.36.0) into `~/.local` with SHA-256
     verification.
-- **Style:** concise replies in chat (Dutch). Code and docs in English.
+- **Style:** code and docs in English.
 
 ## Context
 

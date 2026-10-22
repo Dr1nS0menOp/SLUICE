@@ -54,7 +54,7 @@ impl fmt::Display for ContractRule {
             Self::UnknownPassesThrough => "unknown data passes through untouched",
             Self::ArchiveFirst => "everything is archived before any saving",
             Self::RuleMatchesForwarded => "anything a rule could match is sent in full",
-            Self::RareNeverCut => "rare is never cut",
+            Self::RareNeverCut => "rare events are never saved on",
             Self::ProvenBeforeEnforced => "every saving is proven before it is used",
             Self::AiProposesGuardrailsDecide => "AI proposes; guardrails decide",
         };

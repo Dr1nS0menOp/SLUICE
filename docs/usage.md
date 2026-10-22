@@ -31,8 +31,9 @@ survived:
   proof   41 alerts on full data, 41 on forwarded data  ✓ no detection changed
 ```
 
-Open `out/report.html` to see, per kind of event, what is saved, what is kept and why.
-`out/vector.yaml` is the pipeline that would do it, and `out/plan.json` holds the same
+Open `out/report.html`, the advice: it says first what the report means, then shows the largest
+savings first, each with the fields it removes and why that is safe, and folds the smaller ones
+away. `out/vector.yaml` is the pipeline that would do it, and `out/plan.json` holds the same
 decisions for other tools.
 
 ## 2. Find out what you would save on your own logs
@@ -62,7 +63,7 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
    ```
 
    `schema` says which field names the records use. Say `sigma` when they carry the names your
-   Sigma rules use, as Windows event logs do. Without it Sluice cuts nothing a Sigma rule could
+   Sigma rules use, as Windows event logs do. Without it Sluice removes nothing a Sigma rule could
    read from that source, because it cannot tell whether the rule's `Image` is the record's
    `process.executable` ([guide](guide.md#field-names)). For records in another convention, such
    as ECS, declare it (`schema: ecs`) and give the pySigma pipeline your SIEM converts Sigma
@@ -99,13 +100,16 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
    `--sentinel-rules inventory/sentinel`, `--elastic-rules inventory/elastic` (with
    `--elasticsearch URL` the proof runs them too) or `--splunk-rules inventory/splunk`. Sigma
    rules have no SIEM API to read them from: pass `--rules-complete` when the directory holds
-   every Sigma rule your SIEM runs. Without either, Sluice makes lossless cuts only and says so
-   (ADR 0021).
+   every Sigma rule your SIEM runs. Without either, Sluice makes only savings that keep every
+   event, and says so (ADR 0021).
 
-4. **Read the report.** `report.html` shows the saving per source and template, the proof, and
-   for every template that was not cut the reason (a rule reads that field, the template is rare,
-   no recipe matches). `sluice analyze` also prints hints when a vague source description keeps
-   rules in scope. The same decisions are in `plan.json`, for tools: per kind of event what may be
+4. **Read the report.** `report.html` is the advice. It starts with a paragraph on what it means,
+   for readers without context such as a manager, then lists the largest savings first: per kind
+   of event what to change, the fields removed on the sample with their bytes, where it can run,
+   and why it is safe. Savings by source follow, and the smaller savings, the kinds of event sent
+   unchanged (each with its reason: a rule reads that field, the kind of event is rare, no recipe
+   matches), the rules and the problems are folded away. `sluice analyze` also prints hints
+   when a vague source description keeps rules in scope. The same decisions are in `plan.json`, for tools: per kind of event what may be
    removed or counted, which events keep every field, and whether the saving can run in the
    SIEM's own ingestion or an agent, or needs a pipeline tool (ADR 0023).
 
@@ -281,7 +285,7 @@ sluice prove --config sluice/vector.yaml --input samples/ --sources sources.yaml
 On GitHub:
 
 ```yaml
-- uses: <owner>/sluice@v0.1.0
+- uses: Dr1nS0menOp/SLUICE@v0.1.0
   with:
     config: sluice/vector.yaml
     input: samples
@@ -299,5 +303,5 @@ Sources and sinks are yours to change.
 
 That is Sluice being careful, and the report says why for each template. The usual reasons are a
 rule that may read any field, a template too rare to touch, or a source description so vague that
-every rule applies. [The guide](guide.md#why-is-nothing-cut) lists them with what to do about
+every rule applies. [The guide](guide.md#why-is-nothing-saved) lists them with what to do about
 each.

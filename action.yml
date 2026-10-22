@@ -33,7 +33,7 @@ inputs:
   version:
     description: >-
       The Sluice release to use, such as 0.1.0. Defaults to the version of the action's tag
-      (uses: owner/sluice@v0.1.0).
+      (uses: Dr1nS0menOp/SLUICE@v0.1.0).
     required: false
     default: ""
 

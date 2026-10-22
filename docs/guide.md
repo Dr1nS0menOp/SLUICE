@@ -22,7 +22,7 @@ are.
 3. **Guardrails.** For each template, Sluice works out which of your rules could see it (by log
    source, and by the template's fixed values) and what each rule reads. A field a rule reads is
    never removed from an event that rule could match; such events are forwarded whole (ADR
-   0009). Rare templates are never cut, and nothing is cut without an archive.
+   0009). Nothing is saved on rare templates, and nothing at all without an archive.
 4. **Proof.** Sluice runs your rules over the sample twice, on the full events and on what the
    reduced pipeline would forward: Sigma rules always, Microsoft Sentinel's analytics rules in
    the Kusto emulator when `--kusto` is given, and Elastic's detection rules in Elasticsearch
@@ -72,7 +72,7 @@ defaults for some products: `aws` (`eventSource`, `eventName`), `okta` (`eventTy
     event_type: [type, details.auth_method]
 ```
 
-More fields only split templates further, which never makes Sluice cut more. For text lines,
+More fields only split templates further, which never makes Sluice remove more. For text lines,
 Sluice splits a template wherever only a few words alternate (`Accepted`, `Failed`), so a rare
 outcome keeps a template of its own (ADR 0019).
 
@@ -104,10 +104,10 @@ The built-in names are `ecs_windows`, `sysmon` and `fibratus_windows`; at most o
 `schema`, and pipelines that depend on the source (`${source.*}`) are refused.
 
 For any other source, a Sigma rule that applies to it (by its log source) is read as reading
-every field of every event, so no field it could read is cut from that source: the report says
+every field of every event, so no field it could read is removed from that source: the report says
 `names its fields as sigma does, the records use ecs`. This is the safe direction. Declaring
 `sigma` for records that use other names is not: a rule would then look as if it read nothing,
-and Sluice would cut what it reads. The same holds for a pipeline other than the SIEM's.
+and Sluice would remove what it reads. The same holds for a pipeline other than the SIEM's.
 Elastic's detection rules name ECS fields and Splunk's searches the fields Splunk extracts, so
 they are compared with sources that declare `ecs` or `splunk`, and on any other source read as
 reading every field of every event (ADR 0025, ADR 0026). Wazuh and Sentinel rules relate their
@@ -135,7 +135,7 @@ line`); a keyword rule is matched against the line as it is.
 
 | File | What it is |
 |---|---|
-| `report.html` | What is saved per source and kind of event, why each field was kept, the proof, and every rule next to what Sluice made of it. |
+| `report.html` | The advice, as one page without scripts. A paragraph on what it means, for readers without context; the saving at a glance; the kinds of event that make 90 % of the saving, largest first, each with what to change, the fields removed on the sample with their bytes, where it can run and why it is safe; savings by source; and, folded away, the smaller savings, the kinds of event sent unchanged with their reasons, every rule next to what Sluice made of it, and the problems. |
 | `rules.json` | That list of rules, for tools. |
 | `plan.json` | The savings plan (`sluice.plan/1`): per source and kind of event what may be removed or counted, which events keep every field, where the saving can run (`runs_in`), and the proof (ADR 0023). |
 | `vector.yaml` | A Vector configuration that carries out the whole plan, with Vector unit tests drawn from the sample. Per source it reads a file and has three sinks: the archive, what is forwarded, and the summaries. |
@@ -165,15 +165,16 @@ Point `--sentinel-rules` at the rules your workspace actually runs: a rule that 
 directory: rules that use a parser are then bounded by what the parser reads, instead of by
 every Windows table ([ADR 0015](adr/0015-sentinel-analytics-rules.md)).
 
-## Why is nothing cut?
+## Why is nothing saved?
 
-The report lists, per template, every reduction that was refused or narrowed, and why. The
-common reasons:
+The report lists, per kind of event, every reduction that was refused or narrowed, and why
+(open the kind of event; those with no saving at all are under "Sent unchanged"). The common
+reasons:
 
 - **"no recipe"**: no community or own recipe matches the template. Write one
   ([recipes/README.md](../recipes/README.md)) or use `--llm`.
-- **"rare … so never cut"**: the template has fewer than 100 events, or less than 0.1 % of its
-  source, in the sample. A larger sample fixes this.
+- **"rare … so nothing is saved on it"**: the template has fewer than 100 events, or less than
+  0.1 % of its source, in the sample. A larger sample fixes this.
 - **"may read any field"** or **"could match any event"**: a rule whose fields or matches cannot
   be bounded (an unparsable rule, or a keyword search Sluice cannot narrow) applies to the
   template. Check the **hints**: often the rule only applies because the source's log source is
@@ -181,7 +182,8 @@ common reasons:
 - **"kept: … rule tests could apply"**: so many rules apply that testing them per event would
   cost more than it saves. Describing the source more precisely reduces the number.
 - **"not summarized: the rules are not known to be complete"**: Sluice was not told that its
-  rules are every rule and query the SIEM runs, so it only makes lossless cuts. Fetch them
+  rules are every rule and query the SIEM runs, so it only makes savings that keep every event.
+  Fetch them
   with `sluice rules fetch`, or pass `--rules-complete` (ADR 0021).
 - **"fields the SIEM parses out of the line"**: a Sigma rule tests named fields on a text
   source; Sluice cannot see how the SIEM parses the line, so the lines stay whole (ADR 0020).

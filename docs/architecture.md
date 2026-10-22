@@ -70,9 +70,9 @@ synthetic data.
   parsers (ES|QL and Lucene read broadly), and Splunk's searches by their base search, with
   macros expanded. Anything not understood widens to "may read everything, on every event".
 - **D. Guardrails.** The safety contract turns each proposal into an *effective recipe*: unknown
-  data and rare templates (fewer than 100 events, or under 0.1 % of their source) are never cut,
-  nothing is cut without the archive, a field a rule may read is kept on every event the rule
-  could match, and events a rule could match are forwarded whole. A rule whose field names
+  data and rare templates (fewer than 100 events, or under 0.1 % of their source) are never
+  saved on, nothing is saved without the archive, a field a rule may read is kept on every event
+  the rule could match, and events a rule could match are forwarded whole. A rule whose field names
   follow another convention than the source's is read as reading everything (ADR 0018). Without
   a complete rule inventory, nothing is summarized (ADR 0021). Every refusal is recorded with
   the contract rule behind it.
@@ -192,7 +192,7 @@ that M9 and M10 addressed. What remains:
 - **Text lines are not parsed.** A SIEM parses fields out of a text line before its rules run;
   Sluice does not know that parser. A Sigma rule that tests named fields therefore keeps every
   line of its log source whole (ADR 0020). Parser packs and checked AI-proposed parsers would
-  let such sources be cut (M12).
+  let Sluice save on such sources (planned, PLAN M12).
 - **Templates still follow shapes in part.** Since ADR 0019, Drain clusters split where a few
   words alternate (sshd's "Accepted" and "Failed"), message ids keep their digits, and JSON
   sources name their event-type fields and share a template per kind of event across their
@@ -201,8 +201,8 @@ that M9 and M10 addressed. What remains:
 - **Not every SIEM's rules are read.** `sluice rules fetch` reads Sentinel, Wazuh, Elastic
   Security and Splunk (ADR 0021, ADR 0025, ADR 0026); no engine runs Splunk's searches in the
   proof yet. Google SecOps YARA-L, QRadar and workbook queries are not read: for those, the
-  completeness of the rules is the operator's claim, and without it Sluice makes lossless cuts
-  only.
+  completeness of the rules is the operator's claim, and without it Sluice makes only savings
+  that keep every event.
 - **Nothing watches what runs.** Sluice proves a configuration before you deploy it, and
   `sluice prove` again when it changes; it does not see your traffic afterwards. A format that
   changes fits no template and passes through unchanged, which costs savings, not detections.
