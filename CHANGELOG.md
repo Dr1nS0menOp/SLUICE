@@ -145,6 +145,8 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
   RUSTSEC-2026-0381). The older versions could trust certificate paths through distrusted emSign
   intermediates, whose private keys are public. This affects every HTTPS connection Sluice
   makes: the rule fetches, the sample checks and the AI advisor.
+- **Wazuh `maxsize` verified** with `logtest` on Wazuh 4.14.0. A rule with `maxsize` fires on the
+  size of the whole event, JSON lines included, so reading it as a rule on every field is right.
 
 ### Trying it on your own SIEM (2026-10-19)
 

@@ -94,6 +94,22 @@ Before this, Sluice dropped empty fields under such rules, which could silence a
   the full stock ruleset loaded. Load Wazuh rules only when Wazuh is the SIEM that receives the
   data: with SigmaHQ as the reference (another SIEM), the same data saves 24-29%.
 
+## `maxsize` counts the whole event
+
+Verified with `logtest` (container `wazuh/wazuh-manager:4.14.0`, 2026-10-22). Two probe rules in
+`local_rules.xml`, one with only `maxsize="1025"` and one that also needs a `<program_name>`,
+gave these results:
+
+- Neither fires on a 991-byte syslog line.
+- Both fire from 1,101 bytes up, and still fire at 8,001 and 60,001 bytes.
+- A 1,103-byte JSON line fires too, whether sent as `log_format` `syslog` or `json`, and a short
+  JSON line does not.
+
+So the size is that of the whole event, keys and punctuation included, and removing any field can
+bring an event under it. That is why Sluice reads a `maxsize` rule as one that reads every field.
+The stock rule 1003 ("size too large") never shows in `logtest`: it has `noalert="1"`, and
+`logtest` returns no rule for it.
+
 ## Lenient rule files
 
 The stock rule files are not strict XML: `<regex>` holds `</\/\w+\>` and bare `&&`, which a

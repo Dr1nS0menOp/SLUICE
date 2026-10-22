@@ -775,10 +775,10 @@ Still open:
    sources, so nothing was left to fill the rule. Both went to `archive/` and are in the Git
    history since it was deleted (ADR 0030, updates of 2026-10-18 and 2026-10-22); drafting
    such rules is planned as an MCP integration (M12).
-2. **Postponed (2026-10-18): Wazuh `maxsize` in the real engine.** Sluice reads a rule with
-   `maxsize` as one that reads every field, after rule 1003's description (it fires on an event
-   above a size). Whether Wazuh fires it that way is not verified with `logtest`: that needs an
-   API user with `logtest:run` on a manager, and none is available to this project yet.
+2. **Closed (2026-10-22): Wazuh `maxsize` in the real engine.** Sluice reads a rule with
+   `maxsize` as one that reads every field. `logtest` on `wazuh/wazuh-manager:4.14.0` confirms
+   it: such a rule fires on the size of the whole event, JSON lines included, so removing a field
+   can bring an event under it (docs/notes/wazuh.md).
 3. **Lower-case Sentinel workspace functions where an expression may stand**
    (`let events = my_parser();`): closed for fetched inventories on 2026-10-18 (ADR 0031), where
    every workspace function is known and a lower-case call to none of them is KQL's own. For
