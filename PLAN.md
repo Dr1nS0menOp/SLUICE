@@ -258,7 +258,7 @@ prints a destination whose sink `vector validate` checks in every gate run. M2 i
 
 **M3 — Interfaces and ecosystem.** Status 2026-10-09: `sluice mcp` serves `status`, `templates`,
 `explain`, `what_breaks`, `coverage_gaps`, `source_health`, `search_archive` and gated `replay`
-over stdio (rmcp 3.5.1, `docs/notes/mcp.md`). The recipe
+over stdio (rmcp 3.5.1). The recipe
 spec is `recipes/recipe.schema.json`, generated from the parser's types (`sluice recipes schema`,
 `sluice recipes export`). Packaging (ADR 0007): static
 musl binaries for x86_64 and aarch64 via cargo-zigbuild, a Dockerfile on Vector's
@@ -624,9 +624,10 @@ goal is to make Sluice work with as many SIEMs as possible, natively and proven.
 
 **Status 2026-10-17: advice only ([ADR 0030](docs/adr/0030-advice-only.md)).** Sluice looks,
 advises and writes the configurations; it no longer runs in the data path. `sluice up` and
-everything around it moved to `archive/`, so these items are archived, not planned: live polling
-of the rule inventory (`sluice up --reload-rules`, built and archived) and replaying a new rule's
-lookback from the archive; signed recipe releases that `sluice up` follows; the operator flows
+everything around it moved to `archive/`, deleted on 2026-10-22 (Git history keeps it), so
+these items are archived, not planned: live polling of the rule inventory (`sluice up
+--reload-rules`, built and archived) and replaying a new rule's lookback from the archive;
+signed recipe releases that `sluice up` follows; the operator flows
 (console, actions, single sign-on, MCP); and destinations and table shapes for `sluice up`
 (`sluice connect` keeps only Sentinel's custom and summary tables, with their rules). Counting
 (L2, L3) still needs a
@@ -772,8 +773,9 @@ Still open:
 1. **Archived (2026-10-18): the leftovers of the live design.** `sluice connect sentinel
    --standard-table` wrote a data collection rule for records already shaped as `Syslog`,
    `CommonSecurityLog` or an ASIM table, but the VRL that shaped them only ran in `sluice up`
-   sources, so nothing was left to fill the rule. Both are in `archive/` (ADR 0030, update of
-   2026-10-18); drafting such rules is planned as an MCP integration (M12).
+   sources, so nothing was left to fill the rule. Both went to `archive/` and are in the Git
+   history since it was deleted (ADR 0030, updates of 2026-10-18 and 2026-10-22); drafting
+   such rules is planned as an MCP integration (M12).
 2. **Postponed (2026-10-18): Wazuh `maxsize` in the real engine.** Sluice reads a rule with
    `maxsize` as one that reads every field, after rule 1003's description (it fires on an event
    above a size). Whether Wazuh fires it that way is not verified with `logtest`: that needs an
@@ -858,7 +860,6 @@ sluice/
   recipes/<vendor>/<product>/<event>.yaml + samples/   # community recipes (YAML)
   examples/rules/
   docs/{adr/, notes/, architecture.md, compatibility.md}
-  archive/              # what ran in the data path, kept until it is deleted (ADR 0030)
   scripts/wsl.ps1       # run cargo in WSL on machines where code-integrity policy blocks builds
 ```
 

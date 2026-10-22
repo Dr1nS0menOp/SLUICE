@@ -137,6 +137,11 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
   (`codegen::folded_values`); OTTL and KQL now compare the lowercased values too, which match
   the same.
 
+### Before the first release (2026-10-22)
+
+- `archive/` is deleted, with the notes only it needed (`docs/notes/mcp.md`, `docs/notes/oidc.md`).
+  The code stays in the Git history (ADR 0030, update of 2026-10-22).
+
 ### Trying it on your own SIEM (2026-10-19)
 
 - The README has a guide per SIEM, for Microsoft Sentinel, Wazuh and Elastic Security. Each one

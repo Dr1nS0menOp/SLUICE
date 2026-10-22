@@ -233,8 +233,8 @@ Sluice is a Rust workspace with one crate per responsibility. Dependencies point
 | `sluice-synth` | Deterministic synthetic security logs for the demo and the tests. |
 | `sluice-cli` | The `sluice` command: arguments, files, exit codes, logging. |
 
-The crates of the archived live part (`sluice-server`, `sluice-archive`, `sluice-mcp`) are in
-[`archive/`](../archive/), outside the workspace (ADR 0030).
+The crates of the archived live part (`sluice-server`, `sluice-archive`, `sluice-mcp`) are in the
+Git history only; `archive/` held them until 2026-10-22 (ADR 0030).
 
 ## Technologies
 

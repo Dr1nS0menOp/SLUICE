@@ -1,3 +1,0 @@
-# The image only needs the release binaries (see Dockerfile).
-*
-!dist/docker/

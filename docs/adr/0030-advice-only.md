@@ -117,3 +117,10 @@ a source for a standard table is onboarding, not saving, and the analysis does n
 sample read from a Sentinel table is already shaped. Drafting such rules and their shaping is
 planned as an MCP integration, in which an assistant writes them and Sluice proves them (PLAN,
 M12).
+
+## Update, 2026-10-22
+
+`archive/` is deleted, with `docs/notes/mcp.md` and `docs/notes/oidc.md`, before the first release:
+it confused new readers and was neither built nor tested. The code is in the Git history (the
+last commit holding it is the parent of the one that deleted it); bringing a part back still takes
+a new ADR and the quality gates.

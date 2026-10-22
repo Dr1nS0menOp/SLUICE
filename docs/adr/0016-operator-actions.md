@@ -1,6 +1,6 @@
 # ADR 0016: Operator actions in the console and the API
 
-- Status: Superseded by ADR 0030 (advice only); the code is in `archive/`
+- Status: Superseded by ADR 0030 (advice only); its code was in `archive/` until 2026-10-22 and is in the Git history
 - Date: 2026-10-11
 
 ## Context
@@ -48,7 +48,7 @@ the safety contract.
    against the provider's keys, RS256 or ES256). Only names listed in `oidc.operators` get a
    session, kept in an `HttpOnly`, `SameSite=Strict` cookie; the audit log names them as the
    name claim does. The control token stays required, since Vector authenticates its tap with it.
-   Verified against Keycloak ([notes](../notes/oidc.md)).
+   Verified against Keycloak (the notes went with the code, ADR 0030).
 
 ## Consequences
 

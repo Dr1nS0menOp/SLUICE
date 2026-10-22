@@ -408,8 +408,8 @@ with their data collection rules: a custom table derived from a sample (`--sampl
 for summaries with a function that counts them in (`--summary-table`).
 
 Until 2026-10-17, Sluice could also run Vector itself (`sluice up`), with a live control plane,
-archive search and replay, and an MCP server. That code is in [`archive/`](archive/), outside the
-build ([ADR 0030](docs/adr/0030-advice-only.md)).
+archive search and replay, and an MCP server. That code was removed and stays in the Git history
+([ADR 0030](docs/adr/0030-advice-only.md)).
 
 ## Building and testing
 

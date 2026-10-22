@@ -42,7 +42,7 @@ down, under `event_data`, and numbers inside it are strings.
 
 `sluice agent windows`, the `shape` of a `sluice up` source and the shaping programs are
 archived ([ADR 0030](../adr/0030-advice-only.md); the programs in
-`archive/sluice-vector/src/windows`); what follows was verified with them.
+deleted with `archive/` on 2026-10-22, in the Git history); what follows was verified with them.
 
 `security_event_program` maps this shape to Sentinel's `SecurityEvent`
 columns (ADR 0014). Checked on this machine, same day: the generated agent configuration passes

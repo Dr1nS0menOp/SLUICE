@@ -1,6 +1,6 @@
 # ADR 0005: The live control loop
 
-- Status: Superseded by ADR 0030 (advice only); the code is in `archive/`
+- Status: Superseded by ADR 0030 (advice only); its code was in `archive/` until 2026-10-22 and is in the Git history
 - Date: 2026-10-09
 
 ## Context

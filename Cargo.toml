@@ -8,7 +8,8 @@ edition = "2024"
 rust-version = "1.99"
 # AGPL-3.0-only: see LICENSE and docs/adr/0008-license.md.
 license = "AGPL-3.0-only"
-# TODO(release): set `repository` and decide on publishing to crates.io.
+repository = "https://github.com/Dr1nS0menOp/SLUICE"
+# Not on crates.io: releases are static binaries (ADR 0007).
 publish = false
 
 [workspace.dependencies]
@@ -36,10 +37,9 @@ clap = { version = "4", features = ["derive"] }
 proptest = "1"
 quick-xml = "0.42"
 regex = "1"
-# MCP Rust SDK: young and fast-moving, pinned (see docs/notes/mcp.md).
 rsigma-eval = "=0.24.0"
 rustix = { version = "1", features = ["process"] }
-# JSON Schema for the recipe spec; also what rmcp uses for tool schemas.
+# JSON Schema for the recipe spec.
 schemars = "1"
 rsigma-parser = "=0.24.0"
 serde = { version = "1", features = ["derive"] }
