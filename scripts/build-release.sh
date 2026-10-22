@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the static release binaries (musl, x86_64 and aarch64) and their SHA-256 sums into
-# dist/, plus dist/docker/<amd64|arm64>/sluice for the Dockerfile. Static binaries run on any Linux distribution and in a scratch or Alpine container.
-# Requires scripts/install-zig.sh.
+# dist/. Static binaries run on any Linux distribution, WSL2 included. Requires
+# scripts/install-zig.sh.
 #
 #   ./scripts/build-release.sh               # both targets
 #   ./scripts/build-release.sh x86_64        # one target
@@ -22,8 +22,5 @@ for arch in "$@"; do
     name="sluice-${version}-${target}"
     cp "${target_dir}/${target}/release/sluice" "dist/${name}"
     (cd dist && sha256sum "${name}" > "${name}.sha256")
-    # The Dockerfile picks the binary by Docker's architecture name.
-    docker_arch=$([ "${arch}" = x86_64 ] && echo amd64 || echo arm64)
-    install -D -m 0755 "dist/${name}" "dist/docker/${docker_arch}/sluice"
     file "dist/${name}" 2>/dev/null || true
 done

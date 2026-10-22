@@ -6,7 +6,9 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
-First public version (0.1.0). Linux only (x86_64 and aarch64), including WSL2.
+## [0.1.0] - 2026-10-22
+
+First public version, an alpha. Linux only (x86_64 and aarch64), including WSL2.
 
 Documentation: `docs/architecture.md` has diagrams of the analysis and of what each configuration
 does, and one Windows event followed through every step; `docs/glossary.md` explains the terms.
@@ -472,3 +474,6 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
 - Property tests for the safety claims: the guardrails alone (without the proof) keep every
   alert; hostile field names, values and text lines always compile and keep every alert; no
   rule, decoder, recipe, condition or time input makes a parser panic.
+
+[Unreleased]: https://github.com/Dr1nS0menOp/SLUICE/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Dr1nS0menOp/SLUICE/releases/tag/v0.1.0

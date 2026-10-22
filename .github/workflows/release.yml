@@ -19,7 +19,18 @@ jobs:
       - run: PATH="$HOME/.local/bin:$PATH" bash scripts/build-release.sh
       - name: Tag matches the crate version
         run: test -f "dist/sluice-${GITHUB_REF_NAME#v}-x86_64-unknown-linux-musl"
+      - name: The static binary runs the demo
+        run: ./dist/sluice-*-x86_64-unknown-linux-musl demo --scale 2 --out /tmp/demo
+      - name: Notes from the CHANGELOG
+        run: bash scripts/release-notes.sh "${GITHUB_REF_NAME#v}" > notes.md
       - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes dist/sluice-*
+        # Before 1.0 every release is an alpha, marked as a pre-release on GitHub.
+        run: |
+          case "$GITHUB_REF_NAME" in
+            v0.*) stage=(--prerelease --title "Sluice $GITHUB_REF_NAME (alpha)") ;;
+            *) stage=(--title "Sluice $GITHUB_REF_NAME") ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag "${stage[@]}" \
+            --notes-file notes.md dist/sluice-*
