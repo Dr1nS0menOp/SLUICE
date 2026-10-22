@@ -141,6 +141,10 @@ does, and one Windows event followed through every step; `docs/glossary.md` expl
 
 - `archive/` is deleted, with the notes only it needed (`docs/notes/mcp.md`, `docs/notes/oidc.md`).
   The code stays in the Git history (ADR 0030, update of 2026-10-22).
+- **Security:** `rustls-webpki` 0.103.16 and `webpki-roots` 1.0.10 (RUSTSEC-2026-0382 and
+  RUSTSEC-2026-0381). The older versions could trust certificate paths through distrusted emSign
+  intermediates, whose private keys are public. This affects every HTTPS connection Sluice
+  makes: the rule fetches, the sample checks and the AI advisor.
 
 ### Trying it on your own SIEM (2026-10-19)
 
