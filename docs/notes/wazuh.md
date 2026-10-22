@@ -126,9 +126,8 @@ rules:
 - **Wazuh 5:** the `main` branch spec no longer contains `/logtest`, so this targets 4.x.
 - **State:** `logtest` keeps no frequency state, so stateful rules aren't exercised.
 
-**Not yet run live.** No API credentials or SSH keys are available on the development machine.
-Ward's Wazuh (192.168.1.9) uses `wazuh-logtest` over SSH; the API password is in the homelab sops
-file.
+**Not yet run live** when this was written: no API credentials were available on the development
+machine. The live run below followed.
 
 ## Live run against Wazuh 4.14.8 (2026-10-10)
 

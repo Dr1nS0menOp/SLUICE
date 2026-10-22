@@ -445,7 +445,7 @@ fn c1_in_the_kql_engine_only_records_of_the_template_lose_the_column() {
     };
     let events = [
         record("template", &|_| {}),
-        record("extra column", &|f| f["SubjectUserName"] = json!("ward")),
+        record("extra column", &|f| f["SubjectUserName"] = json!("alice")),
         record("keep whole", &|f| f["Computer"] = json!("DC01")),
         record("other event", &|f| f["EventID"] = json!(4798)),
         record("missing column", &|f| {

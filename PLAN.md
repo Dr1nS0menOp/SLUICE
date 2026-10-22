@@ -1,6 +1,5 @@
 # Sluice — open-source autopilot for security data
 
-Standalone project at `C:\Users\ward\SLUICE`. It has nothing to do with the homelab repo.
 [CLAUDE.md](CLAUDE.md) has the conventions and [docs/adr/](docs/adr/) has the decisions.
 
 **Decisions on 2026-10-09:**

@@ -242,7 +242,7 @@ combined-format line in `message`, synthetic) through `shape: sentinel_asim_web_
 puts the code in `EventResultDetails` too.
 Account columns (2026-10-11): after the DCR was updated with `Account` and `AccountType`, 40 real
 Security events shaped by `sluice up` arrived with `Account`, `AccountType`, `SubjectAccount`
-and `TargetAccount` filled (`NT AUTHORITY\SYSTEM`, `DESKTOP-…\ward`, `WORKGROUP\DESKTOP-…$`).
+and `TargetAccount` filled (`NT AUTHORITY\SYSTEM`, `DESKTOP-…\user`, `WORKGROUP\DESKTOP-…$`).
 The way Microsoft's rules read them works: `split(Account, @'\')[1]` gives the name and
 `AccountType == "User"` matches.
 
