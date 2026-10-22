@@ -84,6 +84,15 @@ has no data flow into Microsoft-SecurityEvent". It now reads both shapes and wri
 without `resourceGroup`, which is what `az rest --method put` sends back. The first run of that
 command installs the extension and prints a warning about preview extensions; that is harmless.
 
+**The README's Sentinel guide, end to end (2026-10-22).** Followed as written on the test
+workspace, from a fresh clone: fetch (1 analytics rule, 1 Fusion rule, 860 tables), a sample of
+20,154 `SecurityEvent` records of the last day, the analysis (4.1 % saved, 0 = 0 alerts), the
+native analysis with the exported rule (`EventData` of 4672 and 4798), then the two `az rest`
+calls. Of 100 records sent through the deployed rule (20 each of 4624, 4672, 4688, 4798 and
+5379), all 100 arrived in `SecurityEvent` and all 100 whole in `SluiceSecurityEventArchive_CL`;
+4672 and 4798 arrived with `EventData` emptied (12,960 and 10,527 bytes against 25,180 and 22,114
+in the archive), the other three unchanged.
+
 ## KQL semantics checked in the emulator
 
 | Expression | Result | Consequence |

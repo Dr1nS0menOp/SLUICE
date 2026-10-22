@@ -6,7 +6,8 @@ for Vector, Microsoft Sentinel, Elasticsearch, Fluent Bit and the OpenTelemetry 
 proves every saving on your own data and rules. Sluice itself changes nothing: you decide what
 runs.**
 
-> Status: early development. Nothing here is ready for production yet.
+> **Alpha (0.1).** The analysis and its proof are tested on real data and in the real engines;
+> the commands, `plan.json` and the report may still change. See [Status: alpha](#status-alpha).
 
 ## The idea
 
@@ -45,10 +46,57 @@ These rules are enforced in code, and AI output can never override them:
 When Sluice cannot read part of a rule, it assumes the rule reads everything. That costs savings,
 never a detection. The report lists every rule next to what Sluice made of it.
 
+## Status: alpha
+
+**Proven against the real product:**
+
+- **Microsoft Sentinel.** The fetch, the sample and the deploy step were followed as written
+  below on a live workspace, and the deployed data collection rule was checked by sending records
+  through it. The rules run in the Kusto emulator for the proof.
+- **Elastic Security.** The fetch and the sample against Kibana and Elasticsearch 9.1. Ingest
+  pipelines are proven in Elasticsearch.
+- **Wazuh.** The fetch and the `logtest` spot check against a Wazuh 4.14 manager.
+- **Vector, Fluent Bit and the OpenTelemetry Collector.** Every configuration is run in the real
+  engine in every test run.
+
+**Experimental:**
+
+- **Splunk.** The fetch is written against Splunk's documented API but has not run against a
+  real Splunk, and no engine runs Splunk's searches in the proof.
+- **Rules read from files** instead of fetched from the SIEM. A file cannot say that it holds
+  every rule the SIEM runs, or what a workspace's functions do, so Sluice saves less and the
+  report lists what it could not check.
+
+Please report where you get stuck in an
+[issue](https://github.com/Dr1nS0menOp/SLUICE/issues): that is what the alpha is for.
+
 ## 1. Install
 
-Sluice runs on Linux (x86_64 and aarch64), including WSL2 on Windows. Until the first release,
-build it from source. On Debian or Ubuntu:
+Sluice runs on Linux (x86_64 and aarch64), including WSL2 on Windows. It is one static binary
+with no dependencies. This is an alpha: see [what is proven and what is experimental](#status-alpha).
+
+**Download a release.** Each [release](https://github.com/Dr1nS0menOp/SLUICE/releases) has a
+binary per architecture and its SHA-256 sum:
+
+```sh
+version=0.1.0
+file=sluice-$version-$(uname -m)-unknown-linux-musl
+curl -fLO "https://github.com/Dr1nS0menOp/SLUICE/releases/download/v$version/$file"
+curl -fLO "https://github.com/Dr1nS0menOp/SLUICE/releases/download/v$version/$file.sha256"
+sha256sum --check "$file.sha256"
+mkdir -p ~/.local/bin && install -m 0755 "$file" ~/.local/bin/sluice
+sluice --version
+```
+
+`~/.local/bin` is on the `PATH` of most distributions; if `sluice --version` is not found, add it.
+The guides below also use the scripts in the repository and Docker, for the engines the proof runs
+your rules in:
+
+```sh
+git clone https://github.com/Dr1nS0menOp/SLUICE.git ~/sluice
+```
+
+**Or build it from source.** On Debian or Ubuntu:
 
 ```sh
 sudo apt install -y build-essential git curl
@@ -58,9 +106,8 @@ git clone https://github.com/Dr1nS0menOp/SLUICE.git ~/sluice
 cd ~/sluice && cargo install --locked --path crates/sluice-cli
 ```
 
-That puts `sluice` on your `PATH` (`~/.cargo/bin`). The repository pins the Rust version, and
-rustup installs it on the first build. The guides below also use Docker, for the engines the proof
-runs your rules in, and the scripts in `~/sluice/scripts`.
+That puts `sluice` in `~/.cargo/bin`. The repository pins the Rust version, and rustup installs
+it on the first build.
 
 ## 2. See it work
 
