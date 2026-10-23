@@ -87,9 +87,9 @@ pub struct TemplatePlan {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remove_empty_fields_except: Option<Vec<FieldPath>>,
     /// Fields that may be removed while they hold the value given, after the removals above.
-    /// An absent field means that value, so every removed value can be put back. A pipeline
-    /// tool and a Sentinel data collection rule carry these out; Elasticsearch's and the
-    /// agents' generators leave them in place, whatever `runs_in` says of the others.
+    /// An absent field means that value, so every removed value can be put back. They run where
+    /// `runs_in` says, except that an agent (Fluent Bit, the collector) leaves a value tested
+    /// against a whole number in place: it cannot tell `3` from `3.0`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub remove_implied: Vec<ImpliedValue>,
     /// Events matching this keep every field: a rule could match them (contract rule 3).
@@ -204,17 +204,15 @@ impl SavingsPlan {
 
 /// Where `recipe`'s saving on `template` can run; none when it changes nothing. Only a pipeline
 /// tool counts, and only it recognises a text template (by a regex over the line): every
-/// generator for a SIEM's ingestion or an agent recognises key sets only. Implied values are
-/// left out of this: only Vector and a Sentinel data collection rule remove them.
+/// generator for a SIEM's ingestion or an agent recognises key sets only.
 pub(crate) fn placements(template: &Template, recipe: &EffectiveRecipe) -> Vec<Placement> {
     let keyset = matches!(
         template.shape,
         sluice_core::template::TemplateShape::Keyset { .. }
     );
-    let removals = !recipe.drop_fields.is_empty() || recipe.drop_empty_except.is_some();
     if recipe.is_passthrough() {
         Vec::new()
-    } else if recipe.route == Route::ForwardAll && keyset && removals {
+    } else if recipe.route == Route::ForwardAll && keyset {
         vec![Placement::Pipeline, Placement::SiemIngest, Placement::Agent]
     } else {
         vec![Placement::Pipeline]

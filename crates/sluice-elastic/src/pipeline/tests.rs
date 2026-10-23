@@ -526,3 +526,92 @@ fn a_script_that_does_not_compile_is_refused() {
         Err(crate::ElasticError::Rejected { .. } | crate::ElasticError::Failed { .. })
     ));
 }
+
+fn implied_recipe(id: &str) -> EffectiveRecipe {
+    use sluice_core::recipe::{ImpliedValue, Literal};
+    let text = |s: &str| Literal::Text(s.into());
+    EffectiveRecipe {
+        drop_implied: vec![
+            ImpliedValue {
+                field: "Keywords".into(),
+                value: text("0x80"),
+                when: None,
+            },
+            ImpliedValue {
+                field: "Level".into(),
+                value: Literal::Integer(0),
+                when: None,
+            },
+            ImpliedValue {
+                field: "Mode".into(),
+                value: text("-"),
+                when: Some(("LogonType".into(), Literal::Integer(3))),
+            },
+        ],
+        ..EffectiveRecipe::passthrough(id.into())
+    }
+}
+
+fn implied_template() -> Template {
+    template(
+        "windows:4624:i",
+        &[("EventID", "4624")],
+        &[&["EventID", "Keywords", "Level", "LogonType", "Mode"]],
+    )
+}
+
+#[test]
+fn an_implied_value_is_removed_only_while_it_holds_and_its_type_matches() {
+    let t = implied_template();
+    let recipe = implied_recipe(t.id.as_str());
+    let out = of(&[(&t, &recipe)]);
+    let source = script(&out);
+    assert!(source.contains("sluiceGet(ctx, ['Keywords']) instanceof String"));
+    assert!(source.contains("sluiceIsInt(sluiceGet(ctx, ['Level']), 0L)"));
+    assert!(source.contains("sluiceIsInt(sluiceGet(ctx, ['LogonType']), 3L)"));
+    assert_eq!(out.fields, paths(&["Keywords", "Level", "Mode"]));
+}
+
+/// In a real Elasticsearch: implied values leave exactly as in Vector, whatever their type.
+#[test]
+fn c1_in_elasticsearch_implied_values_leave_exactly_as_in_vector() {
+    let Ok(url) = std::env::var(ENV) else {
+        return;
+    };
+    let t = implied_template();
+    let recipe = implied_recipe(t.id.as_str());
+    let plans = [(&t, &recipe)];
+    let base = json!({"EventID": 4624, "Keywords": "0x80", "Level": 0, "LogonType": 3,
+                      "Mode": "-"});
+    let with = |change: &dyn Fn(&mut Value)| {
+        let mut fields = base.clone();
+        change(&mut fields);
+        event(&fields)
+    };
+    let events = [
+        with(&|_| {}),
+        with(&|f| f["Keywords"] = json!("0x10")),
+        with(&|f| f["Level"] = json!(0.0)),
+        with(&|f| f["Level"] = json!("0")),
+        with(&|f| f["LogonType"] = json!(10)),
+        with(&|f| f["LogonType"] = json!("3")),
+        with(&|f| f["Mode"] = json!("Yes")),
+    ];
+    let expected = vrl(&plans, &events);
+    let out = of(&plans);
+    let documents: Vec<&Map<String, Value>> = events.iter().map(|e| &e.fields).collect();
+    let actual = crate::simulate(&url, &out.body, &documents)
+        .unwrap_or_else(|e| panic!("{e}\n{}", script(&out)));
+    for ((event, vector), elastic) in events.iter().zip(&expected).zip(&actual) {
+        assert_eq!(
+            elastic,
+            vector,
+            "event {}",
+            Value::Object(event.fields.clone())
+        );
+    }
+    assert_ne!(
+        expected[0], events[0].fields,
+        "the first event loses its implied values"
+    );
+}

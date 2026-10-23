@@ -1,6 +1,7 @@
 //! Painless syntax: literals, and the helper functions every generated script starts with.
 
 use sluice_core::field::FieldPath;
+use sluice_core::recipe::Literal;
 
 /// A Painless string literal. Inside single quotes only a backslash and a quote are escaped;
 /// every other character, a line break included, stands for itself.
@@ -47,6 +48,7 @@ pub(crate) fn list<'a>(items: impl IntoIterator<Item = &'a str>) -> String {
 ///   `del` of a null or empty-string value.
 /// - `sluiceRemoveEmptyExcept(ctx, keys, keep, drop)`: `sluiceRemoveEmpty` on each of `keys`
 ///   that is not in `drop` and neither covers nor is covered by a path in `keep`.
+/// - `sluiceIsInt(v, i)`: whether `v` is the whole number `i`, as an `Integer` or a `Long`.
 pub(crate) const FUNCTIONS: &str = r"boolean sluiceMeta(String k) {
   return k == '_index' || k == '_id' || k == '_version' || k == '_routing' || k == '_version_type' || k == '_if_seq_no' || k == '_if_primary_term' || k == '_dynamic_templates' || k == '_type' || k == '_ingest';
 }
@@ -177,4 +179,18 @@ void sluiceRemoveEmptyExcept(Map doc, Set keys, List keep, List drop) {
     if (!kept) { sluiceRemoveEmpty(doc, Arrays.asList(p.splitOnToken('.'))); }
   }
 }
+boolean sluiceIsInt(def v, long i) {
+  return (v instanceof Integer || v instanceof Long) && ((Number) v).longValue() == i;
+}
 ";
+
+/// A test that the value at `path` is `value`, of its type: a string equals only a string, an
+/// integer only an integer (`sluiceIsInt`), as VRL's `==` compares them.
+pub(crate) fn equals(path: &FieldPath, value: &Literal) -> String {
+    let at = format!("sluiceGet(ctx, {})", segments(path));
+    match value {
+        Literal::Text(text) => format!("({at} instanceof String && {at} == {})", string(text)),
+        Literal::Integer(i) => format!("sluiceIsInt({at}, {i}L)"),
+        Literal::Bool(b) => format!("({at} instanceof Boolean && {at} == {b})"),
+    }
+}

@@ -349,7 +349,11 @@ fn each_removed_field_says_why_it_may_go_and_where() {
     let place = |field: &str| text::where_removed(&FieldPath::new(field), &recipe, true);
     assert_eq!(
         place("Keywords"),
-        "Vector, or a Sentinel data collection rule (--sentinel-native)"
+        "Vector, the SIEM's own ingestion, or the agent"
+    );
+    assert_eq!(
+        place("RestrictedAdminMode"),
+        "Vector or the SIEM's own ingestion (an agent cannot tell 3 from 3.0)"
     );
     assert_eq!(
         place("Message"),

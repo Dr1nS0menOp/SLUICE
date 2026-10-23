@@ -26,6 +26,7 @@ use sluice_core::field::FieldPath;
 use sluice_core::guard::{Plan, Route};
 use sluice_core::ids::TemplateId;
 use sluice_core::predicate::Predicate;
+use sluice_core::recipe::Literal;
 use sluice_core::template::{Template, TemplateShape};
 
 use crate::ottl;
@@ -205,11 +206,45 @@ fn removal(plan: &Plan<'_>, left_out: &mut Vec<String>) -> Option<Removal> {
             empty_fields = true;
         }
     }
-    (!statements.is_empty()).then(|| Removal {
+    // Last, as in Vector: a field that implies another is tested as it is sent.
+    let mut fields: BTreeSet<FieldPath> = recipe.drop_fields.iter().cloned().collect();
+    for implied in &recipe.drop_implied {
+        let when = implied.when.as_ref().map(|(on, value)| (on, value));
+        let tests: Option<Vec<String>> = std::iter::once((&implied.field, &implied.value))
+            .chain(when)
+            .map(|(path, value)| {
+                literal(value).map(|v| format!("{} == {v}", ottl::path(ROOT, path)))
+            })
+            .collect();
+        let Some(tests) = tests else {
+            left_out.push(format!(
+                "{id}: the implied `{}` is tested against a whole number, whose comparison with \
+                 a float OTTL is not known to keep apart",
+                implied.field
+            ));
+            continue;
+        };
+        statements.push(delete(
+            &implied.field,
+            Some(&format!("({})", tests.join(" and "))),
+        ));
+        fields.insert(implied.field.clone());
+    }
+    (!statements.is_empty()).then_some(Removal {
         statements,
-        fields: recipe.drop_fields.iter().cloned().collect(),
+        fields,
         empty_fields,
     })
+}
+
+/// An OTTL literal equal to exactly the values VRL's `==` takes as `value`, or `None` for a
+/// whole number, where an equal float could compare equal in OTTL but not in VRL.
+fn literal(value: &Literal) -> Option<String> {
+    match value {
+        Literal::Text(text) => Some(ottl::string(text)),
+        Literal::Bool(b) => Some(b.to_string()),
+        Literal::Integer(_) => None,
+    }
 }
 
 /// The keep-whole alternatives, each evaluated once into the cache where a record has a

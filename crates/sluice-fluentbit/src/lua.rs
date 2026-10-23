@@ -9,6 +9,7 @@
 use std::fmt::Write as _;
 
 use sluice_core::field::FieldPath;
+use sluice_core::recipe::Literal;
 
 /// A Lua string literal. Every byte outside printable ASCII, and `"` and `\`, is a decimal
 /// escape, so the literal is the exact bytes of `text` whatever they are.
@@ -29,6 +30,16 @@ pub(crate) fn string(text: &str) -> String {
     }
     out.push('"');
     out
+}
+
+/// A Lua literal equal to exactly the values VRL's `==` takes as `value`, or `None` for a whole
+/// number: Lua 5.1 holds `3` and `3.0` alike, which VRL tells apart.
+pub(crate) fn literal(value: &Literal) -> Option<String> {
+    match value {
+        Literal::Text(text) => Some(string(text)),
+        Literal::Bool(b) => Some(b.to_string()),
+        Literal::Integer(_) => None,
+    }
 }
 
 /// A list literal of the path's segments, as `sluice_get` and `sluice_remove` take them.

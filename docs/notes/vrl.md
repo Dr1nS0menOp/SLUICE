@@ -37,6 +37,10 @@ Runtime::default().resolve(&mut target, &compiled.program, &TimeZone::default())
 - `. = compact(.)` removes both `null` values and empty strings by default. This is not the same as
   "drop null only": L1 must decide whether an empty string carries meaning. Rules may match `''`
   (Sigma `field: ''`), so the guardrails must keep fields that a rule matches as empty.
+- `==` takes an integer as equal to an equal float: `.Level == 0` holds for `0.0` (vrl 0.36.0,
+  found 2026-10-23 by the differential test against Elasticsearch). A string equals only a
+  string and a boolean only a boolean. Implied values are therefore tested as
+  `is_integer(.f) && .f == 0`, so a removed value is put back with its type.
 
 ## Gotchas for generated VRL
 

@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use sluice_core::field::FieldPath;
 use sluice_core::guard::{Adjustment, EffectiveRecipe, Reason, Route};
 use sluice_core::logsource::LogSource;
-use sluice_core::recipe::{ImpliedValue, Provenance};
+use sluice_core::recipe::{ImpliedValue, Literal, Provenance};
 
 pub(crate) fn actions(recipe: &EffectiveRecipe) -> Vec<String> {
     let mut actions = Vec::new();
@@ -83,16 +83,21 @@ pub(crate) fn why_removed(path: &FieldPath, recipe: &EffectiveRecipe) -> String 
 }
 
 /// Where the removal of `path` can run: a pipeline tool always; with `shared`, also the SIEM's
-/// ingestion and the agent; an implied value, also a Sentinel data collection rule.
+/// ingestion and the agent, except an implied whole number, which an agent cannot test.
 pub(crate) fn where_removed(path: &FieldPath, recipe: &EffectiveRecipe, shared: bool) -> String {
-    if recipe.drop_implied.iter().any(|v| &v.field == path)
-        && !recipe.drop_fields.iter().any(|f| f.covers(path))
-    {
-        "Vector, or a Sentinel data collection rule (--sentinel-native)".to_owned()
-    } else if shared {
-        "Vector, the SIEM's own ingestion, or the agent".to_owned()
-    } else {
-        "Vector (a pipeline tool)".to_owned()
+    let whole_number = recipe.drop_implied.iter().any(|v| {
+        &v.field == path
+            && (matches!(v.value, Literal::Integer(_))
+                || v.when
+                    .as_ref()
+                    .is_some_and(|(_, w)| matches!(w, Literal::Integer(_))))
+    }) && !recipe.drop_fields.iter().any(|f| f.covers(path));
+    match (shared, whole_number) {
+        (false, _) => "Vector (a pipeline tool)".to_owned(),
+        (true, false) => "Vector, the SIEM's own ingestion, or the agent".to_owned(),
+        (true, true) => {
+            "Vector or the SIEM's own ingestion (an agent cannot tell 3 from 3.0)".to_owned()
+        }
     }
 }
 

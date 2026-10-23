@@ -320,13 +320,44 @@ fn action(
             empty_fields = true;
         }
     }
+    // Last, as in Vector: a field that implies another is tested as it is sent.
+    let mut implied_fields = Vec::new();
+    for implied in &recipe.drop_implied {
+        let when = implied.when.as_ref().map(|(on, value)| (on, value));
+        let tests: Option<Vec<String>> = std::iter::once((&implied.field, &implied.value))
+            .chain(when)
+            .map(|(path, value)| {
+                lua::literal(value)
+                    .map(|v| format!("sluice_get(r, {}) == {v}", lua::segments(path)))
+            })
+            .collect();
+        let Some(tests) = tests else {
+            left_out.push(format!(
+                "{id}: the implied `{}` is tested against a whole number, which Lua cannot tell \
+                 from a float",
+                implied.field
+            ));
+            continue;
+        };
+        lines.push(format!(
+            "    if {} then if sluice_remove(r, {}) then changed = true end end",
+            tests.join(" and "),
+            lua::segments(&implied.field)
+        ));
+        implied_fields.push(implied.field.clone());
+    }
     if lines.is_empty() {
         return None;
     }
     Some(Action {
         code: lines.join("\n"),
         keep: recipe.keep_whole_when.as_ref().map(|k| conditions.call(k)),
-        fields: recipe.drop_fields.iter().cloned().collect(),
+        fields: recipe
+            .drop_fields
+            .iter()
+            .cloned()
+            .chain(implied_fields)
+            .collect(),
         empty_fields,
     })
 }

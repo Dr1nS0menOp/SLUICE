@@ -498,3 +498,116 @@ fn a_script_that_does_not_load_is_refused() {
     let result = FluentBit::new(command).run(Some("function sluice( broken"), &[&record]);
     assert!(result.is_err(), "{result:?}");
 }
+
+fn implied_value(
+    field: &str,
+    value: sluice_core::recipe::Literal,
+    when: Option<(&str, sluice_core::recipe::Literal)>,
+) -> sluice_core::recipe::ImpliedValue {
+    sluice_core::recipe::ImpliedValue {
+        field: field.into(),
+        value,
+        when: when.map(|(on, v)| (on.into(), v)),
+    }
+}
+
+fn text(s: &str) -> sluice_core::recipe::Literal {
+    sluice_core::recipe::Literal::Text(s.into())
+}
+
+fn implied_template() -> Template {
+    template(
+        "windows:4624:i",
+        &[("EventID", "4624")],
+        &[&["EventID", "Keywords", "Level", "LogonType", "Mode"]],
+    )
+}
+
+/// Implied values of text only, which every engine compares as VRL does.
+fn implied_text(id: &str) -> EffectiveRecipe {
+    EffectiveRecipe {
+        drop_implied: vec![
+            implied_value("Keywords", text("0x80"), None),
+            implied_value("Mode", text("-"), Some(("LogonType", text("3")))),
+        ],
+        ..EffectiveRecipe::passthrough(id.into())
+    }
+}
+
+fn implied_events() -> Vec<Event> {
+    let base = json!({"EventID": 4624, "Keywords": "0x80", "Level": 0, "LogonType": "3",
+                      "Mode": "-"});
+    let with = |change: &dyn Fn(&mut Value)| {
+        let mut fields = base.clone();
+        change(&mut fields);
+        event(&fields)
+    };
+    vec![
+        with(&|_| {}),
+        with(&|f| f["Keywords"] = json!("0x10")),
+        with(&|f| f["Keywords"] = json!(128)),
+        with(&|f| f["LogonType"] = json!("10")),
+        with(&|f| f["LogonType"] = json!(3)),
+        with(&|f| f["Mode"] = json!("Yes")),
+    ]
+}
+
+#[test]
+fn an_implied_whole_number_is_left_to_vector() {
+    let t = implied_template();
+    let recipe = EffectiveRecipe {
+        drop_implied: vec![implied_value(
+            "Level",
+            sluice_core::recipe::Literal::Integer(0),
+            None,
+        )],
+        ..EffectiveRecipe::passthrough(t.id.clone())
+    };
+    let out = of(&[(&t, &recipe)]);
+    assert!(out.fields.is_empty(), "nothing is removed");
+    assert!(
+        out.left_out.iter().any(|l| l.contains("`Level`")),
+        "{:?}",
+        out.left_out
+    );
+}
+
+/// In a real Fluent Bit: implied values of text leave exactly as in Vector.
+#[test]
+fn c1_in_fluent_bit_implied_values_leave_exactly_as_in_vector() {
+    let Ok(command) = std::env::var(ENV) else {
+        return;
+    };
+    let t = implied_template();
+    let recipe = implied_text(t.id.as_str());
+    let plans = [(&t, &recipe)];
+    let events = implied_events();
+    let expected = vrl(&plans, &events);
+    let out = of(&plans);
+    let records: Vec<&Map<String, Value>> = events.iter().map(|e| &e.fields).collect();
+    let fluent_bit = FluentBit::new(command);
+    let baseline = fluent_bit.run(None, &records).expect("Fluent Bit runs");
+    let actual = fluent_bit
+        .run(out.script.as_deref(), &records)
+        .unwrap_or_else(|e| panic!("{e}\n{}", script(&out)));
+    for (((event, vector), before), after) in
+        events.iter().zip(&expected).zip(&baseline).zip(&actual)
+    {
+        let lost_in_vector: BTreeSet<String> = leaves(&event.fields)
+            .difference(&leaves(vector))
+            .cloned()
+            .collect();
+        let lost_here: BTreeSet<String> =
+            leaves(before).difference(&leaves(after)).cloned().collect();
+        assert_eq!(
+            lost_here,
+            lost_in_vector,
+            "event {}",
+            Value::Object(event.fields.clone())
+        );
+    }
+    assert_ne!(
+        expected[0], events[0].fields,
+        "the first event loses its implied values"
+    );
+}

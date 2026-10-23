@@ -376,6 +376,17 @@ fn action(
             empty_fields = true;
         }
     }
+    // Last, as in Vector: a field that implies another is tested as it is sent.
+    for implied in &recipe.drop_implied {
+        let mut test = painless::equals(&implied.field, &implied.value);
+        if let Some((on, value)) = &implied.when {
+            test = format!("{test} && {}", painless::equals(on, value));
+        }
+        lines.push(format!(
+            "  if ({test}) {{ sluiceRemove(ctx, {}); }}",
+            painless::segments(&implied.field)
+        ));
+    }
     if lines.is_empty() {
         return None;
     }
@@ -386,7 +397,12 @@ fn action(
     };
     Some(Action {
         code,
-        fields: recipe.drop_fields.iter().cloned().collect(),
+        fields: recipe
+            .drop_fields
+            .iter()
+            .chain(recipe.drop_implied.iter().map(|v| &v.field))
+            .cloned()
+            .collect(),
         empty_fields,
     })
 }

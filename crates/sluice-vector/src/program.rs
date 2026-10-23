@@ -151,13 +151,9 @@ fn reduction(plan: &Plan<'_>) -> String {
     // removed while what implies it stays, and can be put back from the plan.
     shaping.extend(plan.recipe.drop_implied.iter().map(|implied| {
         let path = syntax::path(&implied.field);
-        let mut test = format!("{path} == {}", syntax::literal(&implied.value));
+        let mut test = syntax::equals(&path, &implied.value);
         if let Some((on, value)) = &implied.when {
-            test = format!(
-                "{test} && {} == {}",
-                syntax::path(on),
-                syntax::literal(value)
-            );
+            test = format!("{test} && {}", syntax::equals(&syntax::path(on), value));
         }
         format!("if {test} {{ del({path}) }}")
     }));
