@@ -25,6 +25,8 @@ pub use crate::engine::{KustoEngine, KustoError};
 pub use crate::predicate::compile;
 pub use crate::table::{CustomColumn, CustomTable, Table};
 pub use crate::transform::{
-    ALLOWED_FUNCTIONS, MAX_TRANSFORM_KQL, Records, SERVICE_COLUMNS, SLUICE_PART, SLUICE_PART_END,
-    Transformation, disallowed_functions, run_transformations, transformation, transformation_on,
+    ALLOWED_FUNCTIONS, MAX_TRANSFORM_KQL, Rebuilt, Records, SERVICE_COLUMNS, SLUICE_PART,
+    SLUICE_PART_END, Transformation, disallowed_functions, rebuilding_function,
+    run_transformations, transformation, transformation_on, transformation_on_within,
+    transformation_within,
 };

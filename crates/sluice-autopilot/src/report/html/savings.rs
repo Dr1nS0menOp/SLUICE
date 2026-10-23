@@ -199,7 +199,8 @@ fn body(row: &TemplateRow) -> String {
     out
 }
 
-/// The fields removed from the sample's events, with what each saved.
+/// The fields removed from the sample's events: what each saved, why it may go, and where its
+/// removal can run; then the recipe's own reasoning.
 fn removed(row: &TemplateRow) -> String {
     let lines: Vec<String> = row
         .removed
@@ -207,19 +208,42 @@ fn removed(row: &TemplateRow) -> String {
         .map(|field| {
             format!(
                 "<tr><td><code>{}</code></td><td class=\"n\">{} of {}</td><td class=\"n\">{}</td>\
-                 </tr>",
+                 <td>{}</td><td>{}</td></tr>",
                 escape(&field.path),
                 thousands(field.events),
                 thousands(row.volume.forwarded),
-                bytes(field.bytes)
+                bytes(field.bytes),
+                escape(&field.why),
+                escape(&field.runs_in),
             )
         })
         .collect();
-    format!(
+    let mut out = format!(
         "<h4>Fields removed on the sample</h4><div class=\"scroll\"><table class=\"fields\"><tr>\
-         <th>Field</th><th>Events that lost it</th><th>Bytes</th></tr>{}</table></div>",
+         <th>Field</th><th>Events that lost it</th><th>Bytes</th><th>Why it may go</th>\
+         <th>Where</th></tr>{}</table></div>",
         lines.concat()
-    )
+    );
+    if let Some(rationale) = &row.rationale {
+        let _ = write!(
+            out,
+            "<p class=\"muted\">The recipe's reasoning: {}</p>",
+            escape(rationale)
+        );
+    }
+    if row
+        .removed
+        .iter()
+        .any(|f| f.why.starts_with("always") || f.why.starts_with("implied"))
+    {
+        out.push_str(
+            "<p class=\"muted\">An implied value is not lost: <code>plan.json</code> lists it \
+             under <code>remove_implied</code>, so it can be put back, and for Microsoft Sentinel \
+             the function <code>&lt;Table&gt;Full</code> that <code>--sentinel-native</code> \
+             writes puts it back at query time. The archive keeps every event whole.</p>",
+        );
+    }
+    out
 }
 
 /// Each source with what it saves, largest first; opened, its kinds of event.
@@ -336,6 +360,7 @@ mod tests {
             provenance: None,
             runs_in: None,
             removed: Vec::new(),
+            rationale: None,
         }
     }
 

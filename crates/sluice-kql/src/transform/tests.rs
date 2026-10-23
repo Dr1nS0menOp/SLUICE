@@ -94,17 +94,20 @@ fn a_column_is_emptied_only_on_records_of_its_template_outside_keep_whole() {
     let out = of(&[(&t, &recipe)]);
     assert_eq!(out.columns, ["EventData".to_owned()].into());
     assert_eq!(out.templates, [t.id.clone()].into());
-    // Every column of the one key set is in the signature, in the order of the schema.
+    // Every column of the one key set is in the signature, in the order of the schema, and a
+    // record the keep-whole test matches gets no label.
     assert!(
         out.kql.contains(
-            r#"tostring(['EventID']) == "4672" and __sluice_s == "1111" and __sluice_r, "g0""#
+            r#"tostring(['EventID']) == "4672" and __sluice_s == "1111" and __sluice_r and not("#
         ),
         "{}",
         out.kql
     );
     assert!(
         out.kql
-            .contains(r#"| extend ['EventData'] = iff((__sluice_t == "g0" and not("#)
+            .contains(r#"| extend ['EventData'] = iff(__sluice_t == "g0", "", ['EventData'])"#),
+        "{}",
+        out.kql
     );
     assert!(
         out.kql.contains(r#"=~ "dc01""#),

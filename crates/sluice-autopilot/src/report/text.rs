@@ -1,6 +1,6 @@
 //! Plain-language descriptions of recipes and guardrail decisions.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sluice_core::field::FieldPath;
 use sluice_core::guard::{Adjustment, EffectiveRecipe, Reason, Route};
@@ -23,10 +23,11 @@ pub(crate) fn actions(recipe: &EffectiveRecipe) -> Vec<String> {
         });
     }
     if !recipe.drop_implied.is_empty() {
+        let fields: BTreeSet<&FieldPath> = recipe.drop_implied.iter().map(|v| &v.field).collect();
         actions.push(format!(
-            "drop values implied by the kind of event or another field (a pipeline tool only, \
-             for now): {}",
-            implied(&recipe.drop_implied)
+            "drop the value of {} field(s) while it is the one the kind of event or another field \
+             implies (each below, with why)",
+            fields.len()
         ));
     }
     if let Route::ForwardMatching { summary_keys, .. } = &recipe.route {
@@ -38,34 +39,61 @@ pub(crate) fn actions(recipe: &EffectiveRecipe) -> Vec<String> {
     actions
 }
 
-/// The implied values per field: `Keywords`, or `RestrictedAdminMode (when LogonType is 2, 3)`.
-pub(crate) fn implied(values: &[ImpliedValue]) -> String {
-    let mut fields: BTreeMap<&FieldPath, Vec<&ImpliedValue>> = BTreeMap::new();
-    for value in values {
-        fields.entry(&value.field).or_default().push(value);
+/// Why `path` may be removed from the template's events: the recipe lists it, its value is
+/// implied (and by what), or it was empty.
+pub(crate) fn why_removed(path: &FieldPath, recipe: &EffectiveRecipe) -> String {
+    if recipe.drop_fields.iter().any(|f| f.covers(path)) {
+        return "the recipe removes it: it repeats the event (the recipe's reasoning is below)"
+            .to_owned();
     }
-    let described: Vec<String> = fields
-        .into_iter()
-        .map(|(field, values)| {
-            let conditions: BTreeMap<&FieldPath, Vec<String>> = values
-                .iter()
-                .filter_map(|v| v.when.as_ref())
-                .fold(BTreeMap::new(), |mut acc, (on, value)| {
-                    acc.entry(on).or_default().push(value.to_string());
-                    acc
-                });
-            if conditions.is_empty() {
-                field.to_string()
-            } else {
-                let when: Vec<String> = conditions
-                    .into_iter()
-                    .map(|(on, values)| format!("{on} is {}", values.join(", ")))
-                    .collect();
-                format!("{field} (when {})", when.join("; "))
-            }
-        })
+    let implied: Vec<&ImpliedValue> = recipe
+        .drop_implied
+        .iter()
+        .filter(|v| &v.field == path)
         .collect();
-    described.join(", ")
+    if implied.is_empty() {
+        return "it was empty (null or \"\"), which says nothing".to_owned();
+    }
+    // Per value, the values of the field that imply it: `"-" whenever LogonType is 2 or 3`.
+    let mut by_value: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut constant = None;
+    for value in implied {
+        match &value.when {
+            None => constant = Some(value.value.to_string()),
+            Some((on, when)) => by_value
+                .entry(value.value.to_string())
+                .or_default()
+                .push(format!("{on}={when}")),
+        }
+    }
+    if let Some(value) = constant {
+        return format!(
+            "always {value} on this kind of event, so it is implied; removed only while it holds \
+             that value"
+        );
+    }
+    let parts: Vec<String> = by_value
+        .into_iter()
+        .map(|(value, whens)| format!("{value} whenever {}", whens.join(" or ")))
+        .collect();
+    format!(
+        "implied: {}; removed only while that holds",
+        parts.join("; ")
+    )
+}
+
+/// Where the removal of `path` can run: a pipeline tool always; with `shared`, also the SIEM's
+/// ingestion and the agent; an implied value, also a Sentinel data collection rule.
+pub(crate) fn where_removed(path: &FieldPath, recipe: &EffectiveRecipe, shared: bool) -> String {
+    if recipe.drop_implied.iter().any(|v| &v.field == path)
+        && !recipe.drop_fields.iter().any(|f| f.covers(path))
+    {
+        "Vector, or a Sentinel data collection rule (--sentinel-native)".to_owned()
+    } else if shared {
+        "Vector, the SIEM's own ingestion, or the agent".to_owned()
+    } else {
+        "Vector (a pipeline tool)".to_owned()
+    }
 }
 
 pub(crate) fn adjustment(adjustment: &Adjustment) -> String {

@@ -10,10 +10,17 @@ All notable changes to Sluice are recorded here. The format follows
   which values the kind of event, or another field of the event, implies, and remove a field
   only while it holds that value: Windows' `Keywords`, `Channel` and `Task`, Sentinel's
   `Activity` and the account columns it derives, 4624's placeholders. Every removed value can be
-  put back from `plan.json` (`remove_implied`). Only Vector removes them so far; `--no-implied`
-  turns it off. On the real Windows sample with all of SigmaHQ: 25.0 % → 42.4 %, 236 = 236
-  alerts. The research and its sources are in `docs/notes/field-value.md` and
-  `docs/credits.md`.
+  put back from `plan.json` (`remove_implied`); `--no-implied` turns it off. On the real
+  Windows sample with all of SigmaHQ: 25.0 % → 42.4 %, 236 = 236 alerts. The research and its
+  sources are in `docs/notes/field-value.md` and `docs/credits.md`.
+- **Implied values in Sentinel.** `--sentinel-native` empties them in the data collection rule
+  too, where they can be put back exactly, and writes `sentinel/<Table>Full.kql`, a workspace
+  function that puts them back so a query reads the table as before. A rule takes the most
+  worthwhile values that fit in its 15,360 characters (counting the rule's own
+  transformation); the rest is left to Vector. On the test workspace: 4.3 % → 30.8 %.
+- **The report says where and why per field.** Every removed field of a kind of event is listed
+  with its events and bytes, why it may go (the recipe's reasoning, empty, always this value,
+  or this value whenever that field holds that one) and where its removal can run.
 
 ## [0.1.0] - 2026-10-23
 

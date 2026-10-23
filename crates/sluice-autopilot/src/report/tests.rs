@@ -48,7 +48,10 @@ fn hostile() -> Report {
                 path: HOSTILE.into(),
                 events: 1,
                 bytes: 1,
+                why: HOSTILE.into(),
+                runs_in: HOSTILE.into(),
             }],
+            rationale: Some(HOSTILE.into()),
         }],
         coverage_gaps: vec![HOSTILE.into()],
         problems: vec![
@@ -308,4 +311,52 @@ fn equal_adjustments_are_listed_once_in_their_order() {
 fn a_scope_hint_counts_its_rules_in_words() {
     assert_eq!(rules_apply(1), "1 rule applies");
     assert_eq!(rules_apply(4), "4 rules apply");
+}
+
+#[test]
+fn each_removed_field_says_why_it_may_go_and_where() {
+    use sluice_core::guard::EffectiveRecipe;
+    use sluice_core::recipe::{ImpliedValue, Literal};
+
+    let implied = |field: &str, value: &str, when: Option<(&str, i64)>| ImpliedValue {
+        field: FieldPath::new(field),
+        value: Literal::Text(value.into()),
+        when: when.map(|(on, v)| (FieldPath::new(on), Literal::Integer(v))),
+    };
+    let recipe = EffectiveRecipe {
+        drop_fields: [FieldPath::new("Message")].into(),
+        drop_empty_except: Some(std::collections::BTreeSet::new()),
+        drop_implied: vec![
+            implied("Keywords", "0x8020000000000000", None),
+            implied("RestrictedAdminMode", "-", Some(("LogonType", 2))),
+            implied("RestrictedAdminMode", "-", Some(("LogonType", 3))),
+        ],
+        ..EffectiveRecipe::passthrough("t".into())
+    };
+    let why = |field: &str| text::why_removed(&FieldPath::new(field), &recipe);
+    assert!(why("Message").starts_with("the recipe removes it"));
+    assert_eq!(
+        why("Keywords"),
+        "always \"0x8020000000000000\" on this kind of event, so it is implied; removed only \
+         while it holds that value"
+    );
+    assert_eq!(
+        why("RestrictedAdminMode"),
+        "implied: \"-\" whenever LogonType=2 or LogonType=3; removed only while that holds"
+    );
+    assert!(why("WorkstationName").starts_with("it was empty"));
+
+    let place = |field: &str| text::where_removed(&FieldPath::new(field), &recipe, true);
+    assert_eq!(
+        place("Keywords"),
+        "Vector, or a Sentinel data collection rule (--sentinel-native)"
+    );
+    assert_eq!(
+        place("Message"),
+        "Vector, the SIEM's own ingestion, or the agent"
+    );
+    assert_eq!(
+        text::where_removed(&FieldPath::new("Message"), &recipe, false),
+        "Vector (a pipeline tool)"
+    );
 }

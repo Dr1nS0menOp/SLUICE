@@ -78,6 +78,8 @@ pub struct TemplateRow {
     pub runs_in: Option<String>,
     /// The fields removed from its forwarded events on the sample, largest first.
     pub removed: Vec<RemovedField>,
+    /// Why the recipe that removes fields holds that safe, in its author's words.
+    pub rationale: Option<String>,
 }
 
 impl TemplateRow {
@@ -97,6 +99,10 @@ pub struct RemovedField {
     pub events: u64,
     /// Bytes it took in them.
     pub bytes: u64,
+    /// Why it may go, in plain words.
+    pub why: String,
+    /// Where its removal can run, in plain words.
+    pub runs_in: String,
 }
 
 impl Report {
@@ -190,6 +196,7 @@ fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> Te
     let proof = &analysis.selection.proof;
     let key = Some(template.id.clone());
     let volume = proof.per_template.get(&key).copied().unwrap_or_default();
+    let shared = crate::plan::placements(template, recipe).len() > 1;
     let mut removed: Vec<RemovedField> = proof
         .removed
         .get(&key)
@@ -199,9 +206,12 @@ fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> Te
             path: path.to_string(),
             events: removal.events,
             bytes: removal.bytes,
+            why: text::why_removed(path, recipe),
+            runs_in: text::where_removed(path, recipe, shared),
         })
         .collect();
     removed.sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.path.cmp(&b.path)));
+    let proposal = analysis.proposals.get(&template.id);
     TemplateRow {
         id: template.id.to_string(),
         source: template.source.to_string(),
@@ -209,11 +219,11 @@ fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> Te
         volume,
         actions: text::actions(recipe),
         adjustments: unique(recipe.adjustments.iter().map(text::adjustment)),
-        provenance: analysis
-            .proposals
-            .get(&template.id)
-            .map(|p| text::provenance(p.provenance())),
+        provenance: proposal.map(|p| text::provenance(p.provenance())),
         runs_in: text::placements(&crate::plan::placements(template, recipe)),
+        rationale: proposal
+            .map(|p| p.rationale().trim().to_owned())
+            .filter(|r| !r.is_empty() && !recipe.drop_fields.is_empty()),
         removed,
     }
 }

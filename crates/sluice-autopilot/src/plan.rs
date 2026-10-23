@@ -87,8 +87,9 @@ pub struct TemplatePlan {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remove_empty_fields_except: Option<Vec<FieldPath>>,
     /// Fields that may be removed while they hold the value given, after the removals above.
-    /// An absent field means that value, so every removed value can be put back. Only a
-    /// pipeline tool carries these out so far, whatever `runs_in` says of the others.
+    /// An absent field means that value, so every removed value can be put back. A pipeline
+    /// tool and a Sentinel data collection rule carry these out; Elasticsearch's and the
+    /// agents' generators leave them in place, whatever `runs_in` says of the others.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub remove_implied: Vec<ImpliedValue>,
     /// Events matching this keep every field: a rule could match them (contract rule 3).
@@ -203,8 +204,8 @@ impl SavingsPlan {
 
 /// Where `recipe`'s saving on `template` can run; none when it changes nothing. Only a pipeline
 /// tool counts, and only it recognises a text template (by a regex over the line): every
-/// generator for a SIEM's ingestion or an agent recognises key sets only, and none of them
-/// removes implied values yet.
+/// generator for a SIEM's ingestion or an agent recognises key sets only. Implied values are
+/// left out of this: only Vector and a Sentinel data collection rule remove them.
 pub(crate) fn placements(template: &Template, recipe: &EffectiveRecipe) -> Vec<Placement> {
     let keyset = matches!(
         template.shape,

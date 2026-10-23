@@ -142,8 +142,20 @@ team's explicit choice.
   removals, so a field is only removed while what implies it is still in the event.
 - **Plan and report.** `plan.json` lists them as `remove_implied`, the dictionary to put every
   removed value back; the report says per kind of event which fields are implied, and by what.
-- **Not yet:** Sentinel's, Elasticsearch's, Fluent Bit's and the collector's generators leave
-  implied values in place; they keep more than Vector, which their proofs allow.
+- **Sentinel.** The data collection rule of `--sentinel-native` empties implied values too, as
+  a test per column (`tostring(column) == value`, and the implying column's value), after the
+  other removals. In the table an emptied column and an empty one look alike, so it empties a
+  value only where the `<Table>Full` function it writes can put it back by the record's event
+  ID alone: every kind of event with that ID always has the column. A rule takes at most 15,360
+  characters; the most worthwhile values go first (the kind's own before conditional ones,
+  longer before shorter) and the rest is left to Vector. On the test workspace's sample, with
+  its rules in the emulator: 4.3 % saved by the rule before, 30.8 % with implied values, every
+  emptied column also removed by Vector.
+- **The report** lists per kind of event every removed field: events, bytes, why it may go
+  (the recipe's reasoning, empty, always this value, or this value whenever that field holds
+  that one) and where its removal can run.
+- **Not yet:** Elasticsearch's, Fluent Bit's and the collector's generators leave implied
+  values in place; they keep more than Vector, which their proofs allow.
 
 Measured with the real rules (the project's real-data runs, `scripts/real-data/run.sh`):
 
@@ -175,10 +187,10 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
   value-guarded removal stays exact; only the savings vary.
 - **The learning step needs a fleet.** One PC makes `Computer` look constant. That costs no
   data (a value guard keeps any other host's name), but it overstates the saving.
-- **Analysts see an absent field.** A removed value is implied, not gone, but a query for
-  `RestrictedAdminMode == "-"` finds nothing. For Sentinel, a workspace function that puts the
-  implied values back (`coalesce` per field) would make the table read as before; Sluice
-  already writes such functions (`SluiceCounts.kql`).
+- **Analysts see an absent field.** A removed value is implied, not gone, but a query on the
+  table itself for `RestrictedAdminMode == "-"` finds nothing. For Sentinel, `<Table>Full`
+  reads as before; analytics rules keep querying the table, and the guardrails keep every field
+  they read. Other SIEMs have no such function yet.
 - **Linux text lines.** Template text is the bulk of a line, and rules read it whole. Saving there
   stays with counting kinds of event no rule needs, and with archives that compress by template
   (as CLP does).

@@ -24,9 +24,11 @@ are.
    holds one value (Windows' `Channel`, `Keywords`), or holds one value whenever another field
    holds a given one (4624's `RestrictedAdminMode` is `-` unless `LogonType` is 10). Such a
    field is removed only while it holds that value, so every removed value can be put back from
-   `plan.json`. They are learned from the sample, only from fields that are categories, and
-   only Vector removes them so far; `--no-implied` turns this off
-   ([field value study](notes/field-value.md)).
+   `plan.json`. They are learned from the sample, only from fields that are categories.
+   Vector removes them, and so does the data collection rule of `--sentinel-native`, which
+   also writes `sentinel/<Table>Full.kql`: a workspace function that puts them back, so a query
+   reads the table as before. The report says per field why it may go and where.
+   `--no-implied` turns this off ([field value study](notes/field-value.md)).
 3. **Guardrails.** For each template, Sluice works out which of your rules could see it (by log
    source, and by the template's fixed values) and what each rule reads. A field a rule reads is
    never removed from an event that rule could match; such events are forwarded whole (ADR
@@ -147,7 +149,7 @@ line`); a keyword rule is matched against the line as it is.
 | `rules.json` | That list of rules, for tools. |
 | `plan.json` | The savings plan (`sluice.plan/1`): per source and kind of event what may be removed or counted, the implied values (`remove_implied`: a field absent from a forwarded event holds the value given), which events keep every field, where the saving can run (`runs_in`), and the proof (ADR 0023). |
 | `vector.yaml` | A Vector configuration that carries out the whole plan, with Vector unit tests drawn from the sample. Per source it reads a file and has three sinks: the archive, what is forwarded, and the summaries. |
-| `sentinel/` | With `--sentinel-native --sentinel-dcr RULE.json`: `dcr.json`, that rule with each proven `transformKql` and an untransformed flow into an Auxiliary archive table; the archive tables (`*.table.json`); each transformation (`*.transform.kql`). |
+| `sentinel/` | With `--sentinel-native --sentinel-dcr RULE.json`: `dcr.json`, that rule with each proven `transformKql` and an untransformed flow into an Auxiliary archive table; the archive tables (`*.table.json`); each transformation (`*.transform.kql`); and, where the rule empties implied values, `<Table>Full.kql`, a function to save in the workspace that puts them back. |
 | `elastic/SOURCE.pipeline.json` | With `--elastic-native`: an ingest pipeline per source. |
 | `fluent-bit/SOURCE.lua`, `fluent-bit/filters.conf` | With `--fluent-bit-native`: a Lua filter per source, and the filter sections to add to the agent's configuration. |
 | `otel/processors.yaml` | With `--otel-native`: a `transform` processor per source. |

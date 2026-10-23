@@ -355,7 +355,8 @@ pub(crate) struct AnalyzeArgs {
     pub(crate) rules_complete: bool,
     /// Do not learn, from the sample, values the kind of event or another field implies.
     /// Learned, such a value is removed only while the field holds it, so it can be put back
-    /// from `plan.json` (`remove_implied`); only Vector removes them so far.
+    /// from `plan.json` (`remove_implied`). Vector removes them, and so does the data
+    /// collection rule of `--sentinel-native`, which also writes a function that puts them back.
     #[arg(long)]
     pub(crate) no_implied: bool,
     /// Directory for `vector.yaml` and `report.html`.
