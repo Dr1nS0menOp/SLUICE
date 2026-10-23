@@ -492,6 +492,7 @@ On Windows, run the same commands in WSL2. macOS is not supported: use a Linux V
 - [Glossary](docs/glossary.md): the terms Sluice uses
 - [Architecture decisions](docs/adr/)
 - [Compatibility](docs/compatibility.md)
+- [Credits](docs/credits.md): the people and research Sluice builds on
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
 - [Security policy](SECURITY.md)
