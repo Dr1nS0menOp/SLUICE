@@ -166,7 +166,9 @@ impl Report {
     }
 
     /// Bytes `mode` saved. Implied values are fields of their own, so their bytes are counted
-    /// per field on the sample; the recipes' savings are the rest, counting included.
+    /// per field on the sample; the recipes' savings are the rest, counting included. Implied
+    /// values are removed after the recipes, so with both modes they are credited with what they
+    /// save on top of the recipes, which is less than they save alone.
     #[must_use]
     pub fn saved_by(&self, mode: Mode) -> u64 {
         let implied: u64 = self

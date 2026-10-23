@@ -190,7 +190,14 @@ fn modes(report: &Report) -> String {
             }
         })
         .collect();
-    format!("<div class=\"modes\">{}</div>", rows.concat())
+    let overlap = if report.modes.len() > 1 {
+        "<p class=\"muted\">Implied values count what they save after the recipes' removals. On \
+         their own (<code>--mode implied</code>) they save more, since the recipes then leave \
+         more fields in place.</p>"
+    } else {
+        ""
+    };
+    format!("<div class=\"modes\">{}</div>{overlap}", rows.concat())
 }
 
 /// `n` with a comma between thousands, as the command line prints counts.

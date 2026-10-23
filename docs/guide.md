@@ -33,7 +33,9 @@ are.
    The two kinds of saving are **modes**, and both run unless `--mode` names fewer:
    `--mode rules` uses the recipes only (remove what no rule or query reads, empty fields,
    counting), `--mode implied` the implied values only. The report and `plan.json`
-   (`saved_by_mode`) give the saving of each side by side.
+   (`saved_by_mode`) give the saving of each side by side. With both, implied values are
+   credited with what they save after the recipes: on the demo, `rules` 73.5 % and `implied`
+   11.3 % together, while `implied` alone saves 32.9 %.
 3. **Guardrails.** For each template, Sluice works out which of your rules could see it (by log
    source, and by the template's fixed values) and what each rule reads. A field a rule reads is
    never removed from an event that rule could match; such events are forwarded whole (ADR
