@@ -29,6 +29,7 @@ pub(super) fn report() -> Report {
         rules_basis: RulesBasis::NotKnown,
         rule_rows: Vec::new(),
         inventory_notes: Vec::new(),
+        modes: Mode::ALL.into(),
     }
 }
 
@@ -48,6 +49,7 @@ fn hostile() -> Report {
                 path: HOSTILE.into(),
                 events: 1,
                 bytes: 1,
+                mode: Mode::Implied,
                 why: HOSTILE.into(),
                 runs_in: HOSTILE.into(),
             }],
@@ -363,4 +365,59 @@ fn each_removed_field_says_why_it_may_go_and_where() {
         text::where_removed(&FieldPath::new("Message"), &recipe, false),
         "Vector (a pipeline tool)"
     );
+}
+
+fn row_removing(fields: &[(&str, u64, Mode)]) -> TemplateRow {
+    TemplateRow {
+        id: "t".into(),
+        source: "s".into(),
+        pattern: "p".into(),
+        volume: Volume::default(),
+        actions: Vec::new(),
+        adjustments: Vec::new(),
+        provenance: None,
+        runs_in: None,
+        removed: fields
+            .iter()
+            .map(|(path, bytes, mode)| RemovedField {
+                path: (*path).into(),
+                events: 1,
+                bytes: *bytes,
+                mode: *mode,
+                why: String::new(),
+                runs_in: String::new(),
+            })
+            .collect(),
+        rationale: None,
+    }
+}
+
+#[test]
+fn each_mode_is_credited_with_what_it_saved_and_together_they_make_the_whole() {
+    // 600 of 1,000 bytes saved: 150 by implied values, the rest by the recipes.
+    let report = Report {
+        templates: vec![row_removing(&[
+            ("Message", 400, Mode::Rules),
+            ("Keywords", 100, Mode::Implied),
+            ("Channel", 50, Mode::Implied),
+        ])],
+        ..report()
+    };
+    assert_eq!(report.saved_by(Mode::Implied), 150);
+    assert_eq!(report.saved_by(Mode::Rules), 450);
+    assert!((report.saved_percent_by(Mode::Rules) - 45.0).abs() < 1e-9);
+    assert_eq!(
+        report.saved_by(Mode::Rules) + report.saved_by(Mode::Implied),
+        600
+    );
+}
+
+#[test]
+fn the_report_shows_every_mode_and_how_to_ask_for_one_not_run() {
+    let page = render_html(&Report {
+        modes: [Mode::Rules].into(),
+        ..report()
+    });
+    assert!(page.contains("<code>rules</code>"));
+    assert!(page.contains("<code>implied</code><span class=\"muted\">not run"));
 }

@@ -39,6 +39,12 @@ pub(crate) fn actions(recipe: &EffectiveRecipe) -> Vec<String> {
     actions
 }
 
+/// Whether `path` goes as an implied value: the recipe implies it and does not list it.
+pub(crate) fn implied(path: &FieldPath, recipe: &EffectiveRecipe) -> bool {
+    recipe.drop_implied.iter().any(|v| &v.field == path)
+        && !recipe.drop_fields.iter().any(|f| f.covers(path))
+}
+
 /// Why `path` may be removed from the template's events: the recipe lists it, its value is
 /// implied (and by what), or it was empty.
 pub(crate) fn why_removed(path: &FieldPath, recipe: &EffectiveRecipe) -> String {

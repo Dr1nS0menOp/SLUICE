@@ -65,6 +65,15 @@ pub(crate) enum ConnectTarget {
     Sentinel,
 }
 
+/// A kind of saving (`sluice_autopilot::Mode`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum ModeArg {
+    /// What the recipes propose, held to what every rule reads.
+    Rules,
+    /// Values the kind of event or another field implies.
+    Implied,
+}
+
 #[derive(Debug, Args)]
 pub(crate) struct RulesArgs {
     #[command(subcommand)]
@@ -259,10 +268,9 @@ pub(crate) struct DemoArgs {
     /// --otel-native`.
     #[arg(long, requires = "otel_collector")]
     pub(crate) otel_native: bool,
-    /// Do not learn values the kind of event or another field implies, as `sluice analyze
-    /// --no-implied`.
-    #[arg(long)]
-    pub(crate) no_implied: bool,
+    /// The kinds of saving to make, as for `sluice analyze --mode`.
+    #[arg(long, value_enum, value_delimiter = ',', default_values = ["rules", "implied"])]
+    pub(crate) mode: Vec<ModeArg>,
     #[command(flatten)]
     pub(crate) ai: AiArgs,
 }
@@ -353,12 +361,14 @@ pub(crate) struct AnalyzeArgs {
     /// fetch` count as complete without it (ADR 0021).
     #[arg(long)]
     pub(crate) rules_complete: bool,
-    /// Do not learn, from the sample, values the kind of event or another field implies.
-    /// Learned, such a value is removed only while the field holds it, so it can be put back
-    /// from `plan.json` (`remove_implied`). Vector removes them, and so does the data
-    /// collection rule of `--sentinel-native`, which also writes a function that puts them back.
-    #[arg(long)]
-    pub(crate) no_implied: bool,
+    /// The kinds of saving to make, separated by commas; both by default. `rules`: what the
+    /// recipes propose (rendered text, empty fields, counting events no rule could match),
+    /// held to what every rule reads. `implied`: values the kind of event or another field
+    /// implies, learned from the sample, removed only while a field holds one and put back
+    /// from `plan.json` (`remove_implied`); `--sentinel-native` also writes a function that
+    /// puts them back. The report shows what each saved.
+    #[arg(long, value_enum, value_delimiter = ',', default_values = ["rules", "implied"])]
+    pub(crate) mode: Vec<ModeArg>,
     /// Directory for `vector.yaml` and `report.html`.
     #[arg(long, default_value = "out")]
     pub(crate) out: PathBuf,

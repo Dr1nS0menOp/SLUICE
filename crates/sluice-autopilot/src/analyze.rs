@@ -1,6 +1,6 @@
 //! One analysis: from a sample and rules to proven, enforceable recipes.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sluice_core::advice::Advisor;
 use sluice_core::alert::{Engines, EventRules, RuleEngine};
@@ -20,6 +20,7 @@ use sluice_vector::{Plan, VrlReducer, compile_reducer};
 use crate::basis::RulesBasis;
 use crate::error::AutopilotError;
 use crate::implied;
+use crate::mode::Mode;
 use crate::recipes::RecipeBook;
 use crate::spot::{self, SpotCheck};
 
@@ -39,9 +40,8 @@ pub struct Settings {
     /// (ADR 0021). Not known by default: then only lossless savings are made, since a rule
     /// Sluice was not given could match any event that would be summarized.
     pub rules: RulesBasis,
-    /// Whether to learn, from the sample, values implied by the kind of event or by another
-    /// field, and propose removing them while they hold that value (a lossless saving).
-    pub learn_implied: bool,
+    /// The kinds of saving to make; every one by default.
+    pub modes: BTreeSet<Mode>,
 }
 
 impl Default for Settings {
@@ -52,7 +52,7 @@ impl Default for Settings {
             archive_enabled: true,
             operator_rules: Vec::new(),
             rules: RulesBasis::NotKnown,
-            learn_implied: true,
+            modes: Mode::ALL.into(),
         }
     }
 }
@@ -152,6 +152,8 @@ pub struct Analysis {
     pub spot_check: Option<SpotCheck>,
     /// On what grounds the rules counted as complete.
     pub rules: RulesBasis,
+    /// The kinds of saving it made.
+    pub modes: BTreeSet<Mode>,
 }
 
 impl Analysis {
@@ -215,7 +217,11 @@ pub fn analyze(
     if let Some(splunk) = input.splunk {
         problems.extend(splunk.problems().iter().cloned());
     }
-    if let Some(advisor) = helpers.advisor {
+    if !settings.modes.contains(&Mode::Rules) {
+        // The recipes' savings are not asked for; the recipes stay unused, and so does an
+        // advisor, which only writes recipes.
+        resolution.recipes.clear();
+    } else if let Some(advisor) = helpers.advisor {
         let advice = advise(
             advisor,
             &discovery,
@@ -226,7 +232,7 @@ pub fn analyze(
         resolution.recipes.extend(advice.recipes);
         problems.extend(advice.problems);
     }
-    if settings.learn_implied {
+    if settings.modes.contains(&Mode::Implied) {
         let learned = implied::learn(&discovery, input.events, settings.guardrails);
         for (template, values) in learned {
             let recipe = with_implied(
@@ -388,6 +394,7 @@ pub fn analyze_proposals(
         problems,
         spot_check,
         rules: settings.rules,
+        modes: settings.modes.clone(),
     })
 }
 

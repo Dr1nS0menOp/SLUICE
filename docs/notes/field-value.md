@@ -121,8 +121,9 @@ team's explicit choice.
 
 ## Built on this branch (2026-10-23)
 
-`sluice analyze` and `sluice demo` now learn implied values from the sample, unless
-`--no-implied` is given:
+`sluice analyze` and `sluice demo` now learn implied values from the sample, as the mode
+`implied` next to the mode `rules` (the recipes); `--mode` picks either or both, and the report
+gives the saving of each:
 
 - **Core.** A reduction `drop_implied` (L1, lossless) with values of the form "field = value",
   optionally "when other field = value". The guardrails treat it as any field removal: a field a

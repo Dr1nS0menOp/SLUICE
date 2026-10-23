@@ -1,10 +1,11 @@
 //! The subcommands.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use sluice_autopilot::{
-    Elastic, Helpers, Input, RecipeBook, Report, RulesBasis, SavingsPlan, Sentinel, Settings,
+    Elastic, Helpers, Input, Mode, RecipeBook, Report, RulesBasis, SavingsPlan, Sentinel, Settings,
     analyze as run_autopilot, render_html,
 };
 use sluice_core::advice::Advisor;
@@ -14,7 +15,7 @@ use sluice_synth::{SynthConfig, generate};
 use sluice_vector::{Paths, vector_config};
 use sluice_wazuh::{Http as WazuhHttp, Logtest, LogtestConfig};
 
-use crate::cli::{AnalyzeArgs, DemoArgs, RuleSets, RulesArgs, RulesCommand};
+use crate::cli::{AnalyzeArgs, DemoArgs, ModeArg, RuleSets, RulesArgs, RulesCommand};
 use crate::{ai, input, output};
 
 /// The example rules the demo runs with, built into the binary.
@@ -58,7 +59,7 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
         // The demo's rules are its own: complete by construction.
         &Settings {
             rules: RulesBasis::SelfContained,
-            learn_implied: !args.no_implied,
+            modes: modes(&args.mode),
             ..Settings::default()
         },
         Vec::new(),
@@ -153,7 +154,7 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
         &args.out,
         &Settings {
             rules: basis,
-            learn_implied: !args.no_implied,
+            modes: modes(&args.mode),
             ..Settings::default()
         },
         inventory_notes,
@@ -223,6 +224,16 @@ pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
     }
     println!("{}", serde_json::to_string_pretty(&loaded.requirements())?);
     Ok(())
+}
+
+/// The kinds of saving `--mode` asks for.
+fn modes(args: &[ModeArg]) -> BTreeSet<Mode> {
+    args.iter()
+        .map(|mode| match mode {
+            ModeArg::Rules => Mode::Rules,
+            ModeArg::Implied => Mode::Implied,
+        })
+        .collect()
 }
 
 /// The SIEMs' own ingestion to generate and prove code for.

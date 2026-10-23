@@ -10,7 +10,7 @@ All notable changes to Sluice are recorded here. The format follows
   which values the kind of event, or another field of the event, implies, and remove a field
   only while it holds that value: Windows' `Keywords`, `Channel` and `Task`, Sentinel's
   `Activity` and the account columns it derives, 4624's placeholders. Every removed value can be
-  put back from `plan.json` (`remove_implied`); `--no-implied` turns it off. On the real
+  put back from `plan.json` (`remove_implied`). On the real
   Windows sample with all of SigmaHQ: 25.0 % → 42.4 %, 236 = 236 alerts. The research and its
   sources are in `docs/notes/field-value.md` and `docs/credits.md`.
 - **Implied values in Sentinel.** `--sentinel-native` empties them in the data collection rule
@@ -21,6 +21,10 @@ All notable changes to Sluice are recorded here. The format follows
 - **The report says where and why per field.** Every removed field of a kind of event is listed
   with its events and bytes, why it may go (the recipe's reasoning, empty, always this value,
   or this value whenever that field holds that one) and where its removal can run.
+- **Modes.** `--mode rules,implied` picks the kinds of saving: `rules` is what Sluice did
+  before (recipes, empty fields, counting; everything a rule or query reads is kept), `implied`
+  the implied values. Both run by default and either runs alone. The report, the summary and
+  `plan.json` (`saved_by_mode`) give the saving of each side by side.
 
 ## [0.1.0] - 2026-10-23
 

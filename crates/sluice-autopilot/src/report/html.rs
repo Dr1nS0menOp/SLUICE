@@ -10,6 +10,7 @@ use sluice_core::ids::{Engine, RuleId};
 use sluice_core::problem::{Problem, ProblemKind};
 
 use super::{Report, RuleRow, rules::label};
+use crate::mode::Mode;
 
 const STYLE: &str = r#"
 :root { --bg:#ffffff; --fg:#1b1f24; --muted:#5b6470; --line:#e3e6ea; --card:#f6f8fa;
@@ -36,6 +37,9 @@ h4 { font-size:13px; margin:16px 0 6px; }
 .hero .big { font-size:40px; font-weight:700; line-height:1.1; }
 .hero .big small { font-size:18px; font-weight:600; color:var(--muted); }
 .hero .bar { height:14px; margin-top:14px; }
+.modes { display:grid; gap:6px; margin-top:14px; }
+.mode { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+.mode code { min-width:64px; font-weight:700; }
 .t0 { color:var(--s0); } .t1 { color:var(--s1); } .t2 { color:var(--s2); }
 .t3 { color:var(--s3); } .t4 { color:var(--s4); }
 .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; }
@@ -142,21 +146,51 @@ fn meaning(report: &Report) -> String {
     )
 }
 
-/// The saving at a glance: the share, the bytes, and a bar.
+/// The saving at a glance: the share, the bytes, and a bar; then what each mode saved.
 fn hero(report: &Report) -> String {
     let t = &report.total;
     let saved = report.saved_percent();
     format!(
         "<section class=\"hero\"><div class=\"big t{level}\">{saved:.1}% <small>less ingest\
          </small></div><div class=\"muted\">{bin} in, {bout} sent to the SIEM; {summarized} of \
-         {events} events counted into summaries instead of sent one by one</div>{bar}</section>",
+         {events} events counted into summaries instead of sent one by one</div>{bar}{modes}\
+         </section>",
         level = savings::level(saved),
         bin = bytes(t.bytes_in),
         bout = bytes(t.bytes_out),
         summarized = thousands(t.summarized),
         events = thousands(t.events),
         bar = savings::bar(saved),
+        modes = modes(report),
     )
+}
+
+/// Each mode with what it saved, side by side; a mode not asked for says how to ask for it.
+fn modes(report: &Report) -> String {
+    let rows: Vec<String> = Mode::ALL
+        .iter()
+        .map(|&mode| {
+            if report.modes.contains(&mode) {
+                let share = report.saved_percent_by(mode);
+                format!(
+                    "<div class=\"mode\"><code>{name}</code>{pill}<span>{bytes} saved</span>\
+                     <span class=\"muted\">{what}</span></div>",
+                    name = mode.name(),
+                    pill = savings::pill(share),
+                    bytes = bytes(report.saved_by(mode)),
+                    what = mode.describe(),
+                )
+            } else {
+                format!(
+                    "<div class=\"mode\"><code>{name}</code><span class=\"muted\">not run: add it \
+                     with <code>--mode</code> to also remove {what}</span></div>",
+                    name = mode.name(),
+                    what = mode.describe(),
+                )
+            }
+        })
+        .collect();
+    format!("<div class=\"modes\">{}</div>", rows.concat())
 }
 
 /// `n` with a comma between thousands, as the command line prints counts.

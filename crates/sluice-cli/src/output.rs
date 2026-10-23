@@ -51,6 +51,17 @@ pub(crate) fn summary(report: &Report, templates: usize, sources: usize) {
         report.saved_percent(),
         group(t.summarized)
     );
+    let modes: Vec<String> = sluice_autopilot::Mode::ALL
+        .iter()
+        .map(|&mode| {
+            if report.modes.contains(&mode) {
+                format!("{mode} {:.1}%", report.saved_percent_by(mode))
+            } else {
+                format!("{mode} not run")
+            }
+        })
+        .collect();
+    println!("  modes   {}", modes.join(", "));
     let verdict = if report.proven {
         "✓ no detection changed"
     } else {

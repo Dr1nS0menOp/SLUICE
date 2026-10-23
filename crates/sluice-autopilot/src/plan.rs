@@ -20,6 +20,7 @@ use sluice_core::template::{Template, TemplateShape};
 
 use crate::analyze::Analysis;
 use crate::basis::RulesBasis;
+use crate::mode::Mode;
 use crate::report::{Report, text};
 
 /// The format of [`SavingsPlan`], changed whenever its meaning changes.
@@ -34,6 +35,8 @@ pub struct SavingsPlan {
     pub proof: PlanProof,
     /// Volume of the sample, in and as the plan forwards it.
     pub total: Volume,
+    /// Bytes each kind of saving the analysis made saved (`--mode`).
+    pub saved_by_mode: BTreeMap<Mode, u64>,
     /// Every source, with every kind of event found in it.
     pub sources: Vec<SourcePlan>,
 }
@@ -188,6 +191,11 @@ impl SavingsPlan {
                 rules_basis: report.rules_basis,
             },
             total: report.total,
+            saved_by_mode: report
+                .modes
+                .iter()
+                .map(|&mode| (mode, report.saved_by(mode)))
+                .collect(),
             sources,
         }
     }

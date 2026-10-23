@@ -18,6 +18,7 @@ pub use self::html::render_html;
 pub use self::rules::{RuleRow, RuleStatus};
 use crate::analyze::{Analysis, Input};
 use crate::basis::RulesBasis;
+use crate::mode::Mode;
 use crate::spot::SpotCheck;
 
 /// The report of one analysis.
@@ -51,6 +52,8 @@ pub struct Report {
     /// What the fetched inventory says about rules that run but have no query to read (such
     /// as Fusion); filled in by whoever read the inventory.
     pub inventory_notes: Vec<String>,
+    /// The kinds of saving the analysis made.
+    pub modes: BTreeSet<Mode>,
 }
 
 /// Said when the full sample raises no alert: the proof then shows nothing about detections.
@@ -99,6 +102,8 @@ pub struct RemovedField {
     pub events: u64,
     /// Bytes it took in them.
     pub bytes: u64,
+    /// The kind of saving that removes it.
+    pub mode: Mode,
     /// Why it may go, in plain words.
     pub why: String,
     /// Where its removal can run, in plain words.
@@ -156,7 +161,32 @@ impl Report {
             rules_basis: analysis.rules,
             rule_rows: rules::rows(input),
             inventory_notes: Vec::new(),
+            modes: analysis.modes.clone(),
         }
+    }
+
+    /// Bytes `mode` saved. Implied values are fields of their own, so their bytes are counted
+    /// per field on the sample; the recipes' savings are the rest, counting included.
+    #[must_use]
+    pub fn saved_by(&self, mode: Mode) -> u64 {
+        let implied: u64 = self
+            .templates
+            .iter()
+            .flat_map(|row| &row.removed)
+            .filter(|field| field.mode == Mode::Implied)
+            .map(|field| field.bytes)
+            .sum();
+        let saved = self.total.bytes_in.saturating_sub(self.total.bytes_out);
+        match mode {
+            Mode::Implied => implied.min(saved),
+            Mode::Rules => saved.saturating_sub(implied),
+        }
+    }
+
+    /// [`Report::saved_by`] as a percentage of the bytes in.
+    #[must_use]
+    pub fn saved_percent_by(&self, mode: Mode) -> f64 {
+        percent(self.saved_by(mode), self.total.bytes_in)
     }
 
     /// [`EMPTY_PROOF`] when the full sample raised no alert.
@@ -206,6 +236,11 @@ fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> Te
             path: path.to_string(),
             events: removal.events,
             bytes: removal.bytes,
+            mode: if text::implied(path, recipe) {
+                Mode::Implied
+            } else {
+                Mode::Rules
+            },
             why: text::why_removed(path, recipe),
             runs_in: text::where_removed(path, recipe, shared),
         })
