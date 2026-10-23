@@ -6,7 +6,7 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-10-22
+## [0.1.0] - 2026-10-23
 
 First public version, an alpha. Linux only (x86_64 and aarch64), including WSL2: one static
 binary per architecture, with its SHA-256 sum.
