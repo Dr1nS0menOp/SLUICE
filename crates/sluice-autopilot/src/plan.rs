@@ -13,7 +13,7 @@ use sluice_core::ids::TemplateId;
 use sluice_core::logsource::LogSource;
 use sluice_core::predicate::Predicate;
 use sluice_core::proof::{Selection, Volume};
-use sluice_core::recipe::Recipe;
+use sluice_core::recipe::{ImpliedValue, Recipe};
 use sluice_core::schema::Schema;
 use sluice_core::source::Source;
 use sluice_core::template::{Template, TemplateShape};
@@ -86,6 +86,11 @@ pub struct TemplatePlan {
     /// If set, null and empty fields may be removed, except these.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remove_empty_fields_except: Option<Vec<FieldPath>>,
+    /// Fields that may be removed while they hold the value given, after the removals above.
+    /// An absent field means that value, so every removed value can be put back. Only a
+    /// pipeline tool carries these out so far, whatever `runs_in` says of the others.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub remove_implied: Vec<ImpliedValue>,
     /// Events matching this keep every field: a rule could match them (contract rule 3).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keep_whole_when: Option<Predicate>,
@@ -196,17 +201,19 @@ impl SavingsPlan {
     }
 }
 
-/// Where `recipe`'s saving on `template` can run; none when it changes nothing. Only a pipeline tool counts, and only it
-/// recognises a text template (by a regex over the line): every generator for a SIEM's
-/// ingestion or an agent recognises key sets only.
+/// Where `recipe`'s saving on `template` can run; none when it changes nothing. Only a pipeline
+/// tool counts, and only it recognises a text template (by a regex over the line): every
+/// generator for a SIEM's ingestion or an agent recognises key sets only, and none of them
+/// removes implied values yet.
 pub(crate) fn placements(template: &Template, recipe: &EffectiveRecipe) -> Vec<Placement> {
     let keyset = matches!(
         template.shape,
         sluice_core::template::TemplateShape::Keyset { .. }
     );
+    let removals = !recipe.drop_fields.is_empty() || recipe.drop_empty_except.is_some();
     if recipe.is_passthrough() {
         Vec::new()
-    } else if recipe.route == Route::ForwardAll && keyset {
+    } else if recipe.route == Route::ForwardAll && keyset && removals {
         vec![Placement::Pipeline, Placement::SiemIngest, Placement::Agent]
     } else {
         vec![Placement::Pipeline]
@@ -245,6 +252,7 @@ fn template_plan(
             .drop_empty_except
             .as_ref()
             .map(|kept| kept.iter().cloned().collect()),
+        remove_implied: recipe.drop_implied.clone(),
         keep_whole_when: recipe.keep_whole_when.clone(),
         count_instead,
         runs_in,

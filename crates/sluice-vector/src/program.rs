@@ -147,6 +147,20 @@ fn reduction(plan: &Plan<'_>) -> String {
                 }),
         );
     }
+    // Last, so a field that implies another is tested as it is forwarded: the value is only
+    // removed while what implies it stays, and can be put back from the plan.
+    shaping.extend(plan.recipe.drop_implied.iter().map(|implied| {
+        let path = syntax::path(&implied.field);
+        let mut test = format!("{path} == {}", syntax::literal(&implied.value));
+        if let Some((on, value)) = &implied.when {
+            test = format!(
+                "{test} && {} == {}",
+                syntax::path(on),
+                syntax::literal(value)
+            );
+        }
+        format!("if {test} {{ del({path}) }}")
+    }));
     if !shaping.is_empty() {
         // Events a protecting rule could match are forwarded whole (contract rule 3). The test
         // runs on the event before any field is removed.

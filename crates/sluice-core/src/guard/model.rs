@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::field::FieldPath;
 use crate::ids::{RuleId, TemplateId};
 use crate::predicate::Predicate;
-use crate::recipe::Level;
+use crate::recipe::{ImpliedValue, Level};
 use crate::rules::RuleRequirements;
 use crate::schema::Schema;
 use crate::template::Template;
@@ -182,7 +182,11 @@ pub struct EffectiveRecipe {
     pub drop_fields: BTreeSet<FieldPath>,
     /// If set, null and empty-string fields are removed, except these.
     pub drop_empty_except: Option<BTreeSet<FieldPath>>,
-    /// If set, field removal (both kinds above) skips events matching this predicate: they are
+    /// Fields removed while they hold their implied value, after the removals above: a field
+    /// that implies another must still be there for the removed value to be rebuilt.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drop_implied: Vec<ImpliedValue>,
+    /// If set, field removal (all kinds above) skips events matching this predicate: they are
     /// events a protecting rule could match, so they are forwarded whole (contract rule 3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keep_whole_when: Option<Predicate>,
@@ -200,6 +204,7 @@ impl EffectiveRecipe {
             template,
             drop_fields: BTreeSet::new(),
             drop_empty_except: None,
+            drop_implied: Vec::new(),
             keep_whole_when: None,
             route: Route::ForwardAll,
             adjustments: Vec::new(),
@@ -209,9 +214,15 @@ impl EffectiveRecipe {
     /// Whether this recipe changes anything at all.
     #[must_use]
     pub fn is_passthrough(&self) -> bool {
-        self.drop_fields.is_empty()
-            && self.drop_empty_except.is_none()
-            && self.route == Route::ForwardAll
+        !self.removes_fields() && self.route == Route::ForwardAll
+    }
+
+    /// Whether this recipe removes fields from forwarded events, in any way.
+    #[must_use]
+    pub fn removes_fields(&self) -> bool {
+        !self.drop_fields.is_empty()
+            || self.drop_empty_except.is_some()
+            || !self.drop_implied.is_empty()
     }
 }
 

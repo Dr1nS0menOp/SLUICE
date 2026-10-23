@@ -6,6 +6,15 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
+- **Implied values** (study branch). `sluice analyze` and `sluice demo` learn from the sample
+  which values the kind of event, or another field of the event, implies, and remove a field
+  only while it holds that value: Windows' `Keywords`, `Channel` and `Task`, Sentinel's
+  `Activity` and the account columns it derives, 4624's placeholders. Every removed value can be
+  put back from `plan.json` (`remove_implied`). Only Vector removes them so far; `--no-implied`
+  turns it off. On the real Windows sample with all of SigmaHQ: 25.0 % → 42.4 %, 236 = 236
+  alerts. The research and its sources are in `docs/notes/field-value.md` and
+  `docs/credits.md`.
+
 ## [0.1.0] - 2026-10-23
 
 First public version, an alpha. Linux only (x86_64 and aarch64), including WSL2: one static

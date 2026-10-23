@@ -11,6 +11,7 @@ mod analyze;
 mod basis;
 mod contribute;
 mod error;
+mod implied;
 mod plan;
 mod recipes;
 mod report;

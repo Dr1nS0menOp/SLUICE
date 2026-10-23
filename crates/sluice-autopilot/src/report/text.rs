@@ -1,9 +1,11 @@
 //! Plain-language descriptions of recipes and guardrail decisions.
 
+use std::collections::BTreeMap;
+
 use sluice_core::field::FieldPath;
 use sluice_core::guard::{Adjustment, EffectiveRecipe, Reason, Route};
 use sluice_core::logsource::LogSource;
-use sluice_core::recipe::Provenance;
+use sluice_core::recipe::{ImpliedValue, Provenance};
 
 pub(crate) fn actions(recipe: &EffectiveRecipe) -> Vec<String> {
     let mut actions = Vec::new();
@@ -20,6 +22,13 @@ pub(crate) fn actions(recipe: &EffectiveRecipe) -> Vec<String> {
             )
         });
     }
+    if !recipe.drop_implied.is_empty() {
+        actions.push(format!(
+            "drop values implied by the kind of event or another field (a pipeline tool only, \
+             for now): {}",
+            implied(&recipe.drop_implied)
+        ));
+    }
     if let Route::ForwardMatching { summary_keys, .. } = &recipe.route {
         actions.push(format!(
             "forward events a rule could match; summarize the rest by {}",
@@ -27,6 +36,36 @@ pub(crate) fn actions(recipe: &EffectiveRecipe) -> Vec<String> {
         ));
     }
     actions
+}
+
+/// The implied values per field: `Keywords`, or `RestrictedAdminMode (when LogonType is 2, 3)`.
+pub(crate) fn implied(values: &[ImpliedValue]) -> String {
+    let mut fields: BTreeMap<&FieldPath, Vec<&ImpliedValue>> = BTreeMap::new();
+    for value in values {
+        fields.entry(&value.field).or_default().push(value);
+    }
+    let described: Vec<String> = fields
+        .into_iter()
+        .map(|(field, values)| {
+            let conditions: BTreeMap<&FieldPath, Vec<String>> = values
+                .iter()
+                .filter_map(|v| v.when.as_ref())
+                .fold(BTreeMap::new(), |mut acc, (on, value)| {
+                    acc.entry(on).or_default().push(value.to_string());
+                    acc
+                });
+            if conditions.is_empty() {
+                field.to_string()
+            } else {
+                let when: Vec<String> = conditions
+                    .into_iter()
+                    .map(|(on, values)| format!("{on} is {}", values.join(", ")))
+                    .collect();
+                format!("{field} (when {})", when.join("; "))
+            }
+        })
+        .collect();
+    described.join(", ")
 }
 
 pub(crate) fn adjustment(adjustment: &Adjustment) -> String {
@@ -111,6 +150,7 @@ pub(crate) fn provenance(provenance: &Provenance) -> String {
         Provenance::Community { recipe } => format!("community recipe {recipe}"),
         Provenance::Ai { model } => format!("AI ({model})"),
         Provenance::Operator => "operator".to_owned(),
+        Provenance::Learned => "values learned from the sample".to_owned(),
     }
 }
 

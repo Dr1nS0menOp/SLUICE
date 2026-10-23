@@ -226,6 +226,10 @@ pub(crate) enum RecipesCommand {
 }
 
 #[derive(Debug, Args)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a command-line switch of its own"
+)]
 pub(crate) struct DemoArgs {
     /// Directory for the sample, `vector.yaml` and `report.html`.
     #[arg(long, default_value = "out")]
@@ -255,6 +259,10 @@ pub(crate) struct DemoArgs {
     /// --otel-native`.
     #[arg(long, requires = "otel_collector")]
     pub(crate) otel_native: bool,
+    /// Do not learn values the kind of event or another field implies, as `sluice analyze
+    /// --no-implied`.
+    #[arg(long)]
+    pub(crate) no_implied: bool,
     #[command(flatten)]
     pub(crate) ai: AiArgs,
 }
@@ -345,6 +353,11 @@ pub(crate) struct AnalyzeArgs {
     /// fetch` count as complete without it (ADR 0021).
     #[arg(long)]
     pub(crate) rules_complete: bool,
+    /// Do not learn, from the sample, values the kind of event or another field implies.
+    /// Learned, such a value is removed only while the field holds it, so it can be put back
+    /// from `plan.json` (`remove_implied`); only Vector removes them so far.
+    #[arg(long)]
+    pub(crate) no_implied: bool,
     /// Directory for `vector.yaml` and `report.html`.
     #[arg(long, default_value = "out")]
     pub(crate) out: PathBuf,

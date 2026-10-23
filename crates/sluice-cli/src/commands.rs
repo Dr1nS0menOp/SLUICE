@@ -56,7 +56,11 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
         },
         &args.out,
         // The demo's rules are its own: complete by construction.
-        RulesBasis::SelfContained,
+        &Settings {
+            rules: RulesBasis::SelfContained,
+            learn_implied: !args.no_implied,
+            ..Settings::default()
+        },
         Vec::new(),
         Native {
             elastic: args
@@ -147,7 +151,11 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
             event_rules: logtest.as_ref().map(|l| l as &dyn EventRules),
         },
         &args.out,
-        basis,
+        &Settings {
+            rules: basis,
+            learn_implied: !args.no_implied,
+            ..Settings::default()
+        },
         inventory_notes,
         Native {
             sentinel: args
@@ -243,19 +251,15 @@ fn run(
     book: &RecipeBook,
     helpers: Helpers<'_>,
     out: &Path,
-    rules: RulesBasis,
+    settings: &Settings,
     inventory_notes: Vec<String>,
     native: Native<'_>,
 ) -> Result<()> {
     let Input {
         sources, events, ..
     } = input;
-    let settings = Settings {
-        rules,
-        ..Settings::default()
-    };
     let analysis =
-        run_autopilot(input, book, &settings, helpers).context("running the autopilot")?;
+        run_autopilot(input, book, settings, helpers).context("running the autopilot")?;
     let mut report = Report::new(&analysis, input);
     report.inventory_notes = inventory_notes;
 

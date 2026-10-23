@@ -9,7 +9,7 @@ use sluice_core::guard::{EffectiveRecipe, GuardContext, GuardrailConfig, guard};
 use sluice_core::ids::TemplateId;
 use sluice_core::problem::{Problem, ProblemKind};
 use sluice_core::proof::{ProofError, Selection, select_proven};
-use sluice_core::recipe::Recipe;
+use sluice_core::recipe::{ImpliedValue, Provenance, Recipe, Reduction};
 use sluice_core::rules::RuleRequirements;
 use sluice_core::source::Source;
 use sluice_core::template::{LineHeader, Template, TemplateShape};
@@ -19,6 +19,7 @@ use sluice_vector::{Plan, VrlReducer, compile_reducer};
 
 use crate::basis::RulesBasis;
 use crate::error::AutopilotError;
+use crate::implied;
 use crate::recipes::RecipeBook;
 use crate::spot::{self, SpotCheck};
 
@@ -38,6 +39,9 @@ pub struct Settings {
     /// (ADR 0021). Not known by default: then only lossless savings are made, since a rule
     /// Sluice was not given could match any event that would be summarized.
     pub rules: RulesBasis,
+    /// Whether to learn, from the sample, values implied by the kind of event or by another
+    /// field, and propose removing them while they hold that value (a lossless saving).
+    pub learn_implied: bool,
 }
 
 impl Default for Settings {
@@ -48,6 +52,7 @@ impl Default for Settings {
             archive_enabled: true,
             operator_rules: Vec::new(),
             rules: RulesBasis::NotKnown,
+            learn_implied: true,
         }
     }
 }
@@ -221,6 +226,17 @@ pub fn analyze(
         resolution.recipes.extend(advice.recipes);
         problems.extend(advice.problems);
     }
+    if settings.learn_implied {
+        let learned = implied::learn(&discovery, input.events, settings.guardrails);
+        for (template, values) in learned {
+            let recipe = with_implied(
+                resolution.recipes.remove(&template),
+                template.clone(),
+                values,
+            );
+            resolution.recipes.insert(template, recipe);
+        }
+    }
     analyze_proposals(
         input,
         discovery,
@@ -229,6 +245,29 @@ pub fn analyze(
         helpers,
         problems,
     )
+}
+
+/// `recipe` with the implied `values` added, or a recipe of its own for them.
+fn with_implied(recipe: Option<Recipe>, template: TemplateId, values: Vec<ImpliedValue>) -> Recipe {
+    let implied = Reduction::DropImplied { values };
+    let (reductions, provenance, rationale) = match recipe {
+        Some(recipe) => {
+            let mut reductions = recipe.reductions().to_vec();
+            reductions.push(implied);
+            (
+                reductions,
+                recipe.provenance().clone(),
+                recipe.rationale().to_owned(),
+            )
+        }
+        None => (
+            vec![implied],
+            Provenance::Learned,
+            "values the kind of event or another field implies, learned from the sample".to_owned(),
+        ),
+    };
+    Recipe::new(template, reductions, provenance, rationale)
+        .expect("adding a field removal to a valid recipe keeps it valid")
 }
 
 #[derive(Default)]

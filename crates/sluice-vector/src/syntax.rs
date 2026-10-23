@@ -4,6 +4,7 @@
 //! template ids) goes through here, so escaping lives in one place.
 
 use sluice_core::field::FieldPath;
+use sluice_core::recipe::Literal;
 
 /// A VRL string literal for `text`.
 ///
@@ -28,6 +29,16 @@ pub(crate) fn string(text: &str) -> String {
     }
     out.push('"');
     out
+}
+
+/// A VRL literal for a scalar of an event: a boolean, an integer or a string. VRL compares
+/// across types as unequal, so `0` never matches `"0"`.
+pub(crate) fn literal(value: &Literal) -> String {
+    match value {
+        Literal::Bool(b) => b.to_string(),
+        Literal::Integer(i) => i.to_string(),
+        Literal::Text(s) => string(s),
+    }
 }
 
 /// A VRL event path with every segment quoted: `a.b` → `."a"."b"`.

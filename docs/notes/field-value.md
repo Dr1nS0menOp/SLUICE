@@ -1,6 +1,7 @@
 # What a field is worth beyond the rules (study)
 
-Status: research on branch `study/field-value`, 2026-10-23. Nothing here is in the product yet.
+Status: branch `study/field-value`, 2026-10-23: the study, and a first build of implied values
+(see "Built on this branch"). Not on `main`.
 The people and projects this builds on are credited in [credits](../credits.md).
 
 ## The question
@@ -118,6 +119,49 @@ The idea that turns this from a list into something that sees it by itself:
 What this does not do: decide that a field is worthless because people say so. Class D stays a
 team's explicit choice.
 
+## Built on this branch (2026-10-23)
+
+`sluice analyze` and `sluice demo` now learn implied values from the sample, unless
+`--no-implied` is given:
+
+- **Core.** A reduction `drop_implied` (L1, lossless) with values of the form "field = value",
+  optionally "when other field = value". The guardrails treat it as any field removal: a field a
+  rule reads stays on the events that rule could match, and rare kinds of event are left alone.
+  A recipe file may carry it too, which is the route for documented implications.
+- **Learning** (`sluice-autopilot`, `implied.rs`), per frequent JSON kind of event, over fields
+  every variant of it carries, never a field that names the kind of event, and, read from
+  Sentinel, never a column the workspace adds itself (`Type`, `TenantId`, `_…`):
+  - a field with one value on every event is a constant of the kind;
+  - a field with one value for each value of another field (at most 32 values, 20 events
+    each) is implied by it, if that other field is a category: every value in the later half
+    of the sample already occurs in the earlier half, and its name does not mark it as an
+    identifier (`…Id`, `…Guid`). Without these two checks, one PC's few thread and logon IDs
+    looked like categories and inflated the measured saving from 38 % to 46 %;
+  - a field that implies another is never removed itself, and at most 64 values per kind.
+- **Vector.** `if .field == value && .other == value { del(.field) }`, after the other
+  removals, so a field is only removed while what implies it is still in the event.
+- **Plan and report.** `plan.json` lists them as `remove_implied`, the dictionary to put every
+  removed value back; the report says per kind of event which fields are implied, and by what.
+- **Not yet:** Sentinel's, Elasticsearch's, Fluent Bit's and the collector's generators leave
+  implied values in place; they keep more than Vector, which their proofs allow.
+
+Measured with the real rules (the project's real-data runs, `scripts/real-data/run.sh`):
+
+| Sample and rules | Without | With implied values | Alerts, full = forwarded |
+|---|---:|---:|---|
+| Windows System, Application, PowerShell; all 3,152 SigmaHQ rules | 25.0 % | 42.4 % | 236 = 236 |
+| Linux `auth.log` and `syslog`; SigmaHQ | 25.7 % | 25.7 % | 0 = 0 |
+| Sentinel `SecurityEvent` and `WindowsEvent`; the Windows Security Events solution and SigmaHQ | 0.0 % | 0.0 % | 1,706 = 1,706 |
+| Sentinel `SecurityEvent` of the test workspace; its own two rules | 4.1 % | 37.9 % | 0 = 0 |
+| `sluice demo --scale 100`; the example rules | 74.0 % | 85.3 % | 41 = 41 |
+
+- On Linux nothing changes, as predicted: its lines are text.
+- With SigmaHQ on records in Sentinel's names, SigmaHQ's rules may read any field (ADR 0018),
+  so the guardrails keep every field, implied or not: the new saving is held to the same rule.
+- The single-host samples include host constants (`Computer`, the one user). They are removed
+  losslessly but save on that host only; across a fleet they vary and are not learned. The
+  Windows figures are therefore an upper bound until a sample spans hosts.
+
 ## Open questions before this becomes a feature
 
 - **Queries, not only rules.** An analyst who queries `RestrictedAdminMode == "-"` finds nothing
@@ -129,8 +173,12 @@ team's explicit choice.
   after.
 - **Versions.** `Version`, `Task` and `Keywords` can change between Windows builds. A
   value-guarded removal stays exact; only the savings vary.
-- **The learning step needs a fleet.** One PC makes `Computer` look constant. Learned candidates
-  must be limited to envelope fields and documented implications until a sample spans hosts.
+- **The learning step needs a fleet.** One PC makes `Computer` look constant. That costs no
+  data (a value guard keeps any other host's name), but it overstates the saving.
+- **Analysts see an absent field.** A removed value is implied, not gone, but a query for
+  `RestrictedAdminMode == "-"` finds nothing. For Sentinel, a workspace function that puts the
+  implied values back (`coalesce` per field) would make the table read as before; Sluice
+  already writes such functions (`SluiceCounts.kql`).
 - **Linux text lines.** Template text is the bulk of a line, and rules read it whole. Saving there
   stays with counting kinds of event no rule needs, and with archives that compress by template
   (as CLP does).
