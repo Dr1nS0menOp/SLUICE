@@ -50,3 +50,24 @@ impl fmt::Display for Mode {
         f.write_str(self.name())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_mode_has_its_flag_name_and_a_description() {
+        assert_eq!(Mode::Rules.to_string(), "rules");
+        assert_eq!(Mode::Implied.to_string(), "implied");
+        assert_eq!(
+            Mode::Rules.describe(),
+            "what the recipes propose and no rule reads"
+        );
+        assert!(
+            Mode::Implied
+                .describe()
+                .starts_with("values that follow from the kind of event")
+        );
+        assert_eq!(Mode::ALL, [Mode::Rules, Mode::Implied]);
+    }
+}

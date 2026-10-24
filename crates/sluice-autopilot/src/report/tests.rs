@@ -452,3 +452,169 @@ fn the_report_shows_every_mode_and_how_to_ask_for_one_not_run() {
     assert!(page.contains("<code>rules</code>"));
     assert!(page.contains("<code>implied</code><span class=\"muted\">not run"));
 }
+
+fn windows_template(complete: bool) -> Template {
+    serde_json::from_value(serde_json::json!({
+        "id": "t", "source": "s", "logsource": {"product": "windows", "complete": complete},
+        "pattern": "p",
+        "shape": {"kind": "keyset", "discriminators": [], "paths": ["a"], "variants": [["a"]]},
+        "fields": ["a"], "text_fields": [],
+        "stats": {"events": 1, "bytes": 1, "source_events": 1}
+    }))
+    .expect("a template")
+}
+
+fn rule_for(id: &str, service: Option<&str>) -> RuleRequirements {
+    RuleRequirements {
+        logsource: LogSource {
+            product: Some("windows".into()),
+            service: service.map(Into::into),
+            ..LogSource::default()
+        },
+        ..RuleRequirements::opaque(RuleId::new(id))
+    }
+}
+
+#[test]
+fn a_source_hears_which_rules_apply_only_because_its_log_source_is_not_fully_described() {
+    let security = rule_for("a", Some("security"));
+    let system = rule_for("b", Some("system"));
+    let any = rule_for("c", None);
+    let open = [windows_template(false)];
+    assert_eq!(
+        scope_hints(&[&security, &any], &open),
+        [
+            "s: 1 rule applies only because its log source (product=windows) leaves an attribute \
+          unknown; if that is all it is, add `complete: true`"
+        ]
+    );
+    assert!(scope_hints(&[&security, &system], &open)[0].starts_with("s: 2 rules apply only"));
+    assert_eq!(scope_hints(&[&any], &open), Vec::<String>::new());
+    let closed = [windows_template(true)];
+    assert_eq!(scope_hints(&[&security], &closed), Vec::<String>::new());
+}
+
+#[test]
+fn a_rule_with_several_requirements_counts_once() {
+    let rules = [
+        rule_for("a", None),
+        rule_for("a", Some("x")),
+        rule_for("b", None),
+    ];
+    assert_eq!(count(&rules), 2);
+    assert_eq!(count(&[]), 0);
+}
+
+#[test]
+fn only_a_key_set_template_that_forwards_everything_shares_its_saving_with_the_siem() {
+    let template = windows_template(false);
+    let removing = EffectiveRecipe {
+        drop_fields: ["a".into()].into(),
+        ..EffectiveRecipe::passthrough("t".into())
+    };
+    assert!(shared(&template, &removing));
+    assert!(!shared(
+        &template,
+        &EffectiveRecipe::passthrough("t".into())
+    ));
+    let counting = EffectiveRecipe {
+        route: sluice_core::guard::Route::ForwardMatching {
+            prefilter: sluice_core::predicate::Predicate::Always,
+            summary_keys: Vec::new(),
+        },
+        ..removing
+    };
+    assert!(
+        !shared(&template, &counting),
+        "counting needs a pipeline tool"
+    );
+}
+
+#[test]
+fn a_removed_field_says_its_mode_and_the_value_it_always_held() {
+    use sluice_core::recipe::{ImpliedValue, Literal};
+    let recipe = EffectiveRecipe {
+        drop_fields: ["Message".into()].into(),
+        drop_implied: vec![
+            ImpliedValue {
+                field: "Channel".into(),
+                value: Literal::Text("Security".into()),
+                when: None,
+            },
+            ImpliedValue {
+                field: "Mode".into(),
+                value: Literal::Text("-".into()),
+                when: Some(("LogonType".into(), Literal::Integer(3))),
+            },
+            // Listed and implied: the recipe's removal is what takes it.
+            ImpliedValue {
+                field: "Message".into(),
+                value: Literal::Text("x".into()),
+                when: None,
+            },
+        ],
+        ..EffectiveRecipe::passthrough("t".into())
+    };
+    let removal = Removal {
+        events: 2,
+        bytes: 40,
+    };
+    let field = |path: &str, shared: bool| removed_field(&path.into(), removal, &recipe, shared);
+    let channel = field("Channel", true);
+    assert_eq!(
+        (channel.mode, channel.constant.as_deref()),
+        (Mode::Implied, Some("\"Security\""))
+    );
+    assert_eq!((channel.events, channel.bytes), (2, 40));
+    assert_eq!(
+        channel.runs_in,
+        "Vector, the SIEM's own ingestion, or the agent"
+    );
+    let mode = field("Mode", false);
+    assert_eq!((mode.mode, mode.constant), (Mode::Implied, None));
+    assert_eq!(mode.runs_in, "Vector (a pipeline tool)");
+    let message = field("Message", true);
+    assert_eq!((message.mode, message.constant), (Mode::Rules, None));
+}
+
+#[test]
+fn a_proposal_s_reasoning_is_shown_only_when_it_says_something_and_fields_go_by_it() {
+    use sluice_core::recipe::{Provenance, Recipe, Reduction};
+    let proposal = |why: &str| {
+        Recipe::new(
+            "t".into(),
+            vec![Reduction::DropFields {
+                fields: ["a".into()].into(),
+            }],
+            Provenance::Operator,
+            why.to_owned(),
+        )
+        .expect("a valid recipe")
+    };
+    let removing = EffectiveRecipe {
+        drop_fields: ["a".into()].into(),
+        ..EffectiveRecipe::passthrough("t".into())
+    };
+    assert_eq!(
+        rationale(Some(&proposal("  it repeats the event  ")), &removing).as_deref(),
+        Some("it repeats the event")
+    );
+    assert_eq!(rationale(Some(&proposal("   ")), &removing), None);
+    assert_eq!(
+        rationale(
+            Some(&proposal("it repeats")),
+            &EffectiveRecipe::passthrough("t".into())
+        ),
+        None,
+        "the guardrails kept every field"
+    );
+    assert_eq!(rationale(None, &removing), None);
+}
+
+#[test]
+fn the_rules_verdict_is_that_of_the_report_s_rules() {
+    let report = report();
+    let verdict = report.rules_verdict();
+    assert_ne!(verdict, "");
+    assert_eq!(verdict, rules::verdict(&report.rule_rows));
+}

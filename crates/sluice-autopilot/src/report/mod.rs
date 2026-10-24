@@ -7,11 +7,13 @@ pub(crate) mod text;
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use sluice_core::field::FieldPath;
 use sluice_core::guard::EffectiveRecipe;
 use sluice_core::ids::RuleId;
 use sluice_core::logsource::LogSource;
 use sluice_core::problem::Problem;
-use sluice_core::proof::Volume;
+use sluice_core::proof::{Removal, Volume};
+use sluice_core::recipe::Recipe;
 use sluice_core::rules::RuleRequirements;
 use sluice_core::template::Template;
 
@@ -236,33 +238,13 @@ fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> Te
     let proof = &analysis.selection.proof;
     let key = Some(template.id.clone());
     let volume = proof.per_template.get(&key).copied().unwrap_or_default();
-    let shared = crate::plan::placements(template, recipe).len() > 1;
+    let shared = shared(template, recipe);
     let mut removed: Vec<RemovedField> = proof
         .removed
         .get(&key)
         .into_iter()
         .flatten()
-        .map(|(path, removal)| RemovedField {
-            path: path.to_string(),
-            events: removal.events,
-            bytes: removal.bytes,
-            mode: if text::implied(path, recipe) {
-                Mode::Implied
-            } else {
-                Mode::Rules
-            },
-            constant: text::implied(path, recipe)
-                .then(|| {
-                    recipe
-                        .drop_implied
-                        .iter()
-                        .find(|v| &v.field == path && v.when.is_none())
-                        .map(|v| v.value.to_string())
-                })
-                .flatten(),
-            why: text::why_removed(path, recipe),
-            runs_in: text::where_removed(path, recipe, shared),
-        })
+        .map(|(path, removal)| removed_field(path, *removal, recipe, shared))
         .collect();
     removed.sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.path.cmp(&b.path)));
     let proposal = analysis.proposals.get(&template.id);
@@ -275,13 +257,46 @@ fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> Te
         adjustments: unique(recipe.adjustments.iter().map(text::adjustment)),
         provenance: proposal.map(|p| text::provenance(p.provenance())),
         runs_in: text::placements(&crate::plan::placements(template, recipe)),
-        rationale: proposal
-            .map(|p| p.rationale().trim().to_owned())
-            .filter(|r| !r.is_empty() && !recipe.drop_fields.is_empty()),
+        rationale: rationale(proposal, recipe),
         removed,
     }
 }
 
+/// Whether the template's saving can run beyond a pipeline tool, in the SIEM's ingestion or
+/// the agent.
+fn shared(template: &Template, recipe: &EffectiveRecipe) -> bool {
+    crate::plan::placements(template, recipe).len() > 1
+}
+
+/// What removing `path` came to on the sample, by which mode, why, and where it can run.
+fn removed_field(
+    path: &FieldPath,
+    removal: Removal,
+    recipe: &EffectiveRecipe,
+    shared: bool,
+) -> RemovedField {
+    let implied = text::implied(path, recipe);
+    RemovedField {
+        path: path.to_string(),
+        events: removal.events,
+        bytes: removal.bytes,
+        mode: if implied { Mode::Implied } else { Mode::Rules },
+        constant: recipe
+            .drop_implied
+            .iter()
+            .find(|v| implied && &v.field == path && v.when.is_none())
+            .map(|v| v.value.to_string()),
+        why: text::why_removed(path, recipe),
+        runs_in: text::where_removed(path, recipe, shared),
+    }
+}
+
+/// The proposal's reasoning, when it says something and the recipe removes fields by it.
+fn rationale(proposal: Option<&Recipe>, recipe: &EffectiveRecipe) -> Option<String> {
+    proposal
+        .map(|p| p.rationale().trim().to_owned())
+        .filter(|r| !r.is_empty() && !recipe.drop_fields.is_empty())
+}
 /// For each source whose log source is not complete, the rules that apply only because an
 /// attribute is undeclared: they would not apply if the declared attributes were all there is.
 fn scope_hints(requirements: &[&RuleRequirements], templates: &[Template]) -> Vec<String> {
