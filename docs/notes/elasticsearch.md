@@ -102,5 +102,8 @@ search with `runtime_mappings` on an index Elasticsearch mapped by itself
   proves it without writing to the cluster.
 - A `keyword` runtime field with the name of a mapped field (here a `text` field with a
   `keyword` sub-field) shadows it: the hit's `fields` show the emitted values, on documents
-  that kept the field and on those that lost it alike. Not checked: whether a sub-field such as
+  that kept the field and on those that lost it alike. So does a `long` runtime field for a
+  field Elasticsearch mapped as `long` from whole numbers, emitting `Long` values. A
+  `try { … } catch (NumberFormatException e) {}` around `Double.parseDouble` compiles in a
+  runtime field's script. Not checked: whether a sub-field such as
   `.keyword` is shadowed too, so the guide tells a query to name the field itself.

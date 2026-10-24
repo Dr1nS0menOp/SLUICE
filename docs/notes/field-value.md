@@ -160,10 +160,10 @@ gives the saving of each:
   the real engine; the agents leave a value tested against a whole number in place, since they
   cannot tell `3` from `3.0`.
 - **Elasticsearch puts them back.** `--elastic-native` also writes `SOURCE.runtime.json`:
-  runtime fields that shadow each implied text field and give its value back on a document the
+  runtime fields (`keyword`, `long` or `boolean`) that shadow each implied field and give its value back on a document the
   pipeline took it from (its kind of event, the implying field's value, a key set the pipeline
   can have left). The pipeline keeps an empty field that may go as implied, so its absence has
-  one meaning. Proven on the sample in Elasticsearch: on the demo, 39 fields of
+  one meaning. Proven on the sample in Elasticsearch: on the demo, 41 fields of
   `windows-security` read every forwarded document as the full one.
 - **The report** shows per source up to 10 events as they are sent, with what was left out and
   why, and says in plain words what an implied value is.

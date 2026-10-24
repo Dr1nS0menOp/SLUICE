@@ -95,26 +95,52 @@ fn built() -> (IngestPipeline, Rebuild) {
 }
 
 #[test]
-fn text_values_are_put_back_and_a_number_is_left_out_with_why() {
+fn each_runtime_field_has_the_type_of_its_implied_values() {
     let (_, rebuild) = built();
-    assert_eq!(rebuild.fields().collect::<Vec<_>>(), ["Keywords", "Mode"]);
     assert_eq!(
-        rebuild.left_out,
-        [
-            "windows:4624:i: the implied `Level` holds a number or a boolean, which a text runtime \
-          field would not give back as it was"
-        ]
+        rebuild.fields().collect::<Vec<_>>(),
+        ["Keywords", "Level", "Mode"]
     );
+    assert!(rebuild.left_out.is_empty(), "{:?}", rebuild.left_out);
     let mappings = rebuild.runtime_mappings();
     assert_eq!(mappings["Mode"]["type"], "keyword");
+    assert_eq!(mappings["Level"]["type"], "long");
     let source = mappings["Mode"]["script"]["source"]
         .as_str()
         .expect("a script");
     assert!(source.contains("sluiceDisc(sluiceGet(ctx, ['EventID'])) == '4624'"));
     assert!(source.contains("sluiceIsInt(sluiceGet(ctx, ['LogonType']), 3L)"));
     assert!(source.ends_with("for (def v : sluiceValues(params['_source'])) { emit(v); }\n"));
+    let level = mappings["Level"]["script"]["source"]
+        .as_str()
+        .expect("a script");
+    assert!(level.contains("{ out.add(0L); }"), "{level}");
 }
 
+#[test]
+fn a_field_whose_implied_values_differ_in_type_is_left_out_with_why() {
+    let logon = logon();
+    let mut mixed = recipe();
+    mixed.drop_implied.push(ImpliedValue {
+        field: "Mode".into(),
+        value: Literal::Integer(1),
+        when: Some(("LogonType".into(), Literal::Integer(10))),
+    });
+    let plans = [Plan {
+        template: &logon,
+        recipe: &mixed,
+    }];
+    let rebuild = rebuild(&plans, &ingest_pipeline("test", &plans));
+    assert!(!rebuild.fields().any(|f| f == "Mode"));
+    assert!(
+        rebuild
+            .left_out
+            .iter()
+            .any(|r| r.contains("`Mode`: its implied values are of more than one type")),
+        "{:?}",
+        rebuild.left_out
+    );
+}
 #[test]
 fn the_pipeline_keeps_an_empty_field_that_may_go_as_implied_so_its_absence_has_one_meaning() {
     let (pipeline, rebuild) = built();
@@ -125,7 +151,10 @@ fn the_pipeline_keeps_an_empty_field_that_may_go_as_implied_so_its_absence_has_o
         source.contains("sluiceRemoveEmptyExcept(ctx, keys, ['Keywords', 'Level', 'Mode'], "),
         "{source}"
     );
-    assert_eq!(rebuild.fields().collect::<Vec<_>>(), ["Keywords", "Mode"]);
+    assert_eq!(
+        rebuild.fields().collect::<Vec<_>>(),
+        ["Keywords", "Level", "Mode"]
+    );
 }
 
 #[test]
@@ -149,7 +178,7 @@ fn a_field_some_events_of_the_kind_lack_is_not_put_back() {
         },
     ];
     let rebuild = rebuild(&plans, &ingest_pipeline("test", &plans));
-    assert_eq!(rebuild.fields().collect::<Vec<_>>(), ["Keywords"]);
+    assert_eq!(rebuild.fields().collect::<Vec<_>>(), ["Keywords", "Level"]);
     assert!(
         rebuild
             .left_out
@@ -162,7 +191,7 @@ fn a_field_some_events_of_the_kind_lack_is_not_put_back() {
 fn retain_leaves_a_field_out_and_says_why() {
     let (_, mut rebuild) = built();
     rebuild.retain(|field| field != "Mode", "read differently on the sample");
-    assert_eq!(rebuild.fields().collect::<Vec<_>>(), ["Keywords"]);
+    assert_eq!(rebuild.fields().collect::<Vec<_>>(), ["Keywords", "Level"]);
     assert!(
         rebuild
             .left_out

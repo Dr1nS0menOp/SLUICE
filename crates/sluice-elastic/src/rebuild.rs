@@ -19,9 +19,10 @@
 //! reduced, and would get the value too. That is why the CLI proves the runtime fields on the
 //! sample with [`rebuilt`] and leaves out every field they would read differently there.
 //!
-//! Only text values are put back: a runtime field has one type, and a number or a boolean read
-//! back as text would differ from the field it shadows. The logic is one Painless function per
-//! field, so [`rebuilt`] can prove it on documents in `_ingest/pipeline/_simulate` without
+//! A runtime field has one type: `keyword` for text values, `long` for whole numbers, `boolean`
+//! for booleans, and a field with values of more than one type is left out. A value the
+//! document has is read as Elasticsearch reads it into a field of that type. The logic is one
+//! Painless function per field, so [`rebuilt`] can prove it on documents in `_ingest/pipeline/_simulate` without
 //! writing to the cluster.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -40,8 +41,9 @@ use crate::simulate::{ElasticError, simulate};
 /// The runtime fields that put a source's implied values back.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rebuild {
-    /// Per field, the body of its Painless function `List f(Map ctx)`: the values to emit.
-    functions: BTreeMap<String, String>,
+    /// Per field, its type and the body of its Painless function `List f(Map ctx)`: the values
+    /// to emit.
+    functions: BTreeMap<String, (Kind, String)>,
     /// Implied values that are not put back, and why.
     pub left_out: Vec<String>,
 }
@@ -65,7 +67,7 @@ impl Rebuild {
         let fields: Map<String, Value> = self
             .functions
             .iter()
-            .map(|(field, body)| {
+            .map(|(field, (kind, body))| {
                 let source = format!(
                     "{}List sluiceValues(Map ctx) {{\n{body}\n}}\nfor (def v : \
                      sluiceValues(params['_source'])) {{ emit(v); }}\n",
@@ -73,7 +75,7 @@ impl Rebuild {
                 );
                 (
                     field.clone(),
-                    json!({"type": "keyword", "script": {"source": source}}),
+                    json!({"type": kind.name(), "script": {"source": source}}),
                 )
             })
             .collect();
@@ -88,7 +90,7 @@ pub fn rebuild(plans: &[Plan<'_>], pipeline: &IngestPipeline) -> Rebuild {
     // Per field, each template's test and the value it puts back. A template whose values
     // cannot be put back leaves its documents as the pipeline sent them; the others still get
     // theirs.
-    let mut cases: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    let mut cases: BTreeMap<String, Vec<(String, &Literal)>> = BTreeMap::new();
     for plan in plans
         .iter()
         .filter(|p| pipeline.templates.contains(&p.template.id))
@@ -104,14 +106,22 @@ pub fn rebuild(plans: &[Plan<'_>], pipeline: &IngestPipeline) -> Rebuild {
     }
     let mut functions = BTreeMap::new();
     for (field, cases) in cases {
-        let body = function(&field, &cases);
+        let kinds: BTreeSet<Kind> = cases.iter().map(|(_, value)| Kind::of(value)).collect();
+        let [kind] = kinds.into_iter().collect::<Vec<_>>()[..] else {
+            left_out.push(format!(
+                "`{field}`: its implied values are of more than one type, and a runtime field \
+                 has one"
+            ));
+            continue;
+        };
+        let body = function(&field, kind, &cases);
         if painless::FUNCTIONS.len() + body.len() + 200 > MAX_SCRIPT {
             left_out.push(format!(
                 "`{field}`: its runtime field would be longer than the {MAX_SCRIPT} bytes \
                  Elasticsearch compiles"
             ));
         } else {
-            functions.insert(field, body);
+            functions.insert(field, (kind, body));
         }
     }
     Rebuild {
@@ -149,12 +159,12 @@ fn by_field(recipe: &EffectiveRecipe) -> BTreeMap<&FieldPath, Vec<&ImpliedValue>
 
 /// The tests that put `field`'s `values` back on documents of `plan`'s template, or why they
 /// cannot be put back exactly.
-fn cases_for(
+fn cases_for<'a>(
     plan: &Plan<'_>,
     plans: &[Plan<'_>],
     field: &FieldPath,
-    values: &[&ImpliedValue],
-) -> Result<Vec<(String, String)>, &'static str> {
+    values: &[&'a ImpliedValue],
+) -> Result<Vec<(String, &'a Literal)>, &'static str> {
     let TemplateShape::Keyset {
         discriminators,
         variants,
@@ -211,22 +221,73 @@ fn cases_for(
         .collect();
     kind.push(format!("({})", ranges.join(" || ")));
     let kind = kind.join(" && ");
-    values
+    Ok(values
         .iter()
         .map(|value| {
-            let Literal::Text(text) = &value.value else {
-                return Err(
-                    "holds a number or a boolean, which a text runtime field would not \
-                            give back as it was",
-                );
-            };
             let condition = match &value.when {
                 None => kind.clone(),
                 Some((on, holds)) => format!("{kind} && {}", painless::equals(on, holds)),
             };
-            Ok((condition, text.clone()))
+            (condition, &value.value)
         })
-        .collect()
+        .collect())
+}
+
+/// The type of a runtime field, from the implied values it puts back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Kind {
+    Keyword,
+    Long,
+    Boolean,
+}
+
+impl Kind {
+    fn of(value: &Literal) -> Self {
+        match value {
+            Literal::Text(_) => Self::Keyword,
+            Literal::Integer(_) => Self::Long,
+            Literal::Bool(_) => Self::Boolean,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Keyword => "keyword",
+            Self::Long => "long",
+            Self::Boolean => "boolean",
+        }
+    }
+
+    /// The Painless that adds member `m` of a field the document has to `out`, as Elasticsearch
+    /// reads such a value into a field of this type: any scalar as its text; a number as a
+    /// whole number, also from its text; a boolean, also from `"true"` or `"false"`. Anything
+    /// else gives nothing.
+    fn read(self) -> &'static str {
+        match self {
+            Self::Keyword => {
+                "if (m != null && !(m instanceof Map) && !(m instanceof List)) { \
+                 out.add(String.valueOf(m)); }"
+            }
+            Self::Long => {
+                "if (m instanceof Number) { out.add(((Number) m).longValue()); } else if (m \
+                 instanceof String) { try { out.add((long) Double.parseDouble((String) m)); } \
+                 catch (NumberFormatException e) {} }"
+            }
+            Self::Boolean => {
+                "if (m instanceof Boolean) { out.add(m); } else if (m == 'true' || m == \
+                 'false') { out.add(m == 'true'); }"
+            }
+        }
+    }
+
+    /// `value` as a Painless literal of this type.
+    fn literal(value: &Literal) -> String {
+        match value {
+            Literal::Text(text) => painless::string(text),
+            Literal::Integer(i) => format!("{i}L"),
+            Literal::Bool(b) => b.to_string(),
+        }
+    }
 }
 
 /// Whether the pipeline removes `field` when it is null or empty. It keeps an empty field that
@@ -278,18 +339,17 @@ fn always_has(template: &Template, field: &FieldPath) -> bool {
 
 /// The body of `field`'s function: its values where it is there, otherwise the implied value
 /// of the first test that holds.
-fn function(field: &str, cases: &[(String, String)]) -> String {
+fn function(field: &str, kind: Kind, cases: &[(String, &Literal)]) -> String {
     let path = painless::segments(&FieldPath::new(field));
     let mut out = format!(
         "  List out = new ArrayList();\n  if (sluiceHas(ctx, {path})) {{\n    def x = \
-         sluiceGet(ctx, {path});\n    if (x instanceof List) {{\n      for (def m : (List) x) {{ \
-         if (m != null && !(m instanceof Map) && !(m instanceof List)) {{ \
-         out.add(String.valueOf(m)); }} }}\n    }} else if (x != null && !(x instanceof Map)) {{ \
-         out.add(String.valueOf(x)); }}\n    return out;\n  }}\n  Set keys = sluiceKeys(ctx);\n"
+         sluiceGet(ctx, {path});\n    List ms = x instanceof List ? (List) x : [x];\n    for \
+         (def m : ms) {{ {read} }}\n    return out;\n  }}\n  Set keys = sluiceKeys(ctx);\n",
+        read = kind.read()
     );
     let branches: Vec<String> = cases
         .iter()
-        .map(|(test, value)| format!("if ({test}) {{ out.add({}); }}", painless::string(value)))
+        .map(|(test, value)| format!("if ({test}) {{ out.add({}); }}", Kind::literal(value)))
         .collect();
     out.push_str("  ");
     out.push_str(&branches.join("\n  else "));
@@ -310,7 +370,12 @@ pub fn rebuilt(
     documents: &[&Map<String, Value>],
 ) -> Result<Vec<BTreeMap<String, Value>>, ElasticError> {
     let mut out = vec![BTreeMap::new(); documents.len()];
-    for group in groups(&rebuild.functions) {
+    let bodies: BTreeMap<String, String> = rebuild
+        .functions
+        .iter()
+        .map(|(field, (_, body))| (field.clone(), body.clone()))
+        .collect();
+    for group in groups(&bodies) {
         let mut script = painless::FUNCTIONS.to_owned();
         let mut calls = Vec::new();
         for (n, (field, body)) in group.iter().enumerate() {

@@ -35,7 +35,7 @@ All notable changes to Sluice are recorded here. The format follows
   API lists them as `guid`. The function wrote `toguid(…)` there, which `case` refused, so it
   now reads such a column as text.
 - **Implied values back in Elasticsearch.** `--elastic-native` also writes
-  `elastic/SOURCE.runtime.json`: runtime fields that put each implied text value back when a
+  `elastic/SOURCE.runtime.json`: runtime fields (`keyword`, `long` or `boolean`) that put each implied value back when a
   query runs, for a search's `runtime_mappings` or a Kibana data view. They are proven on the
   sample in Elasticsearch through `_simulate`, without writing to the cluster: every forwarded
   document reads as the full one, and a field that would not is left out. The pipeline now
