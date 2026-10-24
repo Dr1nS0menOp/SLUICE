@@ -177,6 +177,7 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
 | Sentinel `SecurityEvent` and `WindowsEvent`; the Windows Security Events solution and SigmaHQ | 0.0 % | 0.0 % | 1,706 = 1,706 |
 | Sentinel `SecurityEvent` of the test workspace; its own two rules | 4.1 % | 37.9 % | 0 = 0 |
 | `sluice demo --scale 100`; the example rules | 74.0 % | 85.3 % | 41 = 41 |
+| OTRF Security-Datasets APT29 day 1, Security and Sysmon of **four machines**; the example rules | 63.2 % (the rules' share) | 80.0 % (implied 16.8 %) | 0 = 0 |
 
 - On Linux nothing changes, as predicted: its lines are text.
 - With SigmaHQ on records in Sentinel's names, SigmaHQ's rules may read any field (ADR 0018),
@@ -205,6 +206,11 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
   `EventLevelName`, `EventSourceName` and two more, 3.6 MB of 12.8 MB saved. On the demo's
   `windows-security`, from five machines, the list holds no machine name: only values the fleet
   shares (`Channel`, `Keywords`, the agent's and the OS's versions, the domain).
+  On OTRF's APT29 day 1 (four real machines, 184,886 Security and Sysmon events, 2026-10-24)
+  implied values save 16.8 %, no machine name is learned as a constant (`Hostname` only as
+  implied by another field), and the list holds only what the four share, such as `host`,
+  there the address of the log collector. The example rules raise no alert on it, so that run
+  shows nothing about detections; a run with SigmaHQ is still to do.
 - **Analysts see an absent field.** A removed value is implied, not gone, but a query on the
   table itself for `RestrictedAdminMode == "-"` finds nothing. For Sentinel, `<Table>Full`
   reads as before; analytics rules keep querying the table, and the guardrails keep every field

@@ -16,6 +16,7 @@ Where a recipe or a decision rests on one of these sources, it links here or to 
 | Windows Logging Cheat Sheets | Michael Gough (Malware Archaeology) | The same, as audit settings. |
 | Cribl Stream guidance on Windows XML events; the cribl-windows-events pack | Cribl; David Maislin | How much of a Windows event is placeholders and rendered text, and why a blanket rule is unsafe. |
 | *Top 4 tricks to reduce SIEM data volume* (2025) | Balázs Scheidler (Axoflow) | The rendered text repeats the event. |
+| Security-Datasets (formerly Mordor), `compound/apt29` day 1, MIT | Open Threat Research Forge (Roberto Rodriguez, Jose Rodriguez) | A sample from four machines, to measure implied values beyond one PC (`docs/notes/field-value.md`). Kept in a user cache, not in the repository. |
 | Pre-SIEM log filtering and log reduction | NXLog | Drop only what no detection, investigation or compliance need depends on. |
 | SigmaHQ, *Pass the Hash Activity 2* | Dave Kennedy, Jeff Warren, David Vassallo | The counterexample that a placeholder can be a detection signal. |
 | Sysmon documentation | Mark Russinovich, Thomas Garnier | `ProcessGuid` as the correlation key. |
