@@ -253,6 +253,41 @@ impl Recipe {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_json_scalar_is_a_literal_of_its_own_kind_and_nothing_else_is() {
+        use serde_json::json;
+        assert_eq!(Literal::of(&json!(true)), Some(Literal::Bool(true)));
+        assert_eq!(Literal::of(&json!(-4624)), Some(Literal::Integer(-4624)));
+        assert_eq!(
+            Literal::of(&json!("4624")),
+            Some(Literal::Text("4624".into()))
+        );
+        for other in [
+            json!(0.5),
+            json!(null),
+            json!([1]),
+            json!({"a": 1}),
+            json!(u64::MAX),
+        ] {
+            assert_eq!(Literal::of(&other), None, "{other}");
+        }
+    }
+
+    #[test]
+    fn a_literal_is_written_so_text_and_numbers_cannot_be_confused() {
+        assert_eq!(Literal::Bool(false).to_string(), "false");
+        assert_eq!(Literal::Integer(3).to_string(), "3");
+        assert_eq!(Literal::Text("3".into()).to_string(), "\"3\"");
+        assert_eq!(
+            serde_json::to_string(&Literal::Text("3".into())).expect("serializes"),
+            "\"3\""
+        );
+        assert_eq!(
+            serde_json::from_str::<Literal>("3").expect("parses"),
+            Literal::Integer(3)
+        );
+    }
+
     fn keys() -> Vec<FieldPath> {
         vec!["SourceImage".into()]
     }

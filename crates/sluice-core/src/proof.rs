@@ -247,7 +247,7 @@ fn removed_under<'a>(
                 value,
                 bytes: member_size(key, value),
             }),
-            (Value::Object(inner), Some(Value::Object(kept))) if inner != kept => {
+            (Value::Object(inner), Some(Value::Object(kept))) => {
                 removed_under(&path, inner, kept, members);
             }
             _ => {}
