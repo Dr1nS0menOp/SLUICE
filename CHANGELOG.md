@@ -25,6 +25,12 @@ All notable changes to Sluice are recorded here. The format follows
   before (recipes, empty fields, counting; everything a rule or query reads is kept), `implied`
   the implied values. Both run by default and either runs alone. The report, the summary and
   `plan.json` (`saved_by_mode`) give the saving of each side by side.
+- **Implied values in a real Sentinel workspace.** `scripts/real-data/try-dcr-implied.sh`
+  measures them in a data collection rule. On 100 real records Azure billed 30.7 % less (the
+  analysis predicted 30.8 %), and `SecurityEventFull` put back all 700 emptied values. That run
+  fixed a bug: a query reads `SecurityEvent`'s GUID columns as `string`, although the tables
+  API lists them as `guid`. The function wrote `toguid(…)` there, which `case` refused, so it
+  now reads such a column as text.
 - **Implied values back in Elasticsearch.** `--elastic-native` also writes
   `elastic/SOURCE.runtime.json`: runtime fields that put each implied text value back when a
   query runs, for a search's `runtime_mappings` or a Kibana data view. They are proven on the

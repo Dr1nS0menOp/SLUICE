@@ -151,7 +151,38 @@ Ingestion API into `SecurityEvent`:
 | the same five columns left out | 322 bytes |
 
 An empty string column is not billed: emptying a column per row (all a DCR transformation can
-do) saves exactly as much as removing it. It also shows how large the `EventData` XML is: most
+do) saves exactly as much as removing it.
+
+**Implied values, measured 2026-10-24** in the same workspace with
+`scripts/real-data/try-dcr-implied.sh`: 100 real records (20 each of 4624, 4672, 4688, 4798 and
+5379) sent through the rule as it is and again through Sluice's transformation (15,310
+characters, from `sluice analyze --sentinel-native` on the workspace's 20,154-record sample).
+Each batch was checked against the emulator's run of the rule version meant for it.
+
+| EventID | Full | With Sluice's transformation | Less |
+|---|---:|---:|---:|
+| 4624 (implied values only) | 1,769 bytes | 1,600 bytes | 9.6 % |
+| 4672 (`EventData` and implied values) | 1,179 | 421 | 64.3 % |
+| 4688 (no kind of event of the sample) | 1,006 | 1,006 | 0 % |
+| 4798 (`EventData` and implied values) | 1,031 | 276 | 73.2 % |
+| 5379 (implied values only) | 954 | 813 | 14.8 % |
+| all 100 | 118,776 | 82,309 | 30.7 % |
+
+- The analysis predicted 30.8 % for the rule on the sample; Azure billed 30.7 % less here.
+- **The columns Sentinel shows as its own can be emptied and are then not billed:** `Activity`,
+  `EventLevelName`, `Channel`, `EventSourceName`, `Keywords` and `Level` arrived empty, and the
+  records cost less. This holds for records sent through the Logs Ingestion API, whose stream
+  declares those columns. Whether a rule on the Azure Monitor Agent's stream sees them is not
+  checked.
+- `int(null)` (for `Task`, `KeyLength`) and `guid(null)` (for `LogonGuid`) empty a typed column
+  in a transformation.
+- `SecurityEventFull` put back every emptied implied value: 700 values in 22 columns on the 100
+  records, each equal to the full record's.
+- **A changed rule took five to ten minutes to apply, and so did putting it back.** Records go
+  through the rule in force when Azure processes them, which can be minutes after they were
+  sent: send a batch only after the rule has been in force for ten minutes, and change the rule
+  again only once the batch has arrived. Earlier runs that did not wait compared two batches
+  that had gone through the same version and showed no difference at all. It also shows how large the `EventData` XML is: most
 of a `SecurityEvent` record repeats, as XML, values the record already has as columns.
 
 ## Writing into the real tables
@@ -165,6 +196,12 @@ of a `SecurityEvent` record repeats, as XML, values the record already has as co
   DCR converts them with `toguid()`, which accepts Windows' braces (`{…}`) and turns anything
   invalid into null. Verified: they arrive as GUIDs without braces.
 - Records sent through the API were queryable after about four minutes.
+- **A query reads those `guid` columns as `string`** (2026-10-24, the test workspace):
+  `SecurityEvent | getschema` gives `LogonGuid` as `System.String`, `gettype(LogonGuid)` is
+  `string`, and `case(…, toguid("…"), LogonGuid)` is refused with `SEM0525 case: return types
+  are not compatible … UniqueId,StringBuffer`, while a string value works. The tables API and
+  the emulator's table (built from it) say `guid`. A query Sluice writes for the table, such as
+  `<Table>Full`, reads such a column with `tostring()` and gives text back.
 
 ## Running analytics rules in the emulator
 

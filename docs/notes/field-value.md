@@ -190,10 +190,11 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
 - **Queries, not only rules.** An analyst who queries `RestrictedAdminMode == "-"` finds nothing
   once it is removed. Sentinel's query log (`--query-log-days`) covers what was run; documenting
   that the value is implied by absence covers the rest.
-- **Billing per SIEM.** Sentinel bills the columns it adds during ingestion (`Activity`,
-  `EventLevelName`, `Account`), but a data collection rule may not see them: whether a
-  transformation can remove them needs a test in the workspace, with `_BilledSize` before and
-  after.
+- **Billing per SIEM.** Measured for Sentinel on 2026-10-24 (`docs/notes/sentinel-dcr.md`):
+  through the Logs Ingestion API a rule empties `Activity`, `EventLevelName` and the other
+  implied columns, Azure bills 30.7 % less on 100 real records (the analysis predicted 30.8 %),
+  and `SecurityEventFull` puts every value back. Still open: the Azure Monitor Agent's stream,
+  and the other SIEMs' billing.
 - **Versions.** `Version`, `Task` and `Keywords` can change between Windows builds. A
   value-guarded removal stays exact; only the savings vary.
 - **The learning step needs a fleet.** One PC makes `Computer` look constant. That costs no

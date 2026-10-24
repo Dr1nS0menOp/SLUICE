@@ -148,12 +148,102 @@ fn the_function_puts_each_implied_value_back_where_its_column_is_empty() {
             when: None,
         },
     ];
-    let kql = function("SecurityEvent", &rebuilt).expect("a function");
+    let kql = function(&Table::SecurityEvent, &rebuilt).expect("a function");
     assert!(kql.contains("named SecurityEventFull"));
     assert!(kql.contains("\nSecurityEvent\n"));
     assert!(kql.contains(
         r#"| extend ['Keywords'] = case(isempty(tostring(['Keywords'])) and tostring(['EventID']) == "4624", "0x8020000000000000", ['Keywords'])"#
     ));
     assert!(kql.contains(r#", toint("3"), ['LogonType'])"#));
-    assert_eq!(function("SecurityEvent", &[]), None);
+    assert_eq!(function(&Table::SecurityEvent, &[]), None);
+}
+
+#[test]
+fn a_guid_column_and_its_value_are_read_as_text_which_holds_for_either_type() {
+    // Found in a workspace: the tables API lists `LogonGuid` as `guid`, a query reads it as a
+    // `string`, and `case` refused a `toguid(…)` value for it ("return types are not
+    // compatible"). Text on both sides runs on a `string` column and on a `guid` one.
+    let rebuilt = [Rebuilt {
+        column: "LogonGuid".into(),
+        kind: "guid".into(),
+        value: "00000000-0000-0000-0000-000000000000".into(),
+        discriminators: discriminators(),
+        when: None,
+    }];
+    let kql = function(&Table::SecurityEvent, &rebuilt).expect("a function");
+    assert!(
+        kql.contains(r#", "00000000-0000-0000-0000-000000000000", tostring(['LogonGuid']))"#),
+        "{kql}"
+    );
+}
+
+/// In the Kusto emulator (`SLUICE_KUSTO_URL`), on a table with the types the tables API lists
+/// (`LogonGuid` a `guid`; a workspace reads it as a `string`, which `try-dcr-implied.sh`
+/// covers): the function runs, and puts the value back where it was emptied, and only there.
+#[test]
+fn c1_in_the_kql_engine_the_function_runs_on_the_table_and_puts_a_guid_back() {
+    use serde_json::{Value, json};
+    use sluice_core::event::{Event, Timestamp};
+    use sluice_core::ids::{EventId, SourceId};
+
+    let Ok(url) = std::env::var("SLUICE_KUSTO_URL") else {
+        return;
+    };
+    let zero = "00000000-0000-0000-0000-000000000000";
+    let rebuilt = [Rebuilt {
+        column: "LogonGuid".into(),
+        kind: "string".into(),
+        value: zero.into(),
+        discriminators: discriminators(),
+        when: None,
+    }];
+    let record = |event_id: i64, guid: Option<&str>, label: &str| {
+        let mut fields = json!({"EventID": event_id, "Activity": label});
+        if let Some(guid) = guid {
+            fields["LogonGuid"] = json!(guid);
+        }
+        Event {
+            id: EventId(0),
+            timestamp: Timestamp(0),
+            source: SourceId::new("SecurityEvent"),
+            fields: fields.as_object().expect("an object").clone(),
+        }
+    };
+    let events = [
+        record(4624, None, "emptied"),
+        record(4624, Some("11111111-2222-3333-4444-555555555555"), "kept"),
+        record(4625, None, "other event"),
+    ];
+    let client = crate::engine::Client::new(&url);
+    let database = crate::engine::Database::create(&client, &[]).expect("a database");
+    database
+        .load(&Table::SecurityEvent, &events.iter().collect::<Vec<_>>())
+        .expect("loads");
+    let kql = function(&Table::SecurityEvent, &rebuilt).expect("a function");
+    let query = kql + "| project Activity, LogonGuid = tostring(LogonGuid)";
+    let rows = database
+        .query(&query)
+        .expect("the function runs on the table");
+    let mut seen: Vec<(String, String)> = rows
+        .iter()
+        .map(|row| {
+            let row: Value = serde_json::from_str(row).expect("a row");
+            (
+                row[1][0].as_str().unwrap_or_default().to_owned(),
+                row[1][1].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .collect();
+    seen.sort();
+    assert_eq!(
+        seen,
+        [
+            ("emptied".to_owned(), zero.to_owned()),
+            (
+                "kept".to_owned(),
+                "11111111-2222-3333-4444-555555555555".to_owned()
+            ),
+            ("other event".to_owned(), String::new()),
+        ]
+    );
 }

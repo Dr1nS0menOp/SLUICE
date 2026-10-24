@@ -18,6 +18,7 @@ use sluice_core::template::TemplateShape;
 
 use super::{column, empty_value};
 use crate::syntax;
+use crate::table::Table;
 
 /// An implied value the transformation empties, and how to put it back: on records with these
 /// discriminator values whose column is empty (and whose `when` column holds its value).
@@ -141,15 +142,23 @@ pub(super) fn holds(value: &Rebuilt) -> String {
 /// The workspace function `{table}Full`: `table` with every implied value the transformation
 /// empties put back. `None` when it empties none.
 ///
+/// The function runs on the table, so each value takes the type of the table's column. A
+/// `guid` column is the exception: the tables API lists `SecurityEvent`'s `LogonGuid` as
+/// `guid` and a rule must write a `guid` there, but a query reads it as a `string`, and `case`
+/// refuses a `guid` value for it (verified in a workspace, 2026-10-24). So such a column and
+/// its value are both read as text, which holds whichever type the column turns out to have.
+///
 /// # Panics
 ///
 /// Never for values of a [`super::Transformation`]: its implied values hold only text a KQL
 /// literal can carry.
 #[must_use]
-pub fn function(table: &str, implied: &[Rebuilt]) -> Option<String> {
+pub fn function(table: &Table, implied: &[Rebuilt]) -> Option<String> {
     if implied.is_empty() {
         return None;
     }
+    let types: BTreeMap<&str, &str> = table.column_types().into_iter().collect();
+    let table = table.name();
     let literal =
         |text: &str| syntax::string(text).expect("implied kept only literals KQL carries");
     let mut by_column: BTreeMap<&str, Vec<&Rebuilt>> = BTreeMap::new();
@@ -169,6 +178,13 @@ pub fn function(table: &str, implied: &[Rebuilt]) -> Option<String> {
     ];
     for (name, values) in by_column {
         let quoted = column(name);
+        let kind = types.get(name).copied().unwrap_or(values[0].kind.as_str());
+        let as_text = kind == "guid" || values.iter().any(|v| v.kind == "guid");
+        let (kind, original) = if as_text {
+            ("string", format!("tostring({quoted})"))
+        } else {
+            (kind, quoted.clone())
+        };
         let mut cases = Vec::new();
         for value in values {
             let mut tests = vec![format!("isempty(tostring({quoted}))")];
@@ -184,11 +200,11 @@ pub fn function(table: &str, implied: &[Rebuilt]) -> Option<String> {
             cases.push(format!(
                 "{}, {}",
                 tests.join(" and "),
-                typed(&value.kind, &value.value)
+                typed(kind, &value.value)
             ));
         }
         lines.push(format!(
-            "| extend {quoted} = case({}, {quoted})",
+            "| extend {quoted} = case({}, {original})",
             cases.join(", ")
         ));
     }

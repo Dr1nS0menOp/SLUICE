@@ -173,7 +173,8 @@ pub(super) fn write(rule: Value, proven: &[(Proven, Flow)], dir: &Path) -> Resul
             &(one.kql.clone() + "\n"),
         )?;
         let table = one.table.name();
-        if let Some(function) = sluice_kql::rebuilding_function(table, &one.generated.implied) {
+        if let Some(function) = sluice_kql::rebuilding_function(&one.table, &one.generated.implied)
+        {
             let path = dir.join(format!("{table}Full.kql"));
             crate::output::write(&path, &function)?;
             println!(
