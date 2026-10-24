@@ -87,3 +87,20 @@ installed pipeline. ADR 0024 uses these facts.
 - Elastic's integration pipelines call `<type>-<dataset>@custom` (and `global@custom`,
   `<type>@custom`) at their end if it exists (Elastic's documentation, not tried here): a
   `pipeline` processor there calling Sluice's pipeline runs it last, on documents as stored.
+
+## Runtime fields that put implied values back
+
+Verified against Elasticsearch 9.1.0 on 2026-10-24, through `_ingest/pipeline/_simulate` and a
+search with `runtime_mappings` on an index Elasticsearch mapped by itself
+(`sluice_elastic::rebuild`, its `c1_in_elasticsearch_*` tests).
+
+- A runtime field's Painless script may declare functions before its first statement, as an
+  ingest script may. A function cannot call `emit`, so each one returns a `List` and the
+  script emits its members.
+- `params['_source']` is the document's source as a `Map`, with the same value types an ingest
+  script sees in `ctx`, so one function serves both: a search reads with it, and `_simulate`
+  proves it without writing to the cluster.
+- A `keyword` runtime field with the name of a mapped field (here a `text` field with a
+  `keyword` sub-field) shadows it: the hit's `fields` show the emitted values, on documents
+  that kept the field and on those that lost it alike. Not checked: whether a sub-field such as
+  `.keyword` is shadowed too, so the guide tells a query to name the field itself.

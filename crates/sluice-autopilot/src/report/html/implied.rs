@@ -22,8 +22,9 @@ pub(super) fn explain(report: &Report) -> String {
          <p>Sluice leaves an implied value out <b>only while the event holds exactly that \
          value</b>: an event that holds another one is sent with the field as it is. So nothing \
          is lost. <code>plan.json</code> lists every implied value, which lets any tool fill a \
-         missing field back in exactly; for Microsoft Sentinel, the function \
-         <code>&lt;Table&gt;Full</code> that Sluice writes does that when a query runs. The \
+         missing field back in exactly. For Microsoft Sentinel, the function \
+         <code>&lt;Table&gt;Full</code> that Sluice writes does that when a query runs, and for \
+         Elasticsearch the runtime fields it writes do so in a search or a data view. The \
          archive keeps every event whole.</p>\
          <p>Implied values are learned from this sample, only from fields that behave as \
          categories: few values, each seen often, and no new value late in the sample. \

@@ -8,13 +8,14 @@
 //! compares each document as the pipeline leaves it with the document itself: it removes
 //! nothing Vector keeps, changes no other value, and the rules raise the same alerts.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 use sluice_autopilot::{Analysis, Input};
 use sluice_core::alert::{Engines, RuleEngine};
-use sluice_elastic::{ingest_pipeline, simulate};
+use sluice_elastic::{Rebuild, ingest_pipeline, rebuild, rebuilt, simulate};
 
 use super::Generated;
 
@@ -72,6 +73,8 @@ pub(crate) fn elastic(analysis: &Analysis, input: Input<'_>, url: &str, out: &Pa
             &(serde_json::to_string_pretty(&generated.body)? + "\n"),
         )?;
         written.push(path);
+        let rebuild = rebuild(&plans, &generated);
+        runtime_fields(url, source, rebuild, &documents, &after, out)?;
     }
     if let Some(first) = written.first() {
         println!(
@@ -81,5 +84,60 @@ pub(crate) fn elastic(analysis: &Analysis, input: Input<'_>, url: &str, out: &Pa
             first.parent().unwrap_or(first).display()
         );
     }
+    Ok(())
+}
+
+/// Proves the runtime fields that put `source`'s implied values back: on the sample they must
+/// read every forwarded document as they read the full one. Those that do are written to
+/// `out/elastic/SOURCE.runtime.json`; any other is left out, and said so.
+fn runtime_fields(
+    url: &str,
+    source: &str,
+    mut rebuild: Rebuild,
+    full: &[&Map<String, Value>],
+    sent: &[Map<String, Value>],
+    out: &Path,
+) -> Result<()> {
+    if rebuild.is_empty() {
+        return Ok(());
+    }
+    let sent: Vec<&Map<String, Value>> = sent.iter().collect();
+    let expected = rebuilt(url, &rebuild, full)
+        .with_context(|| format!("{source}: reading the full documents' runtime fields"))?;
+    let read = rebuilt(url, &rebuild, &sent)
+        .with_context(|| format!("{source}: reading the forwarded documents' runtime fields"))?;
+    let differ: BTreeSet<&String> = expected
+        .iter()
+        .zip(&read)
+        .flat_map(|(want, got)| want.iter().filter(move |(k, v)| got.get(*k) != Some(*v)))
+        .map(|(field, _)| field)
+        .collect();
+    rebuild.retain(
+        |field| !differ.iter().any(|d| d.as_str() == field),
+        "on the sample it would read a forwarded document differently from the full one",
+    );
+    let fields: Vec<&str> = rebuild.fields().collect();
+    let left = match rebuild.left_out.len() {
+        0 => String::new(),
+        n => format!(
+            "; {n} left out, first {}",
+            rebuild.left_out.first().map_or("", String::as_str)
+        ),
+    };
+    if fields.is_empty() {
+        println!("  elastic {source}: no implied value put back at query time{left}");
+        return Ok(());
+    }
+    let path = out.join("elastic").join(format!("{source}.runtime.json"));
+    crate::output::write(
+        &path,
+        &(serde_json::to_string_pretty(&rebuild.runtime_mappings())? + "\n"),
+    )?;
+    println!(
+        "  elastic {source}: {} implied field(s) put back at query time by {} (a search's \
+         `runtime_mappings`, or runtime fields of a Kibana data view), proven on the sample{left}",
+        fields.len(),
+        path.display()
+    );
     Ok(())
 }

@@ -25,6 +25,12 @@ All notable changes to Sluice are recorded here. The format follows
   before (recipes, empty fields, counting; everything a rule or query reads is kept), `implied`
   the implied values. Both run by default and either runs alone. The report, the summary and
   `plan.json` (`saved_by_mode`) give the saving of each side by side.
+- **Implied values back in Elasticsearch.** `--elastic-native` also writes
+  `elastic/SOURCE.runtime.json`: runtime fields that put each implied text value back when a
+  query runs, for a search's `runtime_mappings` or a Kibana data view. They are proven on the
+  sample in Elasticsearch through `_simulate`, without writing to the cluster: every forwarded
+  document reads as the full one, and a field that would not is left out. The pipeline now
+  keeps an empty field that may go as implied, so its absence has one meaning.
 - **What the SIEM still receives.** The report shows, per source, up to 10 events of the sample
   as they are sent after the savings, one of each kind of event first, each with what was left
   out and why (repeats the event, empty, or the implied value that can be put back).

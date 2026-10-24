@@ -155,8 +155,18 @@ gives the saving of each:
 - **The report** lists per kind of event every removed field: events, bytes, why it may go
   (the recipe's reasoning, empty, always this value, or this value whenever that field holds
   that one) and where its removal can run.
-- **Not yet:** Elasticsearch's, Fluent Bit's and the collector's generators leave implied
-  values in place; they keep more than Vector, which their proofs allow.
+- **The other engines.** Elasticsearch's ingest pipeline, Fluent Bit's Lua filter and the
+  collector's transform statements remove implied values too, each proven against Vector in
+  the real engine; the agents leave a value tested against a whole number in place, since they
+  cannot tell `3` from `3.0`.
+- **Elasticsearch puts them back.** `--elastic-native` also writes `SOURCE.runtime.json`:
+  runtime fields that shadow each implied text field and give its value back on a document the
+  pipeline took it from (its kind of event, the implying field's value, a key set the pipeline
+  can have left). The pipeline keeps an empty field that may go as implied, so its absence has
+  one meaning. Proven on the sample in Elasticsearch: on the demo, 39 fields of
+  `windows-security` read every forwarded document as the full one.
+- **The report** shows per source up to 10 events as they are sent, with what was left out and
+  why, and says in plain words what an implied value is.
 
 Measured with the real rules (the project's real-data runs, `scripts/real-data/run.sh`):
 
@@ -191,7 +201,12 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
 - **Analysts see an absent field.** A removed value is implied, not gone, but a query on the
   table itself for `RestrictedAdminMode == "-"` finds nothing. For Sentinel, `<Table>Full`
   reads as before; analytics rules keep querying the table, and the guardrails keep every field
-  they read. Other SIEMs have no such function yet.
+  they read. For Elasticsearch, the runtime fields of `SOURCE.runtime.json` do the same in a
+  search or a data view. Splunk, Wazuh and the agents' destinations have no such step yet.
+- **Out of the sample, a rebuild can guess.** `<Table>Full` and the runtime fields recognise a
+  record by its kind of event; a record of that kind that arrived without the field (a variant
+  the sample did not have), or with it empty in Sentinel, where an emptied and an empty column
+  look alike, gets the implied value. The proof on the sample rules this out there only.
 - **Linux text lines.** Template text is the bulk of a line, and rules read it whole. Saving there
   stays with counting kinds of event no rule needs, and with archives that compress by template
   (as CLP does).

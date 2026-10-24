@@ -272,20 +272,20 @@ fn recognition(template: &Template, left_out: &mut Vec<String>) -> Option<Recogn
 }
 
 /// Whether the path's first segment is a name of Elasticsearch metadata.
-fn metadata(path: &FieldPath) -> bool {
+pub(crate) fn metadata(path: &FieldPath) -> bool {
     path.segments()
         .next()
         .is_some_and(|s| METADATA_FIELDS.contains(&s))
 }
 
 /// A key set as `sluiceKeys` shows it: metadata left out.
-fn visible(variant: &BTreeSet<FieldPath>) -> BTreeSet<&FieldPath> {
+pub(crate) fn visible(variant: &BTreeSet<FieldPath>) -> BTreeSet<&FieldPath> {
     variant.iter().filter(|path| !metadata(path)).collect()
 }
 
 /// Whether VRL may render as `value` a float `sluiceDisc` cannot render: zero, a fraction, or
 /// 10^15 and more. Any other value Painless renders exactly as VRL does.
-fn undecidable(value: &str) -> bool {
+pub(crate) fn undecidable(value: &str) -> bool {
     value
         .parse::<f64>()
         .is_ok_and(|x| x == 0.0 || x.fract() != 0.0 || x.abs() >= 1e15)
@@ -352,6 +352,12 @@ fn action(
         .map(|field| format!("  sluiceRemove(ctx, {});", painless::segments(field)))
         .collect();
     if let Some(except) = &recipe.drop_empty_except {
+        // A field that may go as implied stays when it is empty, unlike in Vector: then a
+        // document without it held the implied value, which `crate::rebuild` puts back.
+        let except: BTreeSet<&FieldPath> = except
+            .iter()
+            .chain(recipe.drop_implied.iter().map(|v| &v.field))
+            .collect();
         let keep = |field: &FieldPath| except.iter().any(|e| e.covers(field) || field.covers(e));
         if plan
             .template
@@ -370,7 +376,7 @@ fn action(
             });
             lines.push(format!(
                 "  sluiceRemoveEmptyExcept(ctx, keys, {}, {});",
-                painless::list(relevant.map(FieldPath::as_str)),
+                painless::list(relevant.map(|e| e.as_str())),
                 painless::list(recipe.drop_fields.iter().map(FieldPath::as_str))
             ));
             empty_fields = true;
