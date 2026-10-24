@@ -109,6 +109,8 @@ pub struct RemovedField {
     pub bytes: u64,
     /// The kind of saving that removes it.
     pub mode: Mode,
+    /// The value it always holds on this kind of event, when it goes as such an implied value.
+    pub constant: Option<String>,
     /// Why it may go, in plain words.
     pub why: String,
     /// Where its removal can run, in plain words.
@@ -249,6 +251,15 @@ fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> Te
             } else {
                 Mode::Rules
             },
+            constant: text::implied(path, recipe)
+                .then(|| {
+                    recipe
+                        .drop_implied
+                        .iter()
+                        .find(|v| &v.field == path && v.when.is_none())
+                        .map(|v| v.value.to_string())
+                })
+                .flatten(),
             why: text::why_removed(path, recipe),
             runs_in: text::where_removed(path, recipe, shared),
         })

@@ -51,6 +51,7 @@ fn hostile() -> Report {
                 events: 1,
                 bytes: 1,
                 mode: Mode::Implied,
+                constant: None,
                 why: HOSTILE.into(),
                 runs_in: HOSTILE.into(),
             }],
@@ -413,6 +414,7 @@ pub(super) fn row_removing(fields: &[(&str, u64, Mode)]) -> TemplateRow {
                 events: 1,
                 bytes: *bytes,
                 mode: *mode,
+                constant: None,
                 why: String::new(),
                 runs_in: String::new(),
             })

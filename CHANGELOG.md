@@ -25,6 +25,9 @@ All notable changes to Sluice are recorded here. The format follows
   before (recipes, empty fields, counting; everything a rule or query reads is kept), `implied`
   the implied values. Both run by default and either runs alone. The report, the summary and
   `plan.json` (`saved_by_mode`) give the saving of each side by side.
+- **One machine's sample, said.** The report names per source the implied values that are the
+  same on every kind of event that has them, such as `Computer` on a sample from one PC, and how
+  much of the saving they make: on other machines such a field is simply sent.
 - **Implied values in a real Sentinel workspace.** `scripts/real-data/try-dcr-implied.sh`
   measures them in a data collection rule. On 100 real records Azure billed 30.7 % less (the
   analysis predicted 30.8 %), and `SecurityEventFull` put back all 700 emptied values. That run

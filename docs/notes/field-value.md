@@ -198,7 +198,11 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
 - **Versions.** `Version`, `Task` and `Keywords` can change between Windows builds. A
   value-guarded removal stays exact; only the savings vary.
 - **The learning step needs a fleet.** One PC makes `Computer` look constant. That costs no
-  data (a value guard keeps any other host's name), but it overstates the saving.
+  data (a value guard keeps any other host's name), but it overstates the saving. Nothing in
+  one machine's data tells its name from a value the kind of event fixes, so the report says per
+  source which implied values are the same on every kind of event that has them, and how much
+  of the saving they make. On the test workspace's sample: `Channel`, `Computer`,
+  `EventLevelName`, `EventSourceName` and two more, 3.6 MB of 12.8 MB saved.
 - **Analysts see an absent field.** A removed value is implied, not gone, but a query on the
   table itself for `RestrictedAdminMode == "-"` finds nothing. For Sentinel, `<Table>Full`
   reads as before; analytics rules keep querying the table, and the guardrails keep every field
