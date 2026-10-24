@@ -178,6 +178,7 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
 | Sentinel `SecurityEvent` of the test workspace; its own two rules | 4.1 % | 37.9 % | 0 = 0 |
 | `sluice demo --scale 100`; the example rules | 74.0 % | 85.3 % | 41 = 41 |
 | OTRF Security-Datasets APT29 day 1, Security and Sysmon of **four machines**; the example rules | 63.2 % (the rules' share) | 80.0 % (implied 16.8 %) | 0 = 0 |
+| The same four machines; all 3,152 SigmaHQ rules | 32.8 % (the rules' share) | 58.8 % (implied 26.1 %) | 29,555 = 29,555 |
 
 - On Linux nothing changes, as predicted: its lines are text.
 - With SigmaHQ on records in Sentinel's names, SigmaHQ's rules may read any field (ADR 0018),
@@ -209,8 +210,8 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
   On OTRF's APT29 day 1 (four real machines, 184,886 Security and Sysmon events, 2026-10-24)
   implied values save 16.8 %, no machine name is learned as a constant (`Hostname` only as
   implied by another field), and the list holds only what the four share, such as `host`,
-  there the address of the log collector. The example rules raise no alert on it, so that run
-  shows nothing about detections; a run with SigmaHQ is still to do.
+  there the address of the log collector. With all of SigmaHQ: 58.8 % saved, 26.1 % by implied
+  values, 29,555 = 29,555 alerts.
 - **Analysts see an absent field.** A removed value is implied, not gone, but a query on the
   table itself for `RestrictedAdminMode == "-"` finds nothing. For Sentinel, `<Table>Full`
   reads as before; analytics rules keep querying the table, and the guardrails keep every field
