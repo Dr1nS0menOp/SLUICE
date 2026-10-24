@@ -68,14 +68,9 @@ impl Rebuild {
             .functions
             .iter()
             .map(|(field, (kind, body))| {
-                let source = format!(
-                    "{}List sluiceValues(Map ctx) {{\n{body}\n}}\nfor (def v : \
-                     sluiceValues(params['_source'])) {{ emit(v); }}\n",
-                    painless::FUNCTIONS
-                );
                 (
                     field.clone(),
-                    json!({"type": kind.name(), "script": {"source": source}}),
+                    json!({"type": kind.name(), "script": {"source": runtime_source(body)}}),
                 )
             })
             .collect();
@@ -115,13 +110,13 @@ pub fn rebuild(plans: &[Plan<'_>], pipeline: &IngestPipeline) -> Rebuild {
             continue;
         };
         let body = function(&field, kind, &cases);
-        if painless::FUNCTIONS.len() + body.len() + 200 > MAX_SCRIPT {
+        if fits(&field, &body) {
+            functions.insert(field, (kind, body));
+        } else {
             left_out.push(format!(
                 "`{field}`: its runtime field would be longer than the {MAX_SCRIPT} bytes \
                  Elasticsearch compiles"
             ));
-        } else {
-            functions.insert(field, (kind, body));
         }
     }
     Rebuild {
@@ -370,24 +365,12 @@ pub fn rebuilt(
     documents: &[&Map<String, Value>],
 ) -> Result<Vec<BTreeMap<String, Value>>, ElasticError> {
     let mut out = vec![BTreeMap::new(); documents.len()];
-    let bodies: BTreeMap<String, String> = rebuild
+    let functions: Vec<(&str, &str)> = rebuild
         .functions
         .iter()
-        .map(|(field, (_, body))| (field.clone(), body.clone()))
+        .map(|(field, (_, body))| (field.as_str(), body.as_str()))
         .collect();
-    for group in groups(&bodies) {
-        let mut script = painless::FUNCTIONS.to_owned();
-        let mut calls = Vec::new();
-        for (n, (field, body)) in group.iter().enumerate() {
-            let _ = write!(script, "List sluiceValues{n}(Map ctx) {{\n{body}\n}}\n");
-            calls.push(format!("{}: sluiceValues{n}(ctx)", painless::string(field)));
-        }
-        // Every value is read before the result is stored, so no function sees it.
-        let _ = write!(
-            script,
-            "Map r = [{}];\nctx.sluice_rebuilt = r;\n",
-            calls.join(", ")
-        );
+    for script in simulations(&functions) {
         let pipeline = json!({"processors": [{"script": {"source": script}}]});
         for (row, document) in out.iter_mut().zip(simulate(url, &pipeline, documents)?) {
             if let Some(Value::Object(values)) = document.get("sluice_rebuilt") {
@@ -398,24 +381,55 @@ pub fn rebuilt(
     Ok(out)
 }
 
-/// The functions in groups whose script stays within [`MAX_SCRIPT`].
-fn groups(functions: &BTreeMap<String, String>) -> Vec<Vec<(&String, &String)>> {
-    let budget = MAX_SCRIPT - painless::FUNCTIONS.len() - 1_000;
-    let mut out: Vec<Vec<(&String, &String)>> = Vec::new();
-    let mut size = 0;
-    for entry in functions {
-        let len = entry.1.len() + entry.0.len() + 64;
-        if out.is_empty() || size + len > budget {
-            out.push(Vec::new());
-            size = 0;
-        }
-        size += len;
-        out.last_mut()
-            .expect("a group was pushed above")
-            .push(entry);
-    }
-    out
+/// The runtime field's script around `body`, the body of a function `List f(Map ctx)`.
+fn runtime_source(body: &str) -> String {
+    format!(
+        "{}List sluiceValues(Map ctx) {{\n{body}\n}}\nfor (def v : \
+         sluiceValues(params['_source'])) {{ emit(v); }}\n",
+        painless::FUNCTIONS
+    )
 }
 
+/// The `_simulate` script that reads every one of `functions` (`(field, body)`) into
+/// `ctx.sluice_rebuilt`. Every value is read before the result is stored, so no function sees it.
+fn simulation(functions: &[(&str, &str)]) -> String {
+    let mut script = painless::FUNCTIONS.to_owned();
+    let mut calls = Vec::new();
+    for (n, (field, body)) in functions.iter().enumerate() {
+        let _ = write!(script, "List sluiceValues{n}(Map ctx) {{\n{body}\n}}\n");
+        calls.push(format!("{}: sluiceValues{n}(ctx)", painless::string(field)));
+    }
+    let _ = write!(
+        script,
+        "Map r = [{}];\nctx.sluice_rebuilt = r;\n",
+        calls.join(", ")
+    );
+    script
+}
+
+/// Whether `field`'s function compiles in Elasticsearch both as its runtime field and in a
+/// `_simulate` script of its own.
+fn fits(field: &str, body: &str) -> bool {
+    runtime_source(body).len() <= MAX_SCRIPT && simulation(&[(field, body)]).len() <= MAX_SCRIPT
+}
+
+/// The `_simulate` scripts that read every one of `functions`, each as many as fit in
+/// [`MAX_SCRIPT`]. A function that fits alone ([`fits`]) always has a script.
+fn simulations(functions: &[(&str, &str)]) -> Vec<String> {
+    let mut scripts = Vec::new();
+    let mut group: Vec<(&str, &str)> = Vec::new();
+    for &function in functions {
+        group.push(function);
+        if group.len() > 1 && simulation(&group).len() > MAX_SCRIPT {
+            group.pop();
+            scripts.push(simulation(&group));
+            group = vec![function];
+        }
+    }
+    if !group.is_empty() {
+        scripts.push(simulation(&group));
+    }
+    scripts
+}
 #[cfg(test)]
 mod tests;

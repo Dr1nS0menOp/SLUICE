@@ -221,7 +221,6 @@ fn typed(kind: &str, value: &str) -> String {
         "long" => format!("tolong({text})"),
         "real" => format!("toreal({text})"),
         "datetime" => format!("todatetime({text})"),
-        "guid" => format!("toguid({text})"),
         _ => format!("todynamic({text})"),
     }
 }

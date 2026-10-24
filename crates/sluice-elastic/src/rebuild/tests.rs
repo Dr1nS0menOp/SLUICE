@@ -325,3 +325,241 @@ fn c1_in_elasticsearch_a_search_with_the_runtime_fields_shows_the_values_back() 
         }
     }
 }
+
+#[test]
+fn nothing_to_put_back_is_empty() {
+    let (_, rebuild) = built();
+    assert!(!rebuild.is_empty());
+    let t = failure();
+    let none = EffectiveRecipe::passthrough(t.id.clone());
+    let plans = [Plan {
+        template: &t,
+        recipe: &none,
+    }];
+    assert!(super::rebuild(&plans, &ingest_pipeline("test", &plans)).is_empty());
+}
+
+#[test]
+fn a_function_fits_up_to_the_last_byte_elasticsearch_compiles() {
+    let overhead = runtime_source("").len().max(simulation(&[("F", "")]).len());
+    let body = "x".repeat(MAX_SCRIPT - overhead);
+    assert!(fits("F", &body));
+    assert!(!fits("F", &(body + "x")));
+}
+
+#[test]
+fn the_values_are_read_in_as_few_scripts_as_fit() {
+    let half = "x".repeat(MAX_SCRIPT / 2);
+    let small = "y".repeat(10);
+    // Two halves do not fit in one script beside the helper functions; small ones join them.
+    let functions = [
+        ("A", half.as_str()),
+        ("B", half.as_str()),
+        ("C", small.as_str()),
+    ];
+    let scripts = simulations(&functions);
+    assert_eq!(scripts.len(), 2);
+    assert!(scripts.iter().all(|s| s.len() <= MAX_SCRIPT));
+    assert!(scripts[1].contains("'B': sluiceValues0(ctx), 'C': sluiceValues1(ctx)"));
+    assert_eq!(simulations(&[]), Vec::<String>::new());
+    let one = simulations(&[("A", small.as_str()), ("B", small.as_str())]);
+    assert_eq!(one.len(), 1);
+}
+
+fn refusal(template: &Template, recipe: &EffectiveRecipe) -> Vec<String> {
+    let plans = [Plan { template, recipe }];
+    let rebuild = super::rebuild(&plans, &ingest_pipeline("test", &plans));
+    assert!(
+        rebuild.is_empty(),
+        "{:?}",
+        rebuild.fields().collect::<Vec<_>>()
+    );
+    rebuild.left_out
+}
+
+fn mode(when: Option<(&str, Literal)>) -> ImpliedValue {
+    ImpliedValue {
+        field: "Mode".into(),
+        value: Literal::Text("-".into()),
+        when: when.map(|(on, v)| (on.into(), v)),
+    }
+}
+
+fn implying(values: Vec<ImpliedValue>, id: &str) -> EffectiveRecipe {
+    EffectiveRecipe {
+        drop_implied: values,
+        ..EffectiveRecipe::passthrough(id.into())
+    }
+}
+
+#[test]
+fn a_value_implied_in_two_ways_is_not_put_back() {
+    let t = logon();
+    let left = refusal(
+        &t,
+        &implying(
+            vec![
+                mode(Some(("LogonType", Literal::Integer(3)))),
+                mode(Some(("Keywords", Literal::Text("0x10".into())))),
+            ],
+            t.id.as_str(),
+        ),
+    );
+    assert!(
+        left.iter()
+            .any(|l| l.contains("implied in more than one way")),
+        "{left:?}"
+    );
+}
+
+#[test]
+fn a_kind_of_event_a_script_cannot_recognise_exactly_puts_nothing_back() {
+    // The pipeline already leaves such a kind of event alone; this keeps the runtime fields
+    // from relying on that.
+    for (discriminator, value) in [("EventID", "0.5"), ("_id", "x")] {
+        let mut t = logon();
+        if let TemplateShape::Keyset { discriminators, .. } = &mut t.shape {
+            *discriminators = vec![(discriminator.into(), value.to_owned())];
+        }
+        let value = mode(None);
+        let recipe = implying(vec![value.clone()], t.id.as_str());
+        let found = super::cases_for(
+            &Plan {
+                template: &t,
+                recipe: &recipe,
+            },
+            &[],
+            &"Mode".into(),
+            &[&value],
+        );
+        assert_eq!(
+            found,
+            Err("is on a kind of event a script cannot recognise exactly"),
+            "{discriminator}"
+        );
+    }
+}
+#[test]
+fn a_discriminator_or_a_metadata_name_is_never_shadowed() {
+    let t = logon();
+    let event_id = ImpliedValue {
+        field: "EventID".into(),
+        value: Literal::Text("4624".into()),
+        when: None,
+    };
+    let left = super::cases_for(
+        &Plan {
+            template: &t,
+            recipe: &implying(vec![event_id.clone()], t.id.as_str()),
+        },
+        &[],
+        &"EventID".into(),
+        &[&event_id],
+    );
+    assert_eq!(left, Err("is not a field a runtime field can shadow"));
+    let metadata = ImpliedValue {
+        field: "_id".into(),
+        ..event_id
+    };
+    let left = super::cases_for(
+        &Plan {
+            template: &t,
+            recipe: &implying(vec![metadata.clone()], t.id.as_str()),
+        },
+        &[],
+        &"_id".into(),
+        &[&metadata],
+    );
+    assert_eq!(left, Err("is not a field a runtime field can shadow"));
+}
+
+#[test]
+fn only_a_field_the_pipeline_removes_when_empty_has_an_absence_with_two_meanings() {
+    let base = EffectiveRecipe::passthrough("t".into());
+    let field = FieldPath::from("Note");
+    assert!(
+        !empty_removable(&base, &field),
+        "empty fields are not removed"
+    );
+    let empties = EffectiveRecipe {
+        drop_empty_except: Some(BTreeSet::new()),
+        ..base
+    };
+    assert!(empty_removable(&empties, &field));
+    let kept = EffectiveRecipe {
+        drop_empty_except: Some(["Note".into()].into()),
+        ..empties.clone()
+    };
+    assert!(!empty_removable(&kept, &field), "an exception keeps it");
+    let parent = EffectiveRecipe {
+        drop_empty_except: Some(["Note.inner".into()].into()),
+        ..empties.clone()
+    };
+    assert!(!empty_removable(&parent, &field), "it holds an exception");
+    let dropped = EffectiveRecipe {
+        drop_fields: ["Note".into()].into(),
+        ..empties.clone()
+    };
+    assert!(!empty_removable(&dropped, &field), "it goes anyway");
+    let implied = EffectiveRecipe {
+        drop_implied: vec![ImpliedValue {
+            field: "Note".into(),
+            value: Literal::Text("x".into()),
+            when: None,
+        }],
+        ..empties
+    };
+    assert!(
+        !empty_removable(&implied, &field),
+        "the pipeline keeps it when empty"
+    );
+}
+
+#[test]
+fn a_documents_key_set_lies_between_what_the_pipeline_can_and_must_leave() {
+    let recipe = EffectiveRecipe {
+        drop_fields: ["Message".into()].into(),
+        drop_empty_except: Some(["EventID".into()].into()),
+        drop_implied: vec![ImpliedValue {
+            field: "Keywords".into(),
+            value: Literal::Text("0x80".into()),
+            when: None,
+        }],
+        ..EffectiveRecipe::passthrough("t".into())
+    };
+    let variant: BTreeSet<FieldPath> = ["EventID", "Keywords", "Message", "Mode", "Note"]
+        .iter()
+        .map(|f| FieldPath::from(*f))
+        .collect();
+    let implied: BTreeSet<&FieldPath> = recipe.drop_implied.iter().map(|v| &v.field).collect();
+    // Without `Mode`: at most every field but `Message` (always removed); at least those that
+    // are neither implied (`Keywords`) nor removed when empty (`Note`; `EventID` is kept).
+    assert_eq!(
+        range(&variant, &recipe, &implied, &"Mode".into()),
+        "keys.containsAll(new HashSet(['EventID'])) && new HashSet(['EventID', 'Keywords', \
+         'Note']).containsAll(keys)"
+    );
+}
+
+#[test]
+fn a_script_of_exactly_the_longest_length_is_one_script() {
+    let overhead = simulation(&[("A", ""), ("B", "")]).len();
+    let a = "x".repeat(100);
+    let b = "y".repeat(MAX_SCRIPT - overhead - 100);
+    let exact = [("A", a.as_str()), ("B", b.as_str())];
+    assert_eq!(simulation(&exact).len(), MAX_SCRIPT);
+    assert_eq!(simulations(&exact).len(), 1);
+    let over = "y".repeat(MAX_SCRIPT - overhead - 99);
+    assert_eq!(
+        simulations(&[("A", a.as_str()), ("B", over.as_str())]).len(),
+        2
+    );
+}
+
+#[test]
+fn a_function_too_long_on_its_own_still_gets_one_script_of_its_own() {
+    let huge = "x".repeat(MAX_SCRIPT);
+    let scripts = simulations(&[("A", huge.as_str())]);
+    assert_eq!(scripts.len(), 1);
+    assert!(scripts[0].contains("sluiceValues0"));
+}

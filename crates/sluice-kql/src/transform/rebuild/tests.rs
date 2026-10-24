@@ -247,3 +247,83 @@ fn c1_in_the_kql_engine_the_function_runs_on_the_table_and_puts_a_guid_back() {
         ]
     );
 }
+
+#[test]
+fn a_value_is_written_as_a_literal_of_its_columns_type() {
+    assert_eq!(typed("string", "-"), r#""-""#);
+    assert_eq!(typed("bool", "true"), r#"tobool("true")"#);
+    assert_eq!(typed("boolean", "true"), r#"tobool("true")"#);
+    assert_eq!(typed("int", "3"), r#"toint("3")"#);
+    assert_eq!(typed("long", "3"), r#"tolong("3")"#);
+    assert_eq!(typed("real", "0.5"), r#"toreal("0.5")"#);
+    assert_eq!(
+        typed("datetime", "2026-10-24T00:00:00Z"),
+        r#"todatetime("2026-10-24T00:00:00Z")"#
+    );
+    assert_eq!(typed("dynamic", "[]"), r#"todynamic("[]")"#);
+}
+
+#[test]
+fn a_column_is_read_as_text_when_the_table_or_the_stream_calls_it_a_guid() {
+    let zero = "00000000-0000-0000-0000-000000000000";
+    let rebuilt = |column: &str, kind: &str| Rebuilt {
+        column: column.into(),
+        kind: kind.into(),
+        value: zero.into(),
+        discriminators: discriminators(),
+        when: None,
+    };
+    let text = format!(r#", "{zero}", tostring(['LogonGuid']))"#);
+    // The table says `guid`, the stream `string`.
+    let kql = function(&Table::SecurityEvent, &[rebuilt("LogonGuid", "string")]).expect("one");
+    assert!(kql.contains(&text), "{kql}");
+    // The table does not know the column; the stream says `guid`.
+    let kql = function(&Table::SecurityEvent, &[rebuilt("Unlisted", "guid")]).expect("one");
+    assert!(
+        kql.contains(&format!(r#", "{zero}", tostring(['Unlisted']))"#)),
+        "{kql}"
+    );
+    // A string column stays a string column.
+    let kql = function(&Table::SecurityEvent, &[rebuilt("Keywords", "string")]).expect("one");
+    assert!(
+        kql.contains(&format!(r#", "{zero}", ['Keywords'])"#)),
+        "{kql}"
+    );
+}
+
+#[test]
+fn a_value_implied_by_a_field_that_is_not_a_whole_column_is_left_in_place() {
+    let t = template("t", &COLUMNS);
+    let mut types = types();
+    types.insert("event.code", "string");
+    for (on, value) in [
+        // Not a column of the stream.
+        ("Missing", Literal::Integer(3)),
+        // A path into a column, not a column.
+        ("event.code", Literal::Text("x".into())),
+        // A value no KQL literal Sluice writes can carry.
+        ("LogonType", Literal::Text("\u{1}".into())),
+    ] {
+        let r = recipe(
+            "t",
+            vec![value_of(
+                "RestrictedAdminMode",
+                Literal::Text("-".into()),
+                Some((on, value)),
+            )],
+        );
+        let plans = [Plan {
+            template: &t,
+            recipe: &r,
+        }];
+        let mut left_out = Vec::new();
+        let kept = implied(&plans[0], &discriminators(), &types, &plans, &mut left_out);
+        assert!(kept.is_empty(), "implied by {on}: {kept:?}");
+        assert!(
+            left_out
+                .iter()
+                .any(|l| l.contains("is implied by a field that is not a whole column")),
+            "{on}: {left_out:?}"
+        );
+    }
+}
