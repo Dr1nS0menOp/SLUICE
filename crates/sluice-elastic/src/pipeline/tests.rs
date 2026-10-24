@@ -615,3 +615,78 @@ fn c1_in_elasticsearch_implied_values_leave_exactly_as_in_vector() {
         "the first event loses its implied values"
     );
 }
+
+#[test]
+fn a_script_of_exactly_the_longest_length_compiles_and_one_byte_more_removes_nothing() {
+    let t = logon();
+    let recipe = removing(t.id.as_str(), &["Message"], None);
+    let plans = [Plan {
+        template: &t,
+        recipe: &recipe,
+    }];
+    let full = pipeline_within("test", &plans, usize::MAX);
+    let length = script(&full).len();
+    let exact = pipeline_within("test", &plans, length);
+    assert_eq!(exact.body, full.body);
+    let short = pipeline_within("test", &plans, length - 1);
+    assert_eq!(short.body["processors"], json!([]));
+    assert!(short.templates.is_empty() && short.fields.is_empty());
+    assert!(
+        short.left_out.iter().any(|l| l.contains(&format!(
+            "the script would be {length} bytes, more than the {}",
+            length - 1
+        ))),
+        "{:?}",
+        short.left_out
+    );
+}
+
+#[test]
+fn two_templates_overlap_only_with_a_key_set_in_common_and_no_value_apart() {
+    let a = template("a", &[("EventID", "4624")], &[&["EventID", "User"]]);
+    let same = template("b", &[("EventID", "4624")], &[&["EventID", "User"]]);
+    let other_value = template("c", &[("EventID", "4625")], &[&["EventID", "User"]]);
+    let other_field = template("d", &[("Channel", "Security")], &[&["EventID", "User"]]);
+    let other_keys = template("e", &[("EventID", "4624")], &[&["EventID", "Host"]]);
+    assert!(overlap(&a, &same));
+    assert!(!overlap(&a, &other_value), "4624 and 4625 are apart");
+    assert!(
+        overlap(&a, &other_field),
+        "different fields ask nothing of each other"
+    );
+    assert!(!overlap(&a, &other_keys));
+}
+
+#[test]
+fn an_exception_that_holds_or_lies_in_a_field_keeps_it_when_empty() {
+    // `Host` keeps `Host.name` and `Host.ip`; `Note.text` keeps `Note`.
+    let t = template(
+        "windows:4624:e",
+        &[("EventID", "4624")],
+        &[&["EventID", "Host.name", "Host.ip", "Note", "Other"]],
+    );
+    let recipe = EffectiveRecipe {
+        drop_empty_except: Some(paths(&["EventID", "Host", "Note.text"])),
+        ..EffectiveRecipe::passthrough(t.id.clone())
+    };
+    let out = of(&[(&t, &recipe)]);
+    assert!(
+        script(&out)
+            .contains("sluiceRemoveEmptyExcept(ctx, keys, ['EventID', 'Host', 'Note.text'], []);"),
+        "{}",
+        script(&out)
+    );
+    // With every field kept by an exception, there is nothing to remove.
+    let kept = template(
+        "windows:4624:k",
+        &[("EventID", "4624")],
+        &[&["EventID", "Host.name", "Note"]],
+    );
+    let recipe = EffectiveRecipe {
+        drop_empty_except: Some(paths(&["EventID", "Host", "Note.text"])),
+        ..EffectiveRecipe::passthrough(kept.id.clone())
+    };
+    let out = of(&[(&kept, &recipe)]);
+    assert!(!out.empty_fields);
+    assert_eq!(out.body["processors"], json!([]));
+}

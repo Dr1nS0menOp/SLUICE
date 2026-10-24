@@ -76,6 +76,11 @@ struct Action {
 /// The ingest pipeline carrying out `plans`' field removals; `description` says what it is for.
 #[must_use]
 pub fn ingest_pipeline(description: &str, plans: &[Plan<'_>]) -> IngestPipeline {
+    pipeline_within(description, plans, MAX_SCRIPT)
+}
+
+/// As [`ingest_pipeline`], with a script of at most `max` bytes.
+fn pipeline_within(description: &str, plans: &[Plan<'_>], max: usize) -> IngestPipeline {
     let mut ordered: Vec<&Plan<'_>> = plans.iter().collect();
     ordered.sort_by(|a, b| a.template.id.cmp(&b.template.id));
     let mut left_out = Vec::new();
@@ -101,8 +106,9 @@ pub fn ingest_pipeline(description: &str, plans: &[Plan<'_>]) -> IngestPipeline 
         // A template that changes nothing only needs recognising where Vector would give it a
         // document before a template that does change it.
         let claims = action.is_some()
-            || recognised[n + 1..]
+            || recognised[n..]
                 .iter()
+                .skip(1)
                 .any(|(later, _, a)| a.is_some() && overlap(plan.template, later.template));
         if !claims {
             continue;
@@ -144,9 +150,9 @@ pub fn ingest_pipeline(description: &str, plans: &[Plan<'_>]) -> IngestPipeline 
         branches.join("\nelse "),
         actions.join("\n")
     );
-    if script.len() > MAX_SCRIPT {
+    if script.len() > max {
         pipeline.left_out.push(format!(
-            "the script would be {} bytes, more than the {MAX_SCRIPT} Elasticsearch compiles, so \
+            "the script would be {} bytes, more than the {max} Elasticsearch compiles, so \
              nothing is removed",
             script.len()
         ));
