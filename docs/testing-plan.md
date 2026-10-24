@@ -199,28 +199,31 @@ tests saw none (`cargo clean -p sluice-autopilot` fixes it). Run
 afterwards.
 
 Line coverage (`cargo llvm-cov` 0.9.1, MIT/Apache-2.0, 2026-10-16), first measurement and after
-the tests it led to:
+the tests it led to. The crates the field-value branch changed were measured again on 2026-10-24,
+with every engine attached (column *2026-10-24*): `sluice-kql` had fallen to 86.9 %, because the
+emulator runner of the Sentinel proof (`transform/run.rs`, added 2026-10-18) was tested only
+through the CLI; it has tests of its own now.
 
-| Crate | First | Now | Target |
-|---|---:|---:|---:|
-| sluice-core | 99.6 % | 99.6 % | 95 % |
-| sluice-rules | 96.8 % | 96.8 % | 90 % |
-| sluice-vector | 96.2 % | 97.3 % | 90 % |
-| sluice-discover | 98.2 % | 98.2 % | 85 % |
-| sluice-autopilot | 97.5 % | 97.5 % | 85 % |
-| sluice-server | 83.7 % | 87.3 % | 85 % |
-| sluice-kql | 53.9 % | 97.1 % | 85 % |
-| sluice-sentinel | 89.4 % | 89.4 % | 85 % |
-| sluice-wazuh | 81.6 % | 93.2 % | 85 % |
-| sluice-archive | 92.0 % | 99.1 % | 70 % |
-| sluice-mcp | 67.4 % | 85.4 % | 70 % |
-| sluice-ai | 78.6 % | 93.3 % | 70 % |
-| sluice-cli | 55.1 % | 72.2 % | 70 % |
-| sluice-synth | 100 % | 100 % | 70 % |
-| sluice-elastic (2026-10-17) | 88.4 % | 88.4 % | 85 % |
-| sluice-splunk (2026-10-17) | 63.7 % | 96.8 % | 85 % |
-| sluice-fluentbit (2026-10-17) | 93.0 % | 95.2 % | 85 % |
-| sluice-otel (2026-10-17) | 95.9 % | 95.9 % | 85 % |
+| Crate | First | Now | 2026-10-24 | Target |
+|---|---:|---:|---:|---:|
+| sluice-core | 99.6 % | 99.6 % | 98.6 % | 95 % |
+| sluice-rules | 96.8 % | 96.8 % |  | 90 % |
+| sluice-vector | 96.2 % | 97.3 % | 96.1 % | 90 % |
+| sluice-discover | 98.2 % | 98.2 % |  | 85 % |
+| sluice-autopilot | 97.5 % | 97.5 % | 97.1 % | 85 % |
+| sluice-server | 83.7 % | 87.3 % |  | 85 % |
+| sluice-kql | 53.9 % | 97.1 % | 98.2 % | 85 % |
+| sluice-sentinel | 89.4 % | 89.4 % |  | 85 % |
+| sluice-wazuh | 81.6 % | 93.2 % |  | 85 % |
+| sluice-archive | 92.0 % | 99.1 % |  | 70 % |
+| sluice-mcp | 67.4 % | 85.4 % |  | 70 % |
+| sluice-ai | 78.6 % | 93.3 % |  | 70 % |
+| sluice-cli | 55.1 % | 72.2 % |  | 70 % |
+| sluice-synth | 100 % | 100 % |  | 70 % |
+| sluice-elastic (2026-10-17) | 88.4 % | 88.4 % | 91.2 % | 85 % |
+| sluice-splunk (2026-10-17) | 63.7 % | 96.8 % |  | 85 % |
+| sluice-fluentbit (2026-10-17) | 93.0 % | 95.2 % | 96.7 % | 85 % |
+| sluice-otel (2026-10-17) | 95.9 % | 95.9 % | 96.6 % | 85 % |
 
 sluice-rules with its Elastic and Splunk extractors: 95.6 % (2026-10-17). The engine-backed
 tests count only with their engines set (`SLUICE_ELASTIC_URL`, `SLUICE_KUSTO_URL`,
