@@ -7,7 +7,10 @@ receiver, the `transform` processor and the `file` exporter.
 ## filelog and json_parser
 
 - `json_parser` with `parse_to: body` makes the body a map. Every JSON number becomes a double
-  (`4624` → `doubleValue: 4624`), so integers past 2^53 lose precision there.
+  (`4624` → `doubleValue: 4624`), so integers past 2^53 lose precision there. So `IsInt` is
+  false for every JSON number (verified 2026-10-24: `IsInt(log.body["Level"])` on `"Level": 0`),
+  and an implied whole number cannot be tested as VRL's `is_integer(.x) && .x == 0` tests it:
+  the transform statements leave such a value in place.
 - A JSON null becomes an empty value; empty arrays and objects keep their kind.
 - `include_file_record_number: true` adds `log.file.record_number` (the line, from 1). The file
   exporter writes one OTLP JSON document per batch, and batches need not keep the input's order.

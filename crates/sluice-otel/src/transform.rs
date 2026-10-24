@@ -218,8 +218,8 @@ fn removal(plan: &Plan<'_>, left_out: &mut Vec<String>) -> Option<Removal> {
             .collect();
         let Some(tests) = tests else {
             left_out.push(format!(
-                "{id}: the implied `{}` is tested against a whole number, whose comparison with \
-                 a float OTTL is not known to keep apart",
+                "{id}: the implied `{}` is tested against a whole number, which the collector \
+                 cannot test: its JSON parser reads every number as a float",
                 implied.field
             ));
             continue;
@@ -238,7 +238,8 @@ fn removal(plan: &Plan<'_>, left_out: &mut Vec<String>) -> Option<Removal> {
 }
 
 /// An OTTL literal equal to exactly the values VRL's `==` takes as `value`, or `None` for a
-/// whole number, where an equal float could compare equal in OTTL but not in VRL.
+/// whole number: the filelog receiver's JSON parser reads every number as a float, so neither
+/// `==` (which takes `3.0` for `3`) nor `IsInt` (never true then) tells them apart as VRL does.
 fn literal(value: &Literal) -> Option<String> {
     match value {
         Literal::Text(text) => Some(ottl::string(text)),
