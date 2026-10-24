@@ -282,3 +282,55 @@ fn no_recipe_was_rolled_back_on_the_demo() {
         demo().analysis.problems
     );
 }
+
+/// Each source shows up to ten events as they are sent, one of each kind first, over a volume
+/// that is its kinds of event's together.
+#[test]
+fn the_report_shows_each_source_s_events_as_they_are_sent() {
+    let demo = demo();
+    let input = Input {
+        sources: &demo.sample.sources,
+        events: &demo.sample.events,
+        sigma: &demo.rules,
+        wazuh: None,
+        sentinel: None,
+        elastic: None,
+        splunk: None,
+    };
+    let report = Report::new(&demo.analysis, input);
+    let sources: Vec<&str> = report.examples.iter().map(|s| s.source.as_str()).collect();
+    let expected: Vec<&str> = demo.sample.sources.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(sources, expected, "every source, in their order");
+    for source in &report.examples {
+        let rows: Vec<&sluice_autopilot::TemplateRow> = report
+            .templates
+            .iter()
+            .filter(|row| row.source == source.source)
+            .collect();
+        let events: u64 = rows.iter().map(|row| row.volume.events).sum();
+        let bytes_out: u64 = rows.iter().map(|row| row.volume.bytes_out).sum();
+        assert_eq!(source.volume.events, events, "{}", source.source);
+        assert_eq!(source.volume.bytes_out, bytes_out, "{}", source.source);
+        assert!(source.examples.len() <= sluice_autopilot::EXAMPLES_PER_SOURCE);
+        if source.volume.forwarded > 0 {
+            assert!(
+                !source.examples.is_empty(),
+                "{} sends events",
+                source.source
+            );
+        }
+        // One of each kind of event before any kind twice.
+        let patterns: Vec<&str> = source.examples.iter().map(|e| e.pattern.as_str()).collect();
+        let kinds: std::collections::BTreeSet<&str> = patterns.iter().copied().collect();
+        let first: std::collections::BTreeSet<&str> =
+            patterns.iter().take(kinds.len()).copied().collect();
+        assert_eq!(first, kinds, "{}: {patterns:?}", source.source);
+        let own: std::collections::BTreeSet<&str> =
+            rows.iter().map(|row| row.pattern.as_str()).collect();
+        assert!(
+            kinds.iter().all(|k| own.contains(k)),
+            "{}: examples of another source's kinds",
+            source.source
+        );
+    }
+}

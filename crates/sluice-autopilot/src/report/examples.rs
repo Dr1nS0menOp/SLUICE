@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value};
 use sluice_core::event::{Event, encoded_size};
 use sluice_core::guard::EffectiveRecipe;
-use sluice_core::ids::{SourceId, TemplateId};
+use sluice_core::ids::{EventId, SourceId, TemplateId};
 use sluice_core::proof::{Volume, removed_members};
 use sluice_core::reduce::{Outcome, Reducer};
 use sluice_core::template::Template;
@@ -88,7 +88,13 @@ pub(crate) fn pick(
         .zip(&analysis.selection.recipes)
         .map(|(template, recipe)| (&template.id, (template, recipe)))
         .collect();
-    let found = find(analysis, &kinds, input.events, per_source);
+    let found = find(
+        &analysis.discovery.assignments,
+        &analysis.data_plane,
+        &kinds,
+        input.events,
+        per_source,
+    );
     let per_template = &analysis.selection.proof.per_template;
     input
         .sources
@@ -105,21 +111,14 @@ pub(crate) fn pick(
                 })
                 .collect();
             buckets.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-            let mut volume = Volume::default();
-            for (template, _) in kinds.values().filter(|(t, _)| t.source == source.id) {
-                let v = per_template
-                    .get(&Some(template.id.clone()))
-                    .copied()
-                    .unwrap_or_default();
-                volume.events += v.events;
-                volume.forwarded += v.forwarded;
-                volume.summarized += v.summarized;
-                volume.bytes_in += v.bytes_in;
-                volume.bytes_out += v.bytes_out;
-            }
             SourceExamples {
                 source: source.id.to_string(),
-                volume,
+                volume: volume_of(
+                    kinds
+                        .values()
+                        .filter(|(t, _)| t.source == source.id)
+                        .map(|(t, _)| per_template.get(&Some(t.id.clone()))),
+                ),
                 examples: round_robin(
                     &buckets
                         .iter()
@@ -132,29 +131,44 @@ pub(crate) fn pick(
         .collect()
 }
 
+/// The sum of `volumes`; a template the proof did not see counts nothing.
+fn volume_of<'a>(volumes: impl Iterator<Item = Option<&'a Volume>>) -> Volume {
+    let mut total = Volume::default();
+    for v in volumes.flatten() {
+        total.events += v.events;
+        total.forwarded += v.forwarded;
+        total.summarized += v.summarized;
+        total.bytes_in += v.bytes_in;
+        total.bytes_out += v.bytes_out;
+    }
+    total
+}
+
 #[derive(Default)]
 struct Bucket {
     tried: usize,
     examples: Vec<Example>,
 }
 
-/// Per source and kind of event, the first `per_kind` events sent.
+/// Per source and kind of event (as `assignments` gives it), the first `per_kind` events
+/// `data_plane` sends, trying at most [`ATTEMPTS`] of each.
 fn find<'a>(
-    analysis: &'a Analysis,
+    assignments: &'a BTreeMap<EventId, TemplateId>,
+    data_plane: &impl Reducer,
     kinds: &BTreeMap<&TemplateId, (&Template, &EffectiveRecipe)>,
     events: &'a [Event],
     per_kind: usize,
 ) -> BTreeMap<(&'a SourceId, Option<&'a TemplateId>), Bucket> {
     let mut found: BTreeMap<(&SourceId, Option<&TemplateId>), Bucket> = BTreeMap::new();
     for event in events {
-        let template = analysis.discovery.assignments.get(&event.id);
+        let template = assignments.get(&event.id);
         let bucket = found.entry((&event.source, template)).or_default();
         if bucket.examples.len() >= per_kind || bucket.tried >= ATTEMPTS {
             continue;
         }
         bucket.tried += 1;
         // An event the data plane cannot reduce is not shown; the proof reports it.
-        let Ok(reduced) = analysis.data_plane.reduce(event) else {
+        let Ok(reduced) = data_plane.reduce(event) else {
             continue;
         };
         if let Outcome::Forwarded(body) = reduced.outcome {
@@ -269,6 +283,127 @@ mod tests {
         }
     }
 
+    /// A data plane that forwards (or summarizes) every event unchanged, counting its calls.
+    struct Counting {
+        forward: bool,
+        calls: std::cell::Cell<usize>,
+    }
+
+    impl Reducer for Counting {
+        fn reduce(
+            &self,
+            event: &Event,
+        ) -> Result<sluice_core::reduce::Reduced, sluice_core::reduce::ReduceError> {
+            self.calls.set(self.calls.get() + 1);
+            Ok(sluice_core::reduce::Reduced {
+                template: None,
+                outcome: if self.forward {
+                    Outcome::Forwarded(event.fields.clone())
+                } else {
+                    Outcome::Summarized
+                },
+            })
+        }
+    }
+
+    fn events(n: usize, source: &str) -> Vec<Event> {
+        (0..n)
+            .map(|i| Event {
+                id: EventId(i as u64),
+                timestamp: sluice_core::event::Timestamp(0),
+                source: SourceId::new(source),
+                fields: object(json!({"n": i})),
+            })
+            .collect()
+    }
+
+    fn all_in(template: &TemplateId, events: &[Event]) -> BTreeMap<EventId, TemplateId> {
+        events.iter().map(|e| (e.id, template.clone())).collect()
+    }
+
+    #[test]
+    fn a_kind_of_event_stops_being_tried_once_it_has_enough_examples() {
+        let template = TemplateId::from("t");
+        let sample = events(50, "s");
+        let plane = Counting {
+            forward: true,
+            calls: 0.into(),
+        };
+        let assignments = all_in(&template, &sample);
+        let found = find(&assignments, &plane, &BTreeMap::new(), &sample, 3);
+        assert_eq!(plane.calls.get(), 3);
+        let source = SourceId::new("s");
+        let bucket = &found[&(&source, Some(&template))];
+        assert_eq!(bucket.examples.len(), 3);
+    }
+
+    #[test]
+    fn a_kind_of_event_whose_events_are_all_counted_is_tried_a_thousand_times_at_most() {
+        let template = TemplateId::from("t");
+        let sample = events(ATTEMPTS + 500, "s");
+        let plane = Counting {
+            forward: false,
+            calls: 0.into(),
+        };
+        let assignments = all_in(&template, &sample);
+        let found = find(&assignments, &plane, &BTreeMap::new(), &sample, 10);
+        assert_eq!(plane.calls.get(), ATTEMPTS);
+        assert!(found.values().all(|b| b.examples.is_empty()));
+    }
+
+    #[test]
+    fn sources_and_kinds_of_event_are_kept_apart_and_an_unclassified_event_has_its_own() {
+        let template = TemplateId::from("t");
+        let mut sample = events(4, "a");
+        sample.extend(events(2, "b").into_iter().map(|e| Event {
+            id: EventId(e.id.0 + 100),
+            ..e
+        }));
+        // The first two of `a` are of `t`; the rest are unclassified.
+        let assignments: BTreeMap<EventId, TemplateId> = [
+            (EventId(0), template.clone()),
+            (EventId(1), template.clone()),
+        ]
+        .into();
+        let plane = Counting {
+            forward: true,
+            calls: 0.into(),
+        };
+        let found = find(&assignments, &plane, &BTreeMap::new(), &sample, 10);
+        let (a, b) = (SourceId::new("a"), SourceId::new("b"));
+        assert_eq!(found[&(&a, Some(&template))].examples.len(), 2);
+        assert_eq!(found[&(&a, None)].examples.len(), 2);
+        assert_eq!(found[&(&b, None)].examples.len(), 2);
+        assert_eq!(found.len(), 3);
+    }
+
+    #[test]
+    fn a_source_s_volume_is_its_kinds_of_event_together() {
+        let one = Volume {
+            events: 10,
+            forwarded: 4,
+            summarized: 6,
+            bytes_in: 1_000,
+            bytes_out: 300,
+        };
+        let two = Volume {
+            events: 1,
+            forwarded: 1,
+            summarized: 0,
+            bytes_in: 50,
+            bytes_out: 50,
+        };
+        assert_eq!(
+            volume_of([Some(&one), None, Some(&two)].into_iter()),
+            Volume {
+                events: 11,
+                forwarded: 5,
+                summarized: 6,
+                bytes_in: 1_050,
+                bytes_out: 350,
+            }
+        );
+    }
     #[test]
     fn every_kind_of_event_is_shown_once_before_any_is_shown_twice() {
         let a = [named("a1"), named("a2"), named("a3")];
