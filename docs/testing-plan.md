@@ -177,6 +177,27 @@ a result:
   empty; they stay as a fail-closed guard.
 - `wazuh/xml.rs` `lenient`: taking `&;` as an entity; quick_xml gives it back as the same text.
 
+On the field-value branch (implied values, modes, the report's examples, the put-back steps),
+2026-10-24, file by file, with Elasticsearch running for `sluice-elastic`: the first runs missed
+18 of 53 in the learner (`implied.rs`), 20 of 43 in the example selection, 28 of 83 in the
+Elasticsearch runtime fields, 20 of 80 in the Sentinel transformation (most in `fitting`, the
+budget search), and fewer elsewhere. After the new tests, every viable mutant is caught in:
+`implied.rs`, `report/{mod,text,examples}.rs`, `report/html/{implied,examples}.rs`, `mode.rs`,
+`plan.rs`, `sluice-kql` `transform.rs` and `transform/rebuild.rs`, `sluice-elastic`
+`rebuild.rs`, `pipeline.rs` and `painless.rs`, `sluice-vector` `syntax.rs` and `program.rs`,
+`sluice-fluentbit` `filter.rs` and `lua.rs`, `sluice-otel` `transform.rs`, and `sluice-core`
+`recipe.rs`, `proof.rs`, `guard.rs` and `guard/model.rs`. Code that only saved work or could not
+run went instead of being tested: an unreachable `guid` arm, a fallback for a JSON string that
+cannot fail, an equal-objects shortcut, and three `recognised[n + 1..]` that now read
+`[n..].iter().skip(1)`.
+
+**Give cargo-mutants a target directory of its own.** `scripts/wsl.ps1` sets
+`CARGO_TARGET_DIR`, and mutants built its copy of the tree into the shared one: the build script
+of `sluice-autopilot` then pointed the embedded recipes at the deleted copy, and the real tree's
+tests saw none (`cargo clean -p sluice-autopilot` fixes it). Run
+`CARGO_TARGET_DIR=~/.cache/sluice-mutants-target cargo mutants -j 1 …` and delete that directory
+afterwards.
+
 Line coverage (`cargo llvm-cov` 0.9.1, MIT/Apache-2.0, 2026-10-16), first measurement and after
 the tests it led to:
 
