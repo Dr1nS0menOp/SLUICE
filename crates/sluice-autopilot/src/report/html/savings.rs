@@ -234,7 +234,7 @@ fn removed(row: &TemplateRow) -> String {
     if row
         .removed
         .iter()
-        .any(|f| f.why.starts_with("always") || f.why.starts_with("implied"))
+        .any(|f| f.mode == crate::mode::Mode::Implied)
     {
         out.push_str(
             "<p class=\"muted\">An implied value is not lost: <code>plan.json</code> lists it \

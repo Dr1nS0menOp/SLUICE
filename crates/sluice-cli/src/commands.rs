@@ -62,7 +62,7 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
             modes: modes(&args.mode),
             ..Settings::default()
         },
-        Vec::new(),
+        ReportExtras::default(),
         Native {
             elastic: args
                 .elasticsearch
@@ -157,7 +157,10 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
             modes: modes(&args.mode),
             ..Settings::default()
         },
-        inventory_notes,
+        ReportExtras {
+            inventory_notes,
+            no_examples: args.no_examples,
+        },
         Native {
             sentinel: args
                 .kusto
@@ -250,6 +253,15 @@ struct Native<'a> {
     otel: Option<&'a Path>,
 }
 
+/// What the report gets besides the analysis.
+#[derive(Default)]
+struct ReportExtras {
+    /// What the fetched inventories say about rules without a query to read.
+    inventory_notes: Vec<String>,
+    /// `--no-examples`: leave the example events out.
+    no_examples: bool,
+}
+
 /// What `--sentinel-native` asks for.
 struct SentinelNative<'a> {
     url: &'a str,
@@ -263,7 +275,7 @@ fn run(
     helpers: Helpers<'_>,
     out: &Path,
     settings: &Settings,
-    inventory_notes: Vec<String>,
+    extras: ReportExtras,
     native: Native<'_>,
 ) -> Result<()> {
     let Input {
@@ -272,7 +284,10 @@ fn run(
     let analysis =
         run_autopilot(input, book, settings, helpers).context("running the autopilot")?;
     let mut report = Report::new(&analysis, input);
-    report.inventory_notes = inventory_notes;
+    report.inventory_notes = extras.inventory_notes;
+    if extras.no_examples {
+        report.examples.clear();
+    }
 
     let paths = Paths {
         input_dir: out.join("samples").display().to_string(),

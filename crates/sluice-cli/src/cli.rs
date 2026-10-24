@@ -369,6 +369,10 @@ pub(crate) struct AnalyzeArgs {
     /// puts them back. The report shows what each saved.
     #[arg(long, value_enum, value_delimiter = ',', default_values = ["rules", "implied"])]
     pub(crate) mode: Vec<ModeArg>,
+    /// Leave the example events (a few per source, as the SIEM receives them, with their real
+    /// values) out of the report, so it can be shared without the sample's data.
+    #[arg(long)]
+    pub(crate) no_examples: bool,
     /// Directory for `vector.yaml` and `report.html`.
     #[arg(long, default_value = "out")]
     pub(crate) out: PathBuf,

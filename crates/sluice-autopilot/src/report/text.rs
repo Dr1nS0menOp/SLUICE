@@ -45,6 +45,9 @@ pub(crate) fn implied(path: &FieldPath, recipe: &EffectiveRecipe) -> bool {
         && !recipe.drop_fields.iter().any(|f| f.covers(path))
 }
 
+/// An implied field with more values than this is described by one of them.
+const MANY_VALUES: usize = 3;
+
 /// Why `path` may be removed from the template's events: the recipe lists it, its value is
 /// implied (and by what), or it was empty.
 pub(crate) fn why_removed(path: &FieldPath, recipe: &EffectiveRecipe) -> String {
@@ -60,8 +63,8 @@ pub(crate) fn why_removed(path: &FieldPath, recipe: &EffectiveRecipe) -> String 
     if implied.is_empty() {
         return "it was empty (null or \"\"), which says nothing".to_owned();
     }
-    // Per value, the values of the field that imply it: `"-" whenever LogonType is 2 or 3`.
-    let mut by_value: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    // Per value, the values of the fields that imply it: `"-" whenever LogonType is 2 or 3`.
+    let mut by_value: BTreeMap<String, BTreeMap<&FieldPath, Vec<String>>> = BTreeMap::new();
     let mut constant = None;
     for value in implied {
         match &value.when {
@@ -69,21 +72,54 @@ pub(crate) fn why_removed(path: &FieldPath, recipe: &EffectiveRecipe) -> String 
             Some((on, when)) => by_value
                 .entry(value.value.to_string())
                 .or_default()
-                .push(format!("{on}={when}")),
+                .entry(on)
+                .or_default()
+                .push(when.to_string()),
         }
     }
     if let Some(value) = constant {
         return format!(
-            "always {value} on this kind of event, so it is implied; removed only while it holds \
-             that value"
+            "always {value} on this kind of event, so the kind of event implies it; left out \
+             only while it holds that value, and put back from the plan"
+        );
+    }
+    if by_value.len() > MANY_VALUES {
+        // A field that pairs with another, such as an account's SID with its name: one pair
+        // says what the rest are like.
+        let on: BTreeSet<&FieldPath> = by_value
+            .values()
+            .flat_map(BTreeMap::keys)
+            .copied()
+            .collect();
+        let (value, ons) = by_value
+            .iter()
+            .next()
+            .expect("more than MANY_VALUES entries");
+        let (first, whens) = ons
+            .iter()
+            .next()
+            .expect("every value has a field implying it");
+        return format!(
+            "follows from {}: each of its {} values goes with one value there, such as {value} \
+             whenever {first} is {}; left out only while that holds, and put back from the plan",
+            list(on.into_iter()),
+            by_value.len(),
+            whens.join(" or ")
         );
     }
     let parts: Vec<String> = by_value
         .into_iter()
-        .map(|(value, whens)| format!("{value} whenever {}", whens.join(" or ")))
+        .map(|(value, ons)| {
+            let whens: Vec<String> = ons
+                .into_iter()
+                .map(|(on, whens)| format!("{on} is {}", whens.join(" or ")))
+                .collect();
+            format!("{value} whenever {}", whens.join(" or "))
+        })
         .collect();
     format!(
-        "implied: {}; removed only while that holds",
+        "follows from another field: {}; left out only while that holds, and put back from the \
+         plan",
         parts.join("; ")
     )
 }

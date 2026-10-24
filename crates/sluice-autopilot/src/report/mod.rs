@@ -1,5 +1,6 @@
 //! What the autopilot did and why, as data (for tools) and as a self-contained HTML page.
 
+mod examples;
 mod html;
 mod rules;
 pub(crate) mod text;
@@ -14,6 +15,7 @@ use sluice_core::proof::Volume;
 use sluice_core::rules::RuleRequirements;
 use sluice_core::template::Template;
 
+pub use self::examples::{EXAMPLES_PER_SOURCE, Example, Omission, Omitted, SourceExamples};
 pub use self::html::render_html;
 pub use self::rules::{RuleRow, RuleStatus};
 use crate::analyze::{Analysis, Input};
@@ -54,6 +56,9 @@ pub struct Report {
     pub inventory_notes: Vec<String>,
     /// The kinds of saving the analysis made.
     pub modes: BTreeSet<Mode>,
+    /// Per source, a few events as the SIEM receives them. They hold the sample's real values,
+    /// so whoever shares the report may clear them first.
+    pub examples: Vec<SourceExamples>,
 }
 
 /// Said when the full sample raises no alert: the proof then shows nothing about detections.
@@ -162,6 +167,7 @@ impl Report {
             rule_rows: rules::rows(input),
             inventory_notes: Vec::new(),
             modes: analysis.modes.clone(),
+            examples: examples::pick(analysis, input, EXAMPLES_PER_SOURCE),
         }
     }
 

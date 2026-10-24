@@ -37,7 +37,10 @@ impl Mode {
     pub fn describe(self) -> &'static str {
         match self {
             Self::Rules => "what the recipes propose and no rule reads",
-            Self::Implied => "values the kind of event or another field implies",
+            Self::Implied => {
+                "values that follow from the kind of event or from another field, left out only \
+                 while they hold and put back exactly from the plan"
+            }
         }
     }
 }

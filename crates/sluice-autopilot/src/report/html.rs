@@ -1,6 +1,8 @@
 //! The report as one self-contained HTML page: no scripts, no external resources. It reads as
 //! advice: what can be saved first, largest saving first, and the detail folded away.
 
+mod examples;
+mod implied;
 mod savings;
 
 use std::collections::BTreeMap;
@@ -76,6 +78,9 @@ details.section > summary h2 { display:inline; margin-right:8px; }
 .scroll { overflow-x:auto; border:1px solid var(--line); border-radius:8px; }
 table { border-collapse:collapse; width:100%; }
 table.rules { min-width:800px; }
+table.examples { min-width:960px; } table.examples td:nth-child(3) { min-width:360px; }
+.tag { display:inline-block; padding:0 6px; border-radius:4px; font-size:11px; font-weight:600;
+       background:var(--accent); color:var(--on); }
 th, td { text-align:left; vertical-align:top; padding:8px 10px; border-bottom:1px solid var(--line); }
 th { background:var(--card); font-size:12px; color:var(--muted); font-weight:600; }
 td.n { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -106,7 +111,9 @@ pub fn render_html(report: &Report) -> String {
         hero(report),
         summary(report),
         notes(report),
+        implied::explain(report),
         savings::advice(&report.templates),
+        examples::section(&report.examples),
         rules(report),
     ];
     if !report.problems.is_empty() {
@@ -133,12 +140,18 @@ fn meaning(report: &Report) -> String {
     } else {
         "On this sample, every alert was raised exactly as before."
     };
+    let implied = if report.modes.contains(&Mode::Implied) {
+        " values that follow from the kind of event (implied, explained below),"
+    } else {
+        ""
+    };
     format!(
         "<section class=\"meaning\"><h2>What this report means</h2><p>A SIEM charges for every \
          byte it receives, but its detection rules use only part of each event. Sluice compared \
          the rules this SIEM runs with a sample of its data, and lists what no rule uses: mostly \
-         text that repeats fields the event already has, empty fields, and frequent events no \
-         rule can match, which are counted instead of sent one by one. <b>This is not advice to \
+         text that repeats fields the event already has, empty fields,{implied} and frequent \
+         events no rule can match, which are counted instead of sent one by one. <b>This is not \
+         advice to \
          collect less security data or to throw logs away.</b> The savings assume a full copy of \
          every event is kept in a cheaper archive; the configurations Sluice writes for Vector \
          and Microsoft Sentinel keep one. {proof} Nothing changes until your team reviews the \

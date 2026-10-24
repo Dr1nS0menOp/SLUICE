@@ -29,5 +29,8 @@ pub use crate::plan::{
     CountInstead, PLAN_FORMAT, Placement, PlanProof, SavingsPlan, SourcePlan, TemplatePlan,
 };
 pub use crate::recipes::{RecipeBook, Resolution};
-pub use crate::report::{EMPTY_PROOF, Report, RuleRow, RuleStatus, TemplateRow, render_html};
+pub use crate::report::{
+    EMPTY_PROOF, EXAMPLES_PER_SOURCE, Example, Omission, Omitted, Report, RuleRow, RuleStatus,
+    SourceExamples, TemplateRow, render_html,
+};
 pub use crate::spot::SpotCheck;

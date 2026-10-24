@@ -196,23 +196,44 @@ impl<'a> Run<'a> {
     }
 }
 
-/// The paths of the fields in `before` that `after` no longer has, each with the bytes it took.
-/// An object that lost only some of its fields is followed into; one removed whole counts as its
-/// own path.
+/// A field the data plane removed from one event.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemovedMember<'a> {
+    /// Its path.
+    pub path: FieldPath,
+    /// The value it held.
+    pub value: &'a Value,
+    /// The bytes it took, as `"name":value,` in compact JSON.
+    pub bytes: usize,
+}
+
+/// The fields of `before` that `after` no longer has. An object that lost only some of its
+/// fields is followed into; one removed whole counts as its own path.
+#[must_use]
+pub fn removed_members<'a>(
+    before: &'a Map<String, Value>,
+    after: &Map<String, Value>,
+) -> Vec<RemovedMember<'a>> {
+    let mut members = Vec::new();
+    removed_under("", before, after, &mut members);
+    members
+}
+
 fn removed_paths(
     before: &Map<String, Value>,
     after: &Map<String, Value>,
 ) -> Vec<(FieldPath, usize)> {
-    let mut paths = Vec::new();
-    removed_under("", before, after, &mut paths);
-    paths
+    removed_members(before, after)
+        .into_iter()
+        .map(|member| (member.path, member.bytes))
+        .collect()
 }
 
-fn removed_under(
+fn removed_under<'a>(
     prefix: &str,
-    before: &Map<String, Value>,
+    before: &'a Map<String, Value>,
     after: &Map<String, Value>,
-    paths: &mut Vec<(FieldPath, usize)>,
+    members: &mut Vec<RemovedMember<'a>>,
 ) {
     for (key, value) in before {
         let path = if prefix.is_empty() {
@@ -221,9 +242,13 @@ fn removed_under(
             format!("{prefix}.{key}")
         };
         match (value, after.get(key)) {
-            (_, None) => paths.push((FieldPath::new(path), member_size(key, value))),
+            (_, None) => members.push(RemovedMember {
+                path: FieldPath::new(path),
+                value,
+                bytes: member_size(key, value),
+            }),
             (Value::Object(inner), Some(Value::Object(kept))) if inner != kept => {
-                removed_under(&path, inner, kept, paths);
+                removed_under(&path, inner, kept, members);
             }
             _ => {}
         }

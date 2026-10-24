@@ -30,6 +30,7 @@ pub(super) fn report() -> Report {
         rule_rows: Vec::new(),
         inventory_notes: Vec::new(),
         modes: Mode::ALL.into(),
+        examples: Vec::new(),
     }
 }
 
@@ -339,12 +340,13 @@ fn each_removed_field_says_why_it_may_go_and_where() {
     assert!(why("Message").starts_with("the recipe removes it"));
     assert_eq!(
         why("Keywords"),
-        "always \"0x8020000000000000\" on this kind of event, so it is implied; removed only \
-         while it holds that value"
+        "always \"0x8020000000000000\" on this kind of event, so the kind of event implies it; \
+         left out only while it holds that value, and put back from the plan"
     );
     assert_eq!(
         why("RestrictedAdminMode"),
-        "implied: \"-\" whenever LogonType=2 or LogonType=3; removed only while that holds"
+        "follows from another field: \"-\" whenever LogonType is 2 or 3; left out only while \
+         that holds, and put back from the plan"
     );
     assert!(why("WorkstationName").starts_with("it was empty"));
 
@@ -367,7 +369,34 @@ fn each_removed_field_says_why_it_may_go_and_where() {
     );
 }
 
-fn row_removing(fields: &[(&str, u64, Mode)]) -> TemplateRow {
+#[test]
+fn a_field_paired_with_another_is_described_by_one_pair() {
+    use sluice_core::guard::EffectiveRecipe;
+    use sluice_core::recipe::{ImpliedValue, Literal};
+
+    let pair = |sid: &str, name: &str| ImpliedValue {
+        field: FieldPath::new("TargetUserSid"),
+        value: Literal::Text(sid.into()),
+        when: Some((FieldPath::new("TargetUserName"), Literal::Text(name.into()))),
+    };
+    let recipe = EffectiveRecipe {
+        drop_implied: vec![
+            pair("S-1", "alice"),
+            pair("S-2", "bob"),
+            pair("S-3", "carol"),
+            pair("S-4", "dave"),
+        ],
+        ..EffectiveRecipe::passthrough("t".into())
+    };
+    assert_eq!(
+        text::why_removed(&FieldPath::new("TargetUserSid"), &recipe),
+        "follows from TargetUserName: each of its 4 values goes with one value there, such as \
+         \"S-1\" whenever TargetUserName is \"alice\"; left out only while that holds, and put \
+         back from the plan"
+    );
+}
+
+pub(super) fn row_removing(fields: &[(&str, u64, Mode)]) -> TemplateRow {
     TemplateRow {
         id: "t".into(),
         source: "s".into(),

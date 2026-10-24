@@ -25,6 +25,14 @@ All notable changes to Sluice are recorded here. The format follows
   before (recipes, empty fields, counting; everything a rule or query reads is kept), `implied`
   the implied values. Both run by default and either runs alone. The report, the summary and
   `plan.json` (`saved_by_mode`) give the saving of each side by side.
+- **What the SIEM still receives.** The report shows, per source, up to 10 events of the sample
+  as they are sent after the savings, one of each kind of event first, each with what was left
+  out and why (repeats the event, empty, or the implied value that can be put back).
+  `sluice analyze --no-examples` leaves them out, since they hold the sample's real values.
+- **Implied, explained.** The report says in plain words what an implied value is, why leaving
+  it out loses nothing, and how Sluice learns it, with the largest one of the sample as the
+  example. A field paired with another, such as an account's SID with its name, is described
+  by one pair instead of every value.
 
 ## [0.1.0] - 2026-10-23
 
