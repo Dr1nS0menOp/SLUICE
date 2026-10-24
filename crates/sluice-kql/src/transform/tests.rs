@@ -555,3 +555,169 @@ fn a_transformation_longer_than_a_rule_takes_removes_nothing() {
         out.left_out.last()
     );
 }
+
+/// A 4624 template whose columns hold `values` as constants (the kind of event implies them
+/// alone), and one more implied by `LogonType`.
+fn implying(
+    values: &[(&str, &str)],
+    conditional: Option<(&str, &str)>,
+) -> (Template, EffectiveRecipe) {
+    use sluice_core::recipe::{ImpliedValue, Literal};
+    // The same columns whichever values are implied, so only the values make a difference.
+    let columns = [
+        "EventID",
+        "LogonType",
+        "EventSourceName",
+        "Activity",
+        "Keywords",
+        "Channel",
+        "RestrictedAdminMode",
+    ];
+    let t = template("SecurityEvent:4624:i", &[("EventID", "4624")], &[&columns]);
+    let mut implied: Vec<ImpliedValue> = values
+        .iter()
+        .map(|(column, value)| ImpliedValue {
+            field: (*column).into(),
+            value: Literal::Text((*value).into()),
+            when: None,
+        })
+        .collect();
+    implied.extend(conditional.map(|(column, value)| ImpliedValue {
+        field: column.into(),
+        value: Literal::Text(value.into()),
+        when: Some(("LogonType".into(), Literal::Integer(3))),
+    }));
+    let recipe = EffectiveRecipe {
+        drop_implied: implied,
+        ..EffectiveRecipe::passthrough(t.id.clone())
+    };
+    (t, recipe)
+}
+
+fn within(plan: &(Template, EffectiveRecipe), budget: usize) -> Transformation {
+    let plans = [Plan {
+        template: &plan.0,
+        recipe: &plan.1,
+    }];
+    transformation_within(
+        &Table::SecurityEvent,
+        &Table::SecurityEvent.column_names(),
+        &plans,
+        budget,
+    )
+}
+
+#[test]
+fn as_many_implied_values_as_fit_go_in_the_most_worthwhile_first() {
+    // Longest first; the conditional one, though the longest, comes last.
+    let constants = [
+        ("EventSourceName", "Microsoft-Windows-Security-Auditing"),
+        ("Activity", "4624 - An account was successfully logged on."),
+        ("Keywords", "0x8020000000000000"),
+        ("Channel", "Security"),
+    ];
+    let conditional = Some((
+        "RestrictedAdminMode",
+        "a placeholder longer than every constant value above, by far",
+    ));
+    let all = implying(&constants, conditional);
+    // Ranked: Activity, EventSourceName, Keywords, Channel, then RestrictedAdminMode.
+    let ranked = ["Activity", "EventSourceName", "Keywords", "Channel"];
+    let length = |k: usize| {
+        let first: Vec<(&str, &str)> = ranked[..k]
+            .iter()
+            .map(|c| {
+                *constants
+                    .iter()
+                    .find(|(name, _)| name == c)
+                    .expect("a constant")
+            })
+            .collect();
+        within(&implying(&first, None), MAX_TRANSFORM_KQL).kql.len()
+    };
+    for k in 1..=ranked.len() {
+        let exact = within(&all, length(k));
+        let columns: BTreeSet<&str> = exact.implied.iter().map(|v| v.column.as_str()).collect();
+        assert_eq!(
+            columns,
+            ranked[..k].iter().copied().collect(),
+            "{k} fit exactly"
+        );
+        assert!(
+            exact
+                .left_out
+                .iter()
+                .any(|l| l.starts_with(&format!("{} of 5 implied values did not fit", 5 - k))),
+            "{k}: {:?}",
+            exact.left_out
+        );
+        let short = within(&all, length(k) - 1);
+        assert_eq!(short.implied.len(), k - 1, "one character short of {k}");
+    }
+    let everything = within(&all, MAX_TRANSFORM_KQL);
+    assert_eq!(everything.implied.len(), 5);
+    assert!(
+        everything
+            .left_out
+            .iter()
+            .all(|l| !l.contains("did not fit"))
+    );
+    // Exactly as long as the budget is still within it.
+    let exact = within(&all, everything.kql.len());
+    assert_eq!(exact.kql, everything.kql);
+}
+
+#[test]
+fn a_budget_too_small_for_anything_removes_nothing_and_says_so() {
+    let plan = implying(&[("Channel", "Security")], None);
+    let out = within(&plan, 3);
+    assert_eq!(out.kql, "source");
+    assert!(out.templates.is_empty() && out.columns.is_empty());
+    assert!(
+        out.left_out
+            .iter()
+            .any(|l| l.contains("more than the 3 left")),
+        "{:?}",
+        out.left_out
+    );
+}
+
+#[test]
+fn an_empty_dynamic_column_is_also_an_empty_object() {
+    assert_eq!(empty("['C']", "string"), "isempty(tostring(['C']))");
+    assert_eq!(
+        empty("['C']", "dynamic"),
+        r#"(isempty(tostring(['C'])) or tostring(['C']) == "{}")"#
+    );
+}
+
+#[test]
+fn many_parts_are_concatenated_in_nested_calls_kusto_takes() {
+    let parts = |n: usize| (0..n).map(|i| format!("p{i}")).collect::<Vec<_>>();
+    assert_eq!(strcat(&[]), r#""""#);
+    assert_eq!(strcat(&parts(1)), "p0");
+    assert_eq!(strcat(&parts(3)), "strcat(p0, p1, p2)");
+    assert_eq!(
+        strcat(&parts(STRCAT_MAX)),
+        format!("strcat({})", parts(STRCAT_MAX).join(", "))
+    );
+    assert_eq!(
+        strcat(&parts(STRCAT_MAX + 1)),
+        format!(
+            "strcat(strcat({}), p{STRCAT_MAX})",
+            parts(STRCAT_MAX).join(", ")
+        )
+    );
+}
+#[test]
+fn a_function_after_a_closed_string_is_still_found() {
+    assert_eq!(
+        disallowed_functions(r#"source | extend x = "a\"(" | extend y = bag_keys(z)"#),
+        ["bag_keys".to_owned()].into()
+    );
+    assert_eq!(
+        disallowed_functions(r#"source | extend x = "bag_keys(y)", z = 'pack_all()'"#),
+        BTreeSet::new(),
+        "a call inside a string is text"
+    );
+}
