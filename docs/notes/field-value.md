@@ -202,7 +202,9 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
   one machine's data tells its name from a value the kind of event fixes, so the report says per
   source which implied values are the same on every kind of event that has them, and how much
   of the saving they make. On the test workspace's sample: `Channel`, `Computer`,
-  `EventLevelName`, `EventSourceName` and two more, 3.6 MB of 12.8 MB saved.
+  `EventLevelName`, `EventSourceName` and two more, 3.6 MB of 12.8 MB saved. On the demo's
+  `windows-security`, from five machines, the list holds no machine name: only values the fleet
+  shares (`Channel`, `Keywords`, the agent's and the OS's versions, the domain).
 - **Analysts see an absent field.** A removed value is implied, not gone, but a query on the
   table itself for `RestrictedAdminMode == "-"` finds nothing. For Sentinel, `<Table>Full`
   reads as before; analytics rules keep querying the table, and the guardrails keep every field
