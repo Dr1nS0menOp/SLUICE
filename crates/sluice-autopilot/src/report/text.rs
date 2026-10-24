@@ -248,3 +248,109 @@ pub(crate) fn logsource(logsource: &LogSource) -> String {
 fn list<'a>(fields: impl Iterator<Item = &'a FieldPath>) -> String {
     fields.map(FieldPath::as_str).collect::<Vec<_>>().join(", ")
 }
+
+#[cfg(test)]
+mod tests {
+    use sluice_core::predicate::Predicate;
+    use sluice_core::recipe::ImpliedValue;
+
+    use super::*;
+    use crate::plan::Placement;
+
+    fn recipe() -> EffectiveRecipe {
+        EffectiveRecipe::passthrough("t".into())
+    }
+
+    #[test]
+    fn each_reduction_is_said_in_plain_words_and_nothing_for_a_passthrough() {
+        assert_eq!(actions(&recipe()), Vec::<String>::new());
+        let all = EffectiveRecipe {
+            drop_fields: ["Message".into(), "Opcode".into()].into(),
+            drop_empty_except: Some(["User".into()].into()),
+            drop_implied: ["Channel", "Channel", "Keywords"]
+                .iter()
+                .map(|f| ImpliedValue {
+                    field: (*f).into(),
+                    value: Literal::Text("x".into()),
+                    when: None,
+                })
+                .collect(),
+            route: Route::ForwardMatching {
+                prefilter: Predicate::Always,
+                summary_keys: vec!["Computer".into()],
+            },
+            ..recipe()
+        };
+        assert_eq!(
+            actions(&all),
+            [
+                "drop Message, Opcode",
+                "drop null and empty fields, except 1 needed by rules",
+                "drop the value of 2 field(s) while it is the one the kind of event or another \
+                 field implies (each below, with why)",
+                "forward events a rule could match; summarize the rest by Computer",
+            ]
+        );
+        let empties = EffectiveRecipe {
+            drop_empty_except: Some(BTreeSet::new()),
+            ..recipe()
+        };
+        assert_eq!(actions(&empties), ["drop null and empty fields"]);
+    }
+
+    #[test]
+    fn three_values_are_listed_and_a_fourth_makes_one_pair_stand_for_them() {
+        let pairs = |n: usize| EffectiveRecipe {
+            drop_implied: (0..n)
+                .map(|i| ImpliedValue {
+                    field: "Sid".into(),
+                    value: Literal::Text(format!("S-{i}")),
+                    when: Some(("Name".into(), Literal::Text(format!("n{i}")))),
+                })
+                .collect(),
+            ..recipe()
+        };
+        let three = why_removed(&"Sid".into(), &pairs(3));
+        assert!(three.starts_with("follows from another field: \"S-0\" whenever Name is \"n0\";"));
+        assert!(three.contains("\"S-2\" whenever Name is \"n2\""), "{three}");
+        let four = why_removed(&"Sid".into(), &pairs(4));
+        assert!(
+            four.starts_with("follows from Name: each of its 4 values"),
+            "{four}"
+        );
+    }
+
+    #[test]
+    fn where_a_saving_runs_is_said_only_when_there_is_one() {
+        assert_eq!(placements(&[]), None);
+        assert_eq!(
+            placements(&[Placement::Pipeline]).as_deref(),
+            Some("needs a pipeline tool such as Vector")
+        );
+        assert_eq!(
+            placements(&[Placement::Pipeline, Placement::SiemIngest, Placement::Agent]).as_deref(),
+            Some("a pipeline tool, the SIEM's own ingestion, or the agent")
+        );
+    }
+
+    #[test]
+    fn each_source_of_a_proposal_is_named() {
+        assert_eq!(
+            provenance(&Provenance::Community {
+                recipe: "microsoft/windows/security".into()
+            }),
+            "community recipe microsoft/windows/security"
+        );
+        assert_eq!(
+            provenance(&Provenance::Ai {
+                model: "claude-opus-5-5".into()
+            }),
+            "AI (claude-opus-5-5)"
+        );
+        assert_eq!(provenance(&Provenance::Operator), "operator");
+        assert_eq!(
+            provenance(&Provenance::Learned),
+            "values learned from the sample"
+        );
+    }
+}

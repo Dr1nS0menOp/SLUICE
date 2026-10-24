@@ -235,4 +235,25 @@ mod tests {
         assert!(!text.contains("ObjectServer"));
         assert_eq!(everywhere(&crate::report::tests::report()), "");
     }
+    #[test]
+    fn more_than_four_alike_values_are_counted_not_listed() {
+        let kind = |id: &str, n: usize| {
+            let mut row = crate::report::tests::row_removing(&[]);
+            row.id = id.into();
+            row.source = "s".into();
+            row.removed = (0..n)
+                .map(|i| constant(&format!("F{i}"), "v", 10))
+                .collect();
+            row
+        };
+        let with = |n: usize| {
+            let mut report = crate::report::tests::report();
+            report.templates = vec![kind("a", n), kind("b", n)];
+            everywhere(&report)
+        };
+        assert!(!with(4).contains("more"), "{}", with(4));
+        assert!(with(4).contains("<code>F3</code>"));
+        assert!(with(6).contains(", 2 more)"), "{}", with(6));
+        assert!(!with(6).contains("<code>F4</code>"));
+    }
 }

@@ -209,4 +209,33 @@ mod tests {
         assert!(section(&[source(Vec::new())]).contains("every one is counted"));
         assert_eq!(section(&[]), "");
     }
+    #[test]
+    fn the_first_source_is_open_the_rows_count_from_one_and_no_counting_is_not_mentioned() {
+        let example = || Example {
+            pattern: "4624".into(),
+            body: "{}".into(),
+            bytes_in: 1,
+            bytes_out: 1,
+            omitted: Vec::new(),
+        };
+        let mut quiet = source(vec![example(), example()]);
+        quiet.source = "dns".into();
+        quiet.volume.summarized = 0;
+        let html = section(&[source(vec![example()]), quiet]);
+        let first = html
+            .find("<b>windows-security</b>")
+            .expect("the first source");
+        let second = html.find("<b>dns</b>").expect("the second source");
+        assert!(
+            html[..first].ends_with("<details class=\"item\" open><summary><span class=\"what\">")
+        );
+        assert!(!html[first..second].contains(" open>"));
+        assert!(html[first..second].contains(", 60 counted into summaries"));
+        assert!(
+            !html[second..].contains("counted into summaries"),
+            "none are counted"
+        );
+        assert!(html[second..].contains("<tr><td class=\"n\">1</td>"));
+        assert!(html[second..].contains("<tr><td class=\"n\">2</td>"));
+    }
 }
