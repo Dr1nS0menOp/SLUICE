@@ -207,3 +207,219 @@ fn a_field_named_as_an_identifier_never_implies_another() {
         assert!(!identifier(&field(name)), "{name}");
     }
 }
+
+#[test]
+fn a_field_counts_its_name_four_bytes_of_punctuation_and_its_value_in_json() {
+    // `"Keywords":"0x80",`: 8 + 4 + 6.
+    assert_eq!(size(&field("Keywords"), &text("0x80")), 18);
+    // The last segment only, a number and a boolean as JSON writes them.
+    assert_eq!(
+        size(&field("event.code"), &Literal::Integer(4624)),
+        4 + 4 + 4
+    );
+    assert_eq!(size(&field("Ok"), &Literal::Bool(false)), 2 + 4 + 5);
+    // An escaped quote counts as JSON writes it.
+    assert_eq!(size(&field("Q"), &text("a\"b")), 1 + 4 + 6);
+}
+
+#[test]
+fn an_implication_is_worth_its_events_times_the_bytes_of_the_value() {
+    // `Mode` is `-` on 30 events of type 2 and `x` on 25 of type 3; 5 of type 4 are too few.
+    let types: Vec<Literal> = [(2, 30), (3, 25), (4, 5)]
+        .iter()
+        .flat_map(|(t, n)| std::iter::repeat_n(Literal::Integer(*t), *n))
+        .collect();
+    let modes: Vec<Literal> = [("-", 30), ("x", 25), ("y", 5)]
+        .iter()
+        .flat_map(|(m, n)| std::iter::repeat_n(text(m), *n))
+        .collect();
+    // Interleaved, so the later half repeats the earlier half's types.
+    let order: Vec<usize> = (0..60).map(|i| (i * 7) % 60).collect();
+    let types: Vec<Literal> = order.iter().map(|&i| types[i].clone()).collect();
+    let modes: Vec<Literal> = order.iter().map(|&i| modes[i].clone()).collect();
+    let (mode, logon_type) = (field("Mode"), field("LogonType"));
+    let found = implied_by(&mode, &modes, &logon_type, &types).expect("an implication");
+    assert_eq!(
+        found.bytes,
+        30 * size(&mode, &text("-")) + 25 * size(&mode, &text("x"))
+    );
+    assert_eq!(found.values.len(), 2, "type 4 has too few events");
+}
+
+#[test]
+fn at_most_sixty_four_values_are_learned_per_kind_of_event() {
+    let names: Vec<String> = (0..70).map(|i| format!("F{i:02}")).collect();
+    let events: Vec<Map<String, Value>> = (0..30)
+        .map(|_| names.iter().map(|n| (n.clone(), json!("v"))).collect())
+        .collect();
+    let refs: Vec<&Map<String, Value>> = events.iter().collect();
+    let fields = variant(&names.iter().map(String::as_str).collect::<Vec<_>>());
+    let values = learn_template(&BTreeSet::new(), std::slice::from_ref(&fields), &refs);
+    assert_eq!(values.len(), MAX_PER_TEMPLATE);
+}
+
+#[test]
+fn of_fields_that_imply_each_other_none_removed_implies_a_removed_one() {
+    // `A`, `B` and `C` determine each other; each could be learned as implied by another, but
+    // a value is only rebuilt while what implies it is still there.
+    let events: Vec<Map<String, Value>> = (0..80)
+        .filter_map(|i| {
+            let (a, b, c) = if i % 2 == 0 {
+                ("a0", "b-zero-long-value", "c0-mid")
+            } else {
+                ("a1", "b-one-long-value-", "c1-mid")
+            };
+            match json!({"A": a, "B": b, "C": c}) {
+                Value::Object(map) => Some(map),
+                _ => None,
+            }
+        })
+        .collect();
+    let refs: Vec<&Map<String, Value>> = events.iter().collect();
+    let fields = variant(&["A", "B", "C"]);
+    let values = learn_template(&BTreeSet::new(), std::slice::from_ref(&fields), &refs);
+    assert!(!values.is_empty(), "the longest one is learned");
+    let removed: BTreeSet<&FieldPath> = values.iter().map(|v| &v.field).collect();
+    for value in &values {
+        let (on, _) = value.when.as_ref().expect("implied by another field");
+        assert!(
+            !removed.contains(on),
+            "{value:?} is implied by a removed field"
+        );
+    }
+}
+
+mod learn {
+    use sluice_core::event::Timestamp;
+    use sluice_core::ids::{EventId, SourceId};
+    use sluice_core::template::{Template, TemplateStats};
+
+    use super::*;
+
+    fn template(id: &str, schema: Schema, fields: &[&str], events: u64) -> Template {
+        let variant = variant(fields);
+        Template {
+            id: id.into(),
+            source: "s".into(),
+            logsource: sluice_core::logsource::LogSource::default(),
+            schema,
+            pattern: String::new(),
+            shape: TemplateShape::Keyset {
+                discriminators: vec![(field("EventID"), "1".to_owned())],
+                paths: variant.clone(),
+                variants: vec![variant.clone()],
+            },
+            fields: variant,
+            text_fields: BTreeSet::new(),
+            stats: TemplateStats {
+                events,
+                bytes: 0,
+                source_events: 1_000,
+            },
+        }
+    }
+
+    /// `n` events of `template`, each `{"EventID": 1, "Channel": "Security", "TenantId": "t"}`.
+    fn discovery(templates: Vec<Template>, n: u64) -> (Discovery, Vec<Event>) {
+        let mut assignments = BTreeMap::new();
+        let mut events = Vec::new();
+        for template in &templates {
+            for _ in 0..n {
+                let id = EventId(events.len() as u64);
+                assignments.insert(id, template.id.clone());
+                let Value::Object(fields) =
+                    json!({"EventID": 1, "Channel": "Security", "TenantId": "t"})
+                else {
+                    unreachable!("an object")
+                };
+                events.push(Event {
+                    id,
+                    timestamp: Timestamp(0),
+                    source: SourceId::new("s"),
+                    fields,
+                });
+            }
+        }
+        (
+            Discovery {
+                templates,
+                assignments,
+            },
+            events,
+        )
+    }
+
+    const FIELDS: [&str; 3] = ["EventID", "Channel", "TenantId"];
+
+    #[test]
+    fn a_frequent_kind_of_event_gets_its_constants_but_never_its_discriminator() {
+        let (discovery, events) = discovery(vec![template("t", Schema::Sigma, &FIELDS, 500)], 30);
+        let learned = learn(&discovery, &events, GuardrailConfig::default());
+        let fields: Vec<&str> = learned[&TemplateId::from("t")]
+            .iter()
+            .map(|v| v.field.as_str())
+            .collect();
+        assert_eq!(fields, ["Channel", "TenantId"]);
+    }
+
+    #[test]
+    fn a_rare_kind_of_event_gets_nothing() {
+        let (discovery, events) = discovery(vec![template("t", Schema::Sigma, &FIELDS, 5)], 30);
+        assert!(learn(&discovery, &events, GuardrailConfig::default()).is_empty());
+    }
+
+    #[test]
+    fn read_from_sentinel_the_columns_the_workspace_adds_are_left_alone() {
+        let (discovery, events) =
+            discovery(vec![template("t", Schema::Sentinel, &FIELDS, 500)], 30);
+        let learned = learn(&discovery, &events, GuardrailConfig::default());
+        let fields: Vec<&str> = learned[&TemplateId::from("t")]
+            .iter()
+            .map(|v| v.field.as_str())
+            .collect();
+        assert_eq!(fields, ["Channel"]);
+    }
+
+    #[test]
+    fn a_kind_of_event_with_nothing_implied_is_not_listed() {
+        // Only the discriminator: nothing to learn.
+        let (discovery, events) =
+            discovery(vec![template("t", Schema::Sigma, &["EventID"], 500)], 30);
+        assert!(learn(&discovery, &events, GuardrailConfig::default()).is_empty());
+    }
+}
+
+#[test]
+fn a_field_another_removed_one_is_implied_by_stays_even_if_what_implies_it_stays_too() {
+    // `ObjectId` (largest) is implied by `B` (or `C`; ties go to the first name), so `B` must
+    // stay, though `C`, which implies `B`, stays too. `ObjectId` is named as an identifier, so
+    // it implies nothing.
+    let events: Vec<Map<String, Value>> = (0..80)
+        .filter_map(|i| {
+            let (object, b, c) = if i % 2 == 0 {
+                ("object-zero-with-a-long-value", "b0-mid", "c0")
+            } else {
+                ("object-one-with-a-long-value-", "b1-mid", "c1")
+            };
+            match json!({"ObjectId": object, "B": b, "C": c}) {
+                Value::Object(map) => Some(map),
+                _ => None,
+            }
+        })
+        .collect();
+    let refs: Vec<&Map<String, Value>> = events.iter().collect();
+    let fields = variant(&["ObjectId", "B", "C"]);
+    let values = learn_template(&BTreeSet::new(), std::slice::from_ref(&fields), &refs);
+    let removed: BTreeSet<&str> = values.iter().map(|v| v.field.as_str()).collect();
+    assert!(removed.contains("ObjectId"), "{values:?}");
+    assert!(
+        !removed.contains("B"),
+        "`ObjectId` is put back from it: {values:?}"
+    );
+    assert!(
+        values
+            .iter()
+            .filter(|v| v.field.as_str() == "ObjectId")
+            .all(|v| v.when.as_ref().is_some_and(|(on, _)| on.as_str() == "B"))
+    );
+}

@@ -229,7 +229,7 @@ fn size(field: &FieldPath, value: &Literal) -> usize {
     let value = match value {
         Literal::Bool(b) => b.to_string().len(),
         Literal::Integer(i) => i.to_string().len(),
-        Literal::Text(s) => serde_json::to_string(s).map_or(s.len() + 2, |json| json.len()),
+        Literal::Text(s) => Value::String(s.clone()).to_string().len(),
     };
     name + 4 + value
 }
