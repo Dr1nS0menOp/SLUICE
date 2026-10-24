@@ -207,7 +207,11 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
   table itself for `RestrictedAdminMode == "-"` finds nothing. For Sentinel, `<Table>Full`
   reads as before; analytics rules keep querying the table, and the guardrails keep every field
   they read. For Elasticsearch, the runtime fields of `SOURCE.runtime.json` do the same in a
-  search or a data view. Splunk, Wazuh and the agents' destinations have no such step yet.
+  search or a data view. Splunk has no such step yet (parked). **Wazuh needs none:** with its
+  stock ruleset loaded (4,652 rules) the demo saves 0.0 %, implied values included (84.8 %
+  without them, measured 2026-10-24), because raw-text rules such as 1002 read the whole JSON
+  line (`docs/notes/wazuh.md`), and Windows data reaches Wazuh through its agent, not through
+  Sluice. Nothing is removed, so nothing needs putting back.
 - **Out of the sample, a rebuild can guess.** `<Table>Full` and the runtime fields recognise a
   record by its kind of event; a record of that kind that arrived without the field (a variant
   the sample did not have), or with it empty in Sentinel, where an emptied and an empty column

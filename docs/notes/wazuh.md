@@ -94,6 +94,12 @@ Before this, Sluice dropped empty fields under such rules, which could silence a
   the full stock ruleset loaded. Load Wazuh rules only when Wazuh is the SIEM that receives the
   data: with SigmaHQ as the reference (another SIEM), the same data saves 24-29%.
 
+**Implied values change nothing here** (2026-10-24): `sluice demo`'s sample with the example
+Sigma rules saves 84.8 % (rules 73.5 %, implied 11.3 %); with the stock Wazuh ruleset added
+(4,652 rules, `--wazuh-decoders`) it saves 0.0 % in both modes, 41 = 41 alerts. Removing an
+implied value changes the JSON line those rules read, so the guardrails keep it like any other
+field, and a step that puts implied values back in Wazuh's indexer has nothing to do.
+
 ## `maxsize` counts the whole event
 
 Verified with `logtest` (container `wazuh/wazuh-manager:4.14.0`, 2026-10-22). Two probe rules in
