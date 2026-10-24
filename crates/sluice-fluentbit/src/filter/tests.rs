@@ -611,3 +611,63 @@ fn c1_in_fluent_bit_implied_values_leave_exactly_as_in_vector() {
         "the first event loses its implied values"
     );
 }
+
+#[test]
+fn an_implied_text_is_tested_as_text() {
+    let t = implied_template();
+    let recipe = implied_text(t.id.as_str());
+    let out = of(&[(&t, &recipe)]);
+    let source = script(&out);
+    assert!(source.contains(r#"== "0x80""#), "{source}");
+    assert!(source.contains(r#"== "-""#), "{source}");
+    assert!(out.fields.contains(&FieldPath::from("Keywords")));
+}
+
+#[test]
+fn two_templates_overlap_only_with_a_key_set_in_common_and_no_value_apart() {
+    let a = template("a", &[("EventID", "4624")], &[&["EventID", "User"]]);
+    let same = template("b", &[("EventID", "4624")], &[&["EventID", "User"]]);
+    let other_value = template("c", &[("EventID", "4625")], &[&["EventID", "User"]]);
+    let other_field = template("d", &[("Channel", "Security")], &[&["EventID", "User"]]);
+    let other_keys = template("e", &[("EventID", "4624")], &[&["EventID", "Host"]]);
+    assert!(overlap(&a, &same));
+    assert!(!overlap(&a, &other_value), "4624 and 4625 are apart");
+    assert!(
+        overlap(&a, &other_field),
+        "different fields ask nothing of each other"
+    );
+    assert!(!overlap(&a, &other_keys));
+}
+
+#[test]
+fn an_exception_that_holds_or_lies_in_a_field_keeps_it_when_empty() {
+    let t = template(
+        "windows:4624:e",
+        &[("EventID", "4624")],
+        &[&["EventID", "Host.name", "Host.ip", "Note", "Other"]],
+    );
+    let recipe = EffectiveRecipe {
+        drop_empty_except: Some(paths(&["EventID", "Host", "Note.text"])),
+        ..EffectiveRecipe::passthrough(t.id.clone())
+    };
+    let out = of(&[(&t, &recipe)]);
+    let line = script(&out)
+        .lines()
+        .find(|l| l.contains("if sluice_remove_empty_except(r, keys,"))
+        .expect("empty fields are removed")
+        .to_owned();
+    for kept in [r#""EventID""#, r#""Host""#, r#""Note.text""#] {
+        assert!(line.contains(kept), "{kept}: {line}");
+    }
+    let kept = template(
+        "windows:4624:k",
+        &[("EventID", "4624")],
+        &[&["EventID", "Host.name", "Note"]],
+    );
+    let recipe = EffectiveRecipe {
+        drop_empty_except: Some(paths(&["EventID", "Host", "Note.text"])),
+        ..EffectiveRecipe::passthrough(kept.id.clone())
+    };
+    let out = of(&[(&kept, &recipe)]);
+    assert!(!out.empty_fields, "every field is kept by an exception");
+}

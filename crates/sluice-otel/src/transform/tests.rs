@@ -598,3 +598,94 @@ fn c1_in_the_collector_implied_values_leave_exactly_as_in_vector() {
         "the first event loses its implied values"
     );
 }
+
+#[test]
+fn an_implied_text_is_tested_as_text() {
+    let t = implied_template();
+    let recipe = implied_text(t.id.as_str());
+    let out = of(&[(&t, &recipe)]);
+    let all = out.statements.join("\n");
+    assert!(all.contains(r#"log.body["Keywords"] == "0x80""#), "{all}");
+    assert!(out.fields.contains(&FieldPath::from("Mode")));
+}
+
+#[test]
+fn two_templates_overlap_only_with_a_key_set_in_common_and_no_value_apart() {
+    let a = template("a", &[("EventID", "4624")], &[&["EventID", "User"]]);
+    let same = template("b", &[("EventID", "4624")], &[&["EventID", "User"]]);
+    let other_value = template("c", &[("EventID", "4625")], &[&["EventID", "User"]]);
+    let other_field = template("d", &[("Channel", "Security")], &[&["EventID", "User"]]);
+    let other_keys = template("e", &[("EventID", "4624")], &[&["EventID", "Host"]]);
+    assert!(overlap(&a, &same));
+    assert!(!overlap(&a, &other_value), "4624 and 4625 are apart");
+    assert!(
+        overlap(&a, &other_field),
+        "different fields ask nothing of each other"
+    );
+    assert!(!overlap(&a, &other_keys));
+}
+
+#[test]
+fn only_fields_no_exception_touches_and_no_removal_takes_are_removed_when_empty() {
+    let t = template(
+        "windows:4624:e",
+        &[("EventID", "4624")],
+        &[&["EventID", "Host.name", "Note", "Message", "Other"]],
+    );
+    let recipe = EffectiveRecipe {
+        drop_fields: paths(&["Message"]),
+        drop_empty_except: Some(paths(&["EventID", "Host", "Note.text"])),
+        ..EffectiveRecipe::passthrough(t.id.clone())
+    };
+    let out = of(&[(&t, &recipe)]);
+    assert!(out.empty_fields);
+    let empty: Vec<&String> = out
+        .statements
+        .iter()
+        .filter(|s| s.contains(r#" == "" or "#))
+        .collect();
+    assert_eq!(empty.len(), 1, "{empty:?}");
+    assert!(empty[0].contains(r#"log.body["Other"]"#), "{empty:?}");
+}
+
+#[test]
+fn each_key_set_is_checked_with_a_probe_of_its_own() {
+    let t = template(
+        "windows:4624:v",
+        &[("EventID", "4624")],
+        &[&["EventID", "Message"], &["EventID", "Message", "Extra"]],
+    );
+    let recipe = removing(t.id.as_str(), &["Message"], None);
+    let all = of(&[(&t, &recipe)]).statements.join("\n");
+    assert!(all.contains(r#"log.cache["sluice_p0"]"#), "{all}");
+    assert!(all.contains(r#"log.cache["sluice_p1"]"#), "{all}");
+    assert!(all.contains(" or "), "two key sets: {all}");
+}
+
+#[test]
+fn a_single_key_set_is_tested_without_alternatives() {
+    let t = template(
+        "windows:4624:s",
+        &[("EventID", "4624")],
+        &[&["EventID", "Message"]],
+    );
+    let recipe = removing(t.id.as_str(), &["Message"], None);
+    let all = of(&[(&t, &recipe)]).statements.join("\n");
+    assert!(
+        all.contains(r#"log.cache["sluice_t"] == nil and (IsMap(log.body)"#),
+        "{all}"
+    );
+}
+
+#[test]
+fn a_whole_number_has_at_most_fifteen_digits_and_no_leading_zero() {
+    assert!(whole("4624"));
+    assert!(whole("-5"));
+    assert!(whole("123456789012345"));
+    assert!(!whole("1234567890123456"));
+    assert!(!whole("0"));
+    assert!(!whole("05"));
+    assert!(!whole(""));
+    assert!(!whole("-"));
+    assert!(!whole("1.5"));
+}

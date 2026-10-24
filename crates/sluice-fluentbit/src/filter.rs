@@ -89,8 +89,9 @@ pub fn lua_filter(description: &str, plans: &[Plan<'_>]) -> LuaFilter {
         // A template that changes nothing only needs recognising where Vector would give it a
         // record before a template that does change it.
         let claims = action.is_some()
-            || recognised[n + 1..]
+            || recognised[n..]
                 .iter()
+                .skip(1)
                 .any(|(later, _, _, a)| a.is_some() && overlap(plan.template, later.template));
         if !claims {
             continue;

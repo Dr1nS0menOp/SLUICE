@@ -82,8 +82,9 @@ pub fn transform(plans: &[Plan<'_>]) -> Statements {
     let mut branches = 0usize;
     for (n, (plan, condition, removal)) in recognised.iter().enumerate() {
         let claims = removal.is_some()
-            || recognised[n + 1..]
+            || recognised[n..]
                 .iter()
+                .skip(1)
                 .any(|(later, _, r)| r.is_some() && overlap(plan.template, later.template));
         if !claims {
             continue;
