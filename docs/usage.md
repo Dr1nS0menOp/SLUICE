@@ -108,7 +108,11 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
    of event what to change, the fields removed on the sample with their bytes, where it can run,
    and why it is safe. Savings by source follow, and the smaller savings, the kinds of event sent
    unchanged (each with its reason: a rule reads that field, the kind of event is rare, no recipe
-   matches), the rules and the problems are folded away. `sluice analyze` also prints hints
+   matches), the rules and the problems are folded away. Near the end, *What the SIEM still
+   receives* shows per source up to 10 events as they are sent, with what was left out of each
+   and why. Those are real events from your sample: `--no-examples` leaves them out before you
+   share the report. `--mode rules` or `--mode implied` makes only one kind of saving; the
+   report gives the saving of each. `sluice analyze` also prints hints
    when a vague source description keeps rules in scope. The same decisions are in `plan.json`, for tools: per kind of event what may be
    removed or counted, which events keep every field, and whether the saving can run in the
    SIEM's own ingestion or an agent, or needs a pipeline tool (ADR 0023).

@@ -60,7 +60,11 @@ synthetic data.
 - **B. Recipes.** Community recipes (YAML in [`recipes/`](../recipes/)), the operator's own and,
   optionally, an AI advisor propose reductions per template: drop fields or empty fields (L1),
   forward what rules could match and summarize the rest (L2), or summarize a template no rule
-  covers (L3). A proposal is never trusted.
+  covers (L3). A proposal is never trusted. Sluice also learns *implied values* from the sample
+  itself: a field that always holds one value on a kind of event, or one value whenever another
+  field holds a given one. Such a field may be removed (L1) only while it holds exactly that value,
+  so it can be put back (ADR 0032). `--mode` picks the recipes' savings, the implied values or
+  both.
 - **C. Rules into requirements.** Every loaded rule is read into the same engine-neutral
   *requirements*: the log source it applies to, the fields it reads (including those in
   exclusions), whether it matches raw text, whether it counts or correlates events, and a
@@ -132,8 +136,8 @@ and counting stay with a pipeline tool; `runs_in` in the plan says per saving wh
 
 | Target | What Sluice writes | Proven in |
 |---|---|---|
-| Microsoft Sentinel (ADR 0013) | The data collection rule with a `transformKql` per table, and an untransformed flow of the same stream into an Auxiliary archive table | the Kusto emulator |
-| Elasticsearch (ADR 0024) | An ingest pipeline per source: one Painless `script` processor | Elasticsearch, through `_ingest/pipeline/_simulate` |
+| Microsoft Sentinel (ADR 0013) | The data collection rule with a `transformKql` per table, and an untransformed flow of the same stream into an Auxiliary archive table; where it empties implied values, `<Table>Full.kql`, a workspace function that puts them back (ADR 0032) | the Kusto emulator |
+| Elasticsearch (ADR 0024) | An ingest pipeline per source: one Painless `script` processor; where it removes implied values, runtime fields that put them back in a search or a data view (ADR 0032) | Elasticsearch, through `_ingest/pipeline/_simulate` |
 | Fluent Bit (ADR 0027) | A Lua filter per source | Fluent Bit |
 | OpenTelemetry Collector (ADR 0028) | OTTL statements per source in a `transform` processor | the collector |
 

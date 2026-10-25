@@ -20,6 +20,9 @@ maintain it. Sluice does the deciding and the proving, and hands you the result:
 2. **It sorts a sample of your traffic** into kinds of events.
 3. **It proposes savings:**
    - padding it can drop without losing anything;
+   - values the kind of event already implies, such as `Channel: Security` on every Windows
+     Security event, removed only while they hold and put back exactly when a query runs
+     ([ADR 0032](docs/adr/0032-implied-values.md));
    - events no rule could match, which it counts instead of sending;
    - with AI, more.
 4. **It proves** on your sample that your rules raise exactly the same alerts on what would still

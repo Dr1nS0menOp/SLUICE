@@ -26,6 +26,8 @@ configuration use in brackets where it differs.
 | **Drain** | An online algorithm that groups log lines into patterns; positions that differ become `<*>`, numbers `<NUM>`. |
 | **Recipe** (`recipes/*.yaml`) | A proposal in YAML: which reductions for which kind of event. From the community, your own, or the AI advisor. Never trusted. |
 | **L1, L2, L3** (`drop_fields`, `forward_matching`, `summarize`) | L1 removes fields or empty fields. L2 forwards what a rule could match and counts the rest. L3 only counts, for templates no rule sees. |
+| **Implied value** (`drop_implied`, `remove_implied`) | A value the kind of event, or another field of the event, implies: `Channel: Security` on a Windows Security event. Removed only while the field holds exactly it (L1), so `plan.json`, Sentinel's `<Table>Full` and Elasticsearch's runtime fields can put it back (ADR 0032). |
+| **Mode** (`--mode`) | A kind of saving: `rules` (the recipes) or `implied` (implied values). Both run by default; the report gives the saving of each. |
 | **Rule** | A detection rule or query the SIEM runs: Sigma, Wazuh XML, Sentinel KQL, Elastic's KQL, EQL or ES\|QL, or a Splunk saved search. |
 | **Rule inventory** (`inventory.json`) | The rules a SIEM runs, read from its API by `sluice rules fetch`. It marks the rule set complete, which summaries need. |
 | **Requirements** (`requirements`) | What a rule needs from the data: the log source it applies to, the fields it reads, whether it searches free text, whether it counts events, and its pre-filter. |
