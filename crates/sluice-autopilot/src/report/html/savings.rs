@@ -162,16 +162,22 @@ fn headline(row: &TemplateRow) -> String {
 /// What an opened item shows: the numbers, what to change, the fields, and why.
 fn body(row: &TemplateRow) -> String {
     let v = &row.volume;
+    let records = if v.summarized == 0 {
+        String::new()
+    } else {
+        format!(
+            "<div><span class=\"k\">Summary records sent</span>{}</div>",
+            thousands(v.summaries)
+        )
+    };
     let mut out = format!(
         "<div class=\"facts\"><div><span class=\"k\">Events</span>{events}</div>\
          <div><span class=\"k\">Sent, in full or reduced</span>{forwarded}</div>\
-         <div><span class=\"k\">Counted into summaries</span>{summarized}</div>\
-         <div><span class=\"k\">Summary records sent</span>{summaries}</div>\
+         <div><span class=\"k\">Counted into summaries</span>{summarized}</div>{records}\
          <div><span class=\"k\">Bytes in → out</span>{bin} → {bout}</div></div>",
         events = thousands(v.events),
         forwarded = thousands(v.forwarded),
         summarized = thousands(v.summarized),
-        summaries = thousands(v.summaries),
         bin = bytes(v.bytes_in),
         bout = bytes(v.bytes_out),
     );
@@ -466,6 +472,7 @@ mod tests {
 
         let sent = body(&row("b", 100, 100));
         assert!(!sent.contains("How counting works"), "{sent}");
+        assert!(!sent.contains("Summary records sent"), "{sent}");
     }
 
     #[test]

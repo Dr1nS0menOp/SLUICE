@@ -34,6 +34,7 @@ h4 { font-size:13px; margin:16px 0 6px; }
 .sub { color:var(--muted); margin:0 0 16px; }
 .meaning { border-left:4px solid var(--accent); padding:2px 0 2px 14px; margin:0 0 20px; }
 .meaning h2 { font-size:15px; margin:0 0 4px; } .meaning p { margin:0; max-width:80ch; }
+.meaning p:not(:first-of-type), .meaning ul { margin-top:8px; max-width:80ch; }
 .hero { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px;
         margin:0 0 16px; }
 .hero .big { font-size:40px; font-weight:700; line-height:1.1; }

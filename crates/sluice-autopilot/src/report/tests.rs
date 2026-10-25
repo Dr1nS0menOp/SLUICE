@@ -342,8 +342,8 @@ fn each_removed_field_says_why_it_may_go_and_where() {
     assert!(why("Message").starts_with("the recipe removes it"));
     assert_eq!(
         why("Keywords"),
-        "always \"0x8020000000000000\" on this kind of event; left out only when it is \
-         \"0x8020000000000000\", and put back as \"0x8020000000000000\""
+        "always \"0x8020000000000000\" on this kind of event; left out only on an event that \
+         holds it, and put back from the plan"
     );
     assert_eq!(
         why("RestrictedAdminMode"),

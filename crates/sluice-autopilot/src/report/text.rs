@@ -79,8 +79,8 @@ pub(crate) fn why_removed(path: &FieldPath, recipe: &EffectiveRecipe) -> String 
     }
     if let Some(value) = constant {
         return format!(
-            "always {value} on this kind of event; left out only when it is {value}, and put back \
-             as {value}"
+            "always {value} on this kind of event; left out only on an event that holds it, and \
+             put back from the plan"
         );
     }
     if by_value.len() > MANY_VALUES {
