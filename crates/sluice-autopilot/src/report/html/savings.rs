@@ -282,9 +282,6 @@ fn sources(rows: &[TemplateRow]) -> String {
     for row in rows {
         let (volume, members) = by_source.entry(&row.source).or_default();
         volume.events += row.volume.events;
-        volume.forwarded += row.volume.forwarded;
-        volume.summarized += row.volume.summarized;
-        volume.summaries += row.volume.summaries;
         volume.bytes_in += row.volume.bytes_in;
         volume.bytes_out += row.volume.bytes_out;
         members.push(row);
@@ -473,6 +470,115 @@ mod tests {
         let sent = body(&row("b", 100, 100));
         assert!(!sent.contains("How counting works"), "{sent}");
         assert!(!sent.contains("Summary records sent"), "{sent}");
+    }
+
+    #[test]
+    fn the_biggest_savings_take_a_row_only_while_short_of_the_share_and_never_a_zero_one() {
+        // Saved: 80, 0, 10 and 10 of 100. After 80 + 10 the list holds exactly 90 %: no more.
+        let rows = [
+            row("a", 100, 20),
+            row("z", 100, 100),
+            row("b", 100, 90),
+            row("c", 100, 90),
+        ];
+        let (main, rest) = split(&rows, 100);
+        let ids = |rows: &[&TemplateRow]| rows.iter().map(|r| r.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&main), ["a", "b"]);
+        assert_eq!(ids(&rest), ["z", "c"]);
+    }
+
+    #[test]
+    fn the_advice_ranks_the_biggest_and_folds_the_smaller_and_the_unchanged() {
+        let mut rows: Vec<TemplateRow> = (0..13)
+            .map(|i| row(&format!("k{i:02}"), 1_000, 900))
+            .collect();
+        rows.push(row("same", 500, 500));
+        let html = advice(&rows);
+        assert!(
+            html.contains("12 kinds of event make 92% of what can be saved"),
+            "12 of 13 equal savings: {html}"
+        );
+        assert!(html.contains("<span class=\"rank\">1</span>"));
+        assert!(html.contains("<span class=\"rank\">12</span>"));
+        assert!(!html.contains("<span class=\"rank\">0</span>"));
+        let smaller = html.find("<h2>Smaller savings</h2>").expect("folded");
+        let unchanged = html.find("<h2>Sent unchanged</h2>").expect("folded");
+        assert!(html[smaller..unchanged].contains("title=\"k12\""));
+        assert!(html[smaller..unchanged].contains("1 kind of event, 1 KB in, 100 B saved"));
+        assert!(html[unchanged..].contains("title=\"same\""));
+        assert!(html[unchanged..].contains("1 kind of event, 500 B in, 0 B saved"));
+
+        let one = advice(&[row("only", 1_000, 100)]);
+        assert!(one.contains("1 kind of event makes 100% of what can be saved"));
+        assert!(one.contains(" open><summary>"), "the first is open");
+        assert!(!one.contains("Smaller savings") && !one.contains("Sent unchanged"));
+        assert!(advice(&[row("same", 1, 1)]).contains("Nothing can be saved on this sample"));
+    }
+
+    #[test]
+    fn an_opened_kind_of_event_lists_its_removed_fields_and_holdbacks_only_when_it_has_them() {
+        let plain = body(&row("a", 100, 100));
+        assert!(!plain.contains("Fields removed on the sample"));
+        assert!(!plain.contains("Why, and what was held back"));
+        assert!(plain.contains("Kind of event <code>a</code>"));
+
+        let mut reduced = row("b", 1_000, 400);
+        reduced.volume.forwarded = 5;
+        reduced.removed = vec![crate::report::RemovedField {
+            path: "Message".into(),
+            events: 4,
+            bytes: 600,
+            mode: crate::mode::Mode::Rules,
+            constant: None,
+            why: "it repeats".into(),
+            runs_in: "Vector".into(),
+        }];
+        reduced.rationale = Some("Message repeats the fields.".into());
+        reduced.adjustments = vec!["CommandLine kept".into()];
+        reduced.provenance = Some("community recipe r".into());
+        let html = body(&reduced);
+        assert!(html.contains(
+            "<tr><td><code>Message</code></td><td class=\"n\">4 of 5</td><td class=\"n\">600 B\
+             </td><td>it repeats</td><td>Vector</td></tr>"
+        ));
+        assert!(html.contains("The recipe's reasoning: Message repeats the fields."));
+        assert!(html.contains("<h4>Why, and what was held back</h4><ul><li>CommandLine kept"));
+        assert!(html.contains("community recipe r. Kind of event <code>b</code>"));
+        assert!(
+            !html.contains("An implied value is not lost"),
+            "none is implied"
+        );
+
+        reduced.removed[0].mode = crate::mode::Mode::Implied;
+        assert!(body(&reduced).contains("An implied value is not lost"));
+    }
+
+    #[test]
+    fn each_source_adds_up_its_kinds_of_event_and_the_largest_saving_comes_first() {
+        let mut small = row("s1", 1_000, 900);
+        small.source = "dns".into();
+        let mut big = row("w1", 3_000, 1_000);
+        big.source = "windows".into();
+        big.volume.events = 7;
+        let mut big2 = row("w2", 2_000, 1_000);
+        big2.source = "windows".into();
+        big2.volume.events = 3;
+        let html = sources(&[small, big, big2]);
+        let windows = html.find("<b>windows</b>").expect("windows");
+        let dns = html.find("<b>dns</b>").expect("dns");
+        assert!(windows < dns, "3 KB saved before 100 B");
+        assert!(html[windows..dns].contains("10 events, 2 kinds of event"));
+        assert!(html[windows..dns].contains("−60%</span><span class=\"muted\">5 KB → 2 KB"));
+        assert!(html[dns..].contains("1 events, 1 kind of event"));
+        assert!(html[dns..].contains("−10%"));
+    }
+
+    #[test]
+    fn the_colour_steps_start_at_one_ten_thirty_and_sixty_percent() {
+        assert_eq!(level(1.0), 1);
+        assert_eq!(level(10.0), 2);
+        assert_eq!(level(30.0), 3);
+        assert_eq!(level(60.0), 4);
     }
 
     #[test]

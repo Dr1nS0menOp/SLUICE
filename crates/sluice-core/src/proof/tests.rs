@@ -364,24 +364,23 @@ fn volume_counts_events_bytes_and_outcomes() {
 
 #[test]
 fn counted_events_send_one_summary_per_window_and_group_and_its_bytes_count() {
-    // Events of `C` at seconds 0, 10, 70 and 75; keys `x` twice in the first minute, `y` once,
-    // then `x` again in the second minute: three records.
+    // Events of `C`: key `x` ten times in the first minute (a count of two digits, so its bytes
+    // tell it from a count of one), `y` once, then `x` again in the second minute: three records.
     let at = |id: u64, second: i64, k: &str| Event {
         timestamp: crate::event::Timestamp(second),
         ..event(id, "s", json!({"t": "C", "k": k}))
     };
-    let events = [
-        at(1, 0, "x"),
-        at(2, 10, "x"),
-        at(3, 20, "y"),
-        at(4, 70, "x"),
-    ];
+    let mut events: Vec<Event> = (0u8..10)
+        .map(|i| at(u64::from(i), i64::from(i) * 5, "x"))
+        .collect();
+    events.push(at(10, 20, "y"));
+    events.push(at(11, 70, "x"));
     let plane = FakePlane {
         recipes: vec![summarize("C")],
     };
     let proof = prove(&events, &FakeEngine { fail: false }, &plane).unwrap();
     let c = proof.per_template[&Some("C".into())];
-    assert_eq!((c.summarized, c.summaries, c.forwarded), (4, 3, 0));
+    assert_eq!((c.summarized, c.summaries, c.forwarded), (12, 3, 0));
     let record = |k: &str, count: u64| {
         let mut record = summary(&"C".into(), &event(0, "s", json!({"k": k})));
         record.insert("sluice_count".into(), json!(count));
@@ -389,7 +388,7 @@ fn counted_events_send_one_summary_per_window_and_group_and_its_bytes_count() {
     };
     assert_eq!(
         c.bytes_out,
-        record("x", 2) + record("y", 1) + record("x", 1)
+        record("x", 10) + record("y", 1) + record("x", 1)
     );
     assert_eq!(proof.total.bytes_out, c.bytes_out, "nothing else is sent");
     assert_eq!(proof.total.summaries, 3);

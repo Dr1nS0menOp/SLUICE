@@ -229,6 +229,13 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
   record by its kind of event; a record of that kind that arrived without the field (a variant
   the sample did not have), or with it empty in Sentinel, where an emptied and an empty column
   look alike, gets the implied value. The proof on the sample rules this out there only.
+- **Emptied objects are still sent.** When every field of a nested object goes, the object
+  stays as `{}`: on the demo's Windows logoff (4634) the event is sent as 262 bytes of which
+  `"agent":{},"ecs":{},"host":{"os":{}}` take 34 (13 %), measured 2026-10-25. Removing an object
+  the reductions emptied would be lossless, but each engine must do it after its removals, only
+  for objects it emptied itself (an empty object in the source event can be tested for), and the
+  put-back steps must then create the parent again. ECS-shaped data (Beats, the Elastic agent)
+  gains most; flat records (Sentinel, Windows XML) nothing.
 - **Linux text lines.** Template text is the bulk of a line, and rules read it whole. Saving there
   stays with counting kinds of event no rule needs, and with archives that compress by template
   (as CLP does).

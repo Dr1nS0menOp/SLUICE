@@ -191,6 +191,13 @@ run went instead of being tested: an unreachable `guid` arm, a fallback for a JS
 cannot fail, an equal-objects shortcut, and three `recognised[n + 1..]` that now read
 `[n..].iter().skip(1)`.
 
+On 2026-10-26, after the summary records were counted and the examples became a field table:
+`report/html/examples.rs` 33 of 33 caught; `proof.rs` missed one (`+=` to `*=` on a group's
+count, which a test with counts of one digit cannot see) until a group of ten events was added;
+`report/html/savings.rs`, never run before, missed 43 of 96 (the ranking's boundaries, the folded
+sections, the removed-fields table, the per-source sums, the colour steps). After the new tests
+every viable mutant is caught there too; three per-source sums no line showed went instead.
+
 **Give cargo-mutants a target directory of its own.** `scripts/wsl.ps1` sets
 `CARGO_TARGET_DIR`, and mutants built its copy of the tree into the shared one: the build script
 of `sluice-autopilot` then pointed the embedded recipes at the deleted copy, and the real tree's
