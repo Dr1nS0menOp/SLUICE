@@ -307,7 +307,7 @@ fn unit_tests(
             .map_err(|e| VectorError::Config(e.to_string()))?;
         let (route, expected) = match &reduced.outcome {
             Outcome::Forwarded(body) => (FORWARD, body),
-            Outcome::Summarized => (SUMMARIZE, &event.fields),
+            Outcome::Summarized(_) => (SUMMARIZE, &event.fields),
         };
         let has_reduction = reduced
             .template

@@ -15,26 +15,38 @@ pub(super) fn explain(report: &Report) -> String {
     }
     format!(
         "<section class=\"meaning\"><h2>What “implied” means</h2>\
-         <p>Many fields of a log event hold a value that follows from what kind of event it is. \
-         Every event in the Windows Security log says <code>Channel: Security</code>. Others \
-         follow from another field: in a Windows logon (event 4624), \
-         <code>RestrictedAdminMode</code> is <code>-</code> unless <code>LogonType</code> is 10, \
-         a remote desktop logon. Sending such a value tells the SIEM nothing it could not work \
-         out itself, much as a form need not repeat the country on every line once it is \
-         printed at the top. Sluice calls such a value <b>implied</b>.</p>\
-         <p>Sluice leaves an implied value out <b>only while the event holds exactly that \
-         value</b>: an event that holds another one is sent with the field as it is. So nothing \
-         is lost. <code>plan.json</code> lists every implied value, which lets any tool fill a \
-         missing field back in exactly. For Microsoft Sentinel, the function \
-         <code>&lt;Table&gt;Full</code> that Sluice writes does that when a query runs, and for \
-         Elasticsearch the runtime fields it writes do so in a search or a data view. The \
-         archive keeps every event whole.</p>\
-         <p>Implied values are learned from this sample, only from fields that behave as \
-         categories: few values, each seen often, and no new value late in the sample. \
-         Identifiers such as logon IDs never count, and a field a detection rule reads stays on \
-         every event that rule could match. If the data changes later, a value that no longer \
-         holds is simply sent: the saving shrinks, nothing goes wrong.</p>{example}{everywhere}\
-         </section>",
+         <p>A value is <b>implied</b> when the rest of the event already says what it is. That \
+         happens in two ways.</p>\
+         <ul><li><b>The kind of event fixes it.</b> Every Windows event 4624 (a successful \
+         logon) comes from <code>Channel</code> <code>Security</code>, and Sentinel's \
+         <code>Activity</code> column holds the same text on each of them: <code>4624 - An \
+         account was successfully logged on.</code> Such a text carries no data of the event \
+         itself: it is the event ID's description, which Microsoft's event reference on the \
+         internet gives for every ID, so it can always be looked up again.</li>\
+         <li><b>Another field fixes it.</b> In the same event 4624, \
+         <code>RestrictedAdminMode</code> is <code>-</code> on every logon whose \
+         <code>LogonType</code> is not 10 (remote desktop): once the SIEM has \
+         <code>LogonType</code>, it knows <code>RestrictedAdminMode</code>.</li></ul>\
+         <p><b>What Sluice does with it.</b> It leaves the field out only on an event that holds \
+         exactly that value. An event with any other value in the field is sent with the field \
+         as it is. <code>plan.json</code> lists every implied value and when it applies, under \
+         <code>remove_implied</code>, so any tool can put the field back exactly. In Microsoft \
+         Sentinel, query <code>&lt;Table&gt;Full</code> instead of <code>&lt;Table&gt;</code>: \
+         Sluice writes that function, and it fills the fields back in. In Elasticsearch, the \
+         runtime fields Sluice writes do the same in searches and data views. The archive \
+         keeps every event whole.</p>\
+         <p><b>How Sluice finds them.</b> It learns them from this sample, and only on kinds of \
+         event frequent enough to be reduced at all: a rare kind of event is always sent \
+         whole. A value the kind of event fixes must be the same on every event of that kind \
+         in the sample. A field that fixes another must behave as a category: 2 to 32 distinct \
+         values, no value in the second half of the sample that the first half lacked, and a \
+         name that is not an identifier's (ending in <code>Id</code> or <code>Guid</code>, \
+         such as a logon ID). Each of its values needs at least 20 events before Sluice learns \
+         what it fixes. A field a detection rule reads is never left out of an event that rule \
+         could match.</p>\
+         <p><b>When the data changes.</b> If an event later holds another value, that event \
+         simply carries the field: the saving gets smaller, and nothing is lost or \
+         wrong.</p>{example}{everywhere}</section>",
         example = example(report),
         everywhere = everywhere(report),
     )
@@ -108,14 +120,25 @@ fn everywhere(report: &Report) -> String {
         }
         let _ = write!(
             out,
-            "<p class=\"muted\">On <b>{source}</b>, {n} implied value(s) are the same on every \
-             kind of event that has them ({list}), {saved} of the saving. If the sample comes \
-             from one machine, some of them may be that machine's, such as its name, rather \
-             than the kind of event's: on other machines such a field is simply sent, so the \
-             saving there is lower, never the data. A sample from several machines settles \
-             it.</p>",
+            "<p class=\"muted\"><b>Check these on {source}.</b> {n} {fields} the same value on \
+             every kind of event that has {them}: {list}. {together} {saved}. A value \
+             that is the same everywhere may belong to the machine the sample came from, such \
+             as its name or its domain, rather than to the kind of event. If so, events from \
+             other machines simply carry the field: the saving there is smaller, and no data is \
+             lost. A sample from several machines tells the two apart.</p>",
             source = escape(source),
             n = alike.len(),
+            fields = if alike.len() == 1 {
+                "field has"
+            } else {
+                "fields have"
+            },
+            them = if alike.len() == 1 { "it" } else { "them" },
+            together = if alike.len() == 1 {
+                "It saves"
+            } else {
+                "Together they save"
+            },
             list = shown.join(", "),
             saved = bytes(saved),
         );
@@ -178,7 +201,9 @@ mod tests {
         }];
         report.templates = vec![row];
         let text = explain(&report);
-        assert!(text.contains("only while the event holds exactly that value"));
+        assert!(text.contains("only on an event that holds exactly that value"));
+        assert!(text.contains("Microsoft's event reference"), "{text}");
+        assert!(text.contains("at least 20 events"), "{text}");
         assert!(text.contains("<code>Keywords</code> on windows-security events"));
         assert!(text.contains("Leaving it out of 1,200 events saved 45 KB"));
     }
@@ -226,8 +251,9 @@ mod tests {
         let text = everywhere(&report);
         assert!(
             text.contains(
-                "On <b>SecurityEvent</b>, 1 implied value(s) are the same on every kind of event \
-                 that has them (<code>Computer</code> = <code>DESKTOP-1</code>), 1 KB of the saving"
+                "<b>Check these on SecurityEvent.</b> 1 field has the same value on every kind of \
+                 event that has it: <code>Computer</code> = <code>DESKTOP-1</code>. It saves 1 \
+                 KB."
             ),
             "{text}"
         );
@@ -253,7 +279,12 @@ mod tests {
         };
         assert!(!with(4).contains("more"), "{}", with(4));
         assert!(with(4).contains("<code>F3</code>"));
-        assert!(with(6).contains(", 2 more)"), "{}", with(6));
+        assert!(with(6).contains(", 2 more. Together"), "{}", with(6));
+        assert!(
+            with(6).contains("6 fields have the same value"),
+            "{}",
+            with(6)
+        );
         assert!(!with(6).contains("<code>F4</code>"));
     }
 }

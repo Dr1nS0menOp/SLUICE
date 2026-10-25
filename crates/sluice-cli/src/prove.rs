@@ -125,6 +125,7 @@ fn print(
             "extra": proof.extra.iter().map(|a| format!("{} on event {}", a.rule, a.event)).collect::<Vec<_>>(),
             "events": total.events,
             "summarized": total.summarized,
+            "summaries": total.summaries,
             "bytes_in": total.bytes_in,
             "bytes_out": total.bytes_out,
             "saved_percent": (saved * 10.0).round() / 10.0,
@@ -134,8 +135,13 @@ fn print(
         println!("{}", serde_json::to_string_pretty(&summary)?);
     } else {
         println!("{}", args.config.display());
+        let records = if total.summarized == 0 {
+            String::new()
+        } else {
+            format!(" into {} records", total.summaries)
+        };
         println!(
-            "  ingest  {} → {} bytes ({saved:.1}% saved, {} of {} events summarized)",
+            "  ingest  {} → {} bytes ({saved:.1}% saved, {} of {} events summarized{records})",
             total.bytes_in, total.bytes_out, total.summarized, total.events
         );
         println!(

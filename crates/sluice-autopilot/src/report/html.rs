@@ -166,12 +166,13 @@ fn hero(report: &Report) -> String {
     format!(
         "<section class=\"hero\"><div class=\"big t{level}\">{saved:.1}% <small>less ingest\
          </small></div><div class=\"muted\">{bin} in, {bout} sent to the SIEM; {summarized} of \
-         {events} events counted into summaries instead of sent one by one</div>{bar}{modes}\
-         </section>",
+         {events} events counted into {summaries} summary records instead of sent one by one\
+         </div>{bar}{modes}</section>",
         level = savings::level(saved),
         bin = bytes(t.bytes_in),
         bout = bytes(t.bytes_out),
         summarized = thousands(t.summarized),
+        summaries = thousands(t.summaries),
         events = thousands(t.events),
         bar = savings::bar(saved),
         modes = modes(report),

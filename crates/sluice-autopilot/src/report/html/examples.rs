@@ -136,6 +136,7 @@ mod tests {
                 events: 100,
                 forwarded: 40,
                 summarized: 60,
+                summaries: 0,
                 bytes_in: 50_000,
                 bytes_out: 9_000,
             },

@@ -77,7 +77,7 @@ pub(crate) fn check(
             Outcome::Forwarded(body) => {
                 original.is_some() && fired(rules, format, body)? == original
             }
-            Outcome::Summarized => original.is_some_and(|o| o.is_empty()),
+            Outcome::Summarized(_) => original.is_some_and(|o| o.is_empty()),
         };
         if !same {
             result.rolled_back.insert(template.clone());

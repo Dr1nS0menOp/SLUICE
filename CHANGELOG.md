@@ -40,6 +40,12 @@ All notable changes to Sluice are recorded here. The format follows
   sample in Elasticsearch through `_simulate`, without writing to the cluster: every forwarded
   document reads as the full one, and a field that would not is left out. The pipeline now
   keeps an empty field that may go as implied, so its absence has one meaning.
+- **Fixed: counted events were counted as 0 bytes.** The proof left the summary records out
+  of what is sent, so a kind of event counted in full showed as −100 %. It now builds them as
+  the pipeline does (one per minute per combination of summary keys) and counts their bytes:
+  the demo saves 79.2 %, not 84.8 %. The summary, the report and `plan.json` (`summaries`) give
+  the number of records, and the report says per kind of event how counting works. Samples
+  without counting (the real Windows, Sentinel and OTRF runs) are unchanged.
 - **What the SIEM still receives.** The report shows, per source, up to 10 events of the sample
   as they are sent after the savings, one of each kind of event first, each with what was left
   out and why (repeats the event, empty, or the implied value that can be put back).

@@ -176,7 +176,7 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
 | Linux `auth.log` and `syslog`; SigmaHQ | 25.7 % | 25.7 % | 0 = 0 |
 | Sentinel `SecurityEvent` and `WindowsEvent`; the Windows Security Events solution and SigmaHQ | 0.0 % | 0.0 % | 1,706 = 1,706 |
 | Sentinel `SecurityEvent` of the test workspace; its own two rules | 4.1 % | 37.9 % | 0 = 0 |
-| `sluice demo --scale 100`; the example rules | 74.0 % | 85.3 % | 41 = 41 |
+| `sluice demo --scale 100`; the example rules | 67.9 % | 79.2 % | 41 = 41 |
 | OTRF Security-Datasets APT29 day 1, Security and Sysmon of **four machines**; the example rules | 63.2 % (the rules' share) | 80.0 % (implied 16.8 %) | 0 = 0 |
 | The same four machines; all 3,152 SigmaHQ rules | 32.8 % (the rules' share) | 58.8 % (implied 26.1 %) | 29,555 = 29,555 |
 | APT29 day 2, the same four machines, Security; all SigmaHQ | 35.1 % (the rules' share) | 63.5 % (implied 28.4 %) | 287 = 287 |
@@ -221,8 +221,8 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
   reads as before; analytics rules keep querying the table, and the guardrails keep every field
   they read. For Elasticsearch, the runtime fields of `SOURCE.runtime.json` do the same in a
   search or a data view. Splunk has no such step yet (parked). **Wazuh needs none:** with its
-  stock ruleset loaded (4,652 rules) the demo saves 0.0 %, implied values included (84.8 %
-  without them, measured 2026-10-24), because raw-text rules such as 1002 read the whole JSON
+  stock ruleset loaded (4,652 rules) the demo saves 0.0 %, implied values included (79.2 %
+  without them, measured 2026-10-24 and recounted 2026-10-25 with the summary records), because raw-text rules such as 1002 read the whole JSON
   line (`docs/notes/wazuh.md`), and Windows data reaches Wazuh through its agent, not through
   Sluice. Nothing is removed, so nothing needs putting back.
 - **Out of the sample, a rebuild can guess.** `<Table>Full` and the runtime fields recognise a

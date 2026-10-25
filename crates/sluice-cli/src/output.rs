@@ -44,12 +44,17 @@ pub(crate) fn summary(report: &Report, templates: usize, sources: usize) {
         "{} events from {sources} sources, {templates} templates",
         group(t.events)
     );
+    let records = if t.summarized == 0 {
+        String::new()
+    } else {
+        format!(" into {} records", group(t.summaries))
+    };
     println!(
-        "  ingest  {} → {}  ({:.1}% saved, {} events summarized)",
+        "  ingest  {} → {}  ({:.1}% saved, {} events summarized{records})",
         mb(t.bytes_in),
         mb(t.bytes_out),
         report.saved_percent(),
-        group(t.summarized)
+        group(t.summarized),
     );
     let modes: Vec<String> = sluice_autopilot::Mode::ALL
         .iter()

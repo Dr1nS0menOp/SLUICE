@@ -271,7 +271,7 @@ fn vrl(plans: &[(&Template, &EffectiveRecipe)], events: &[Event]) -> Vec<Map<Str
         .iter()
         .map(|e| match reducer.reduce(e).expect("VRL runs").outcome {
             Outcome::Forwarded(body) => body,
-            Outcome::Summarized => panic!("nothing is counted here"),
+            Outcome::Summarized(_) => panic!("nothing is counted here"),
         })
         .collect()
 }

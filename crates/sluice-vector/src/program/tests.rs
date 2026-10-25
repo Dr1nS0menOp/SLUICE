@@ -77,7 +77,7 @@ fn reduce(plans: &[(Template, EffectiveRecipe)], body: Value) -> (Option<String>
 fn forwarded(outcome: Outcome) -> Map<String, Value> {
     match outcome {
         Outcome::Forwarded(body) => body,
-        Outcome::Summarized => panic!("summarized"),
+        Outcome::Summarized(_) => panic!("summarized"),
     }
 }
 
@@ -136,7 +136,7 @@ fn c3_rule_guided_routing_forwards_matches_whole_and_summarizes_the_rest() {
         "dropped on forwarded events"
     );
     let (_, other) = reduce(&plans, logon_event("bob"));
-    assert_eq!(other, Outcome::Summarized);
+    assert!(matches!(other, Outcome::Summarized(_)), "{other:?}");
 }
 
 #[test]

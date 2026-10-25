@@ -45,12 +45,16 @@ pub fn compile_reducer<'a>(
             .or_default()
             .push(plan);
     }
-    let programs = by_source
-        .into_iter()
-        .map(|(source, plans)| {
-            let program = CompiledProgram::compile(source.as_str(), source_program(&plans))?;
-            Ok((source, program))
-        })
-        .collect::<Result<_, VectorError>>()?;
-    Ok(VrlReducer::new(programs))
+    let mut programs = BTreeMap::new();
+    let mut summaries = BTreeMap::new();
+    for (source, plans) in by_source {
+        let program = CompiledProgram::compile(source.as_str(), source_program(&plans))?;
+        let summary = CompiledProgram::compile(
+            &format!("{source} summary"),
+            summary::summary_program(&source, &plans),
+        )?;
+        programs.insert(source.clone(), program);
+        summaries.insert(source, summary);
+    }
+    Ok(VrlReducer::new(programs).with_summaries(summaries))
 }

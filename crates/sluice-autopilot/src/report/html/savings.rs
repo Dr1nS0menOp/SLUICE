@@ -132,18 +132,20 @@ fn headline(row: &TemplateRow) -> String {
     let v = &row.volume;
     let mut parts = Vec::new();
     if v.summarized > 0 {
-        parts.push(if v.forwarded == 0 {
-            format!(
-                "count all {} events instead of sending them",
-                thousands(v.events)
-            )
+        let counted = if v.forwarded == 0 {
+            format!("all {}", thousands(v.events))
         } else {
-            format!(
-                "count {} of {} events instead of sending them",
-                thousands(v.summarized),
-                thousands(v.events)
-            )
-        });
+            format!("{} of {}", thousands(v.summarized), thousands(v.events))
+        };
+        parts.push(format!(
+            "send {counted} events as {} summary {}",
+            thousands(v.summaries),
+            if v.summaries == 1 {
+                "record"
+            } else {
+                "records"
+            }
+        ));
     }
     if v.forwarded > 0
         && let Some(removal) = row.actions.iter().find(|a| a.starts_with("drop "))
@@ -164,10 +166,12 @@ fn body(row: &TemplateRow) -> String {
         "<div class=\"facts\"><div><span class=\"k\">Events</span>{events}</div>\
          <div><span class=\"k\">Sent, in full or reduced</span>{forwarded}</div>\
          <div><span class=\"k\">Counted into summaries</span>{summarized}</div>\
+         <div><span class=\"k\">Summary records sent</span>{summaries}</div>\
          <div><span class=\"k\">Bytes in → out</span>{bin} → {bout}</div></div>",
         events = thousands(v.events),
         forwarded = thousands(v.forwarded),
         summarized = thousands(v.summarized),
+        summaries = thousands(v.summaries),
         bin = bytes(v.bytes_in),
         bout = bytes(v.bytes_out),
     );
@@ -176,6 +180,9 @@ fn body(row: &TemplateRow) -> String {
         out.push_str("<p class=\"muted\">Nothing: it is sent as it is.</p>");
     } else {
         out.push_str(&list(&row.actions));
+    }
+    if v.summarized > 0 {
+        out.push_str(&counting(v));
     }
     if let Some(runs_in) = &row.runs_in {
         let _ = write!(out, "<p class=\"muted\">Runs in: {}</p>", escape(runs_in));
@@ -197,6 +204,22 @@ fn body(row: &TemplateRow) -> String {
         escape(&row.id)
     );
     out
+}
+
+/// What counting events means, with this kind of event's numbers: a reader seeing a large
+/// saving should know at once that nothing a rule could match is among the counted events.
+fn counting(v: &Volume) -> String {
+    format!(
+        "<p class=\"muted\">How counting works: an event that no detection rule could match is \
+         not sent on its own. Instead, every minute the SIEM gets one summary record per \
+         combination of the summary fields above, with <code>sluice_count</code>, how many \
+         events it stands for. Here {summarized} events became {summaries} summary records; \
+         those records are in the {bout} that is still sent. Every event a rule could match is \
+         sent in full, and the archive keeps every original.</p>",
+        summarized = thousands(v.summarized),
+        summaries = thousands(v.summaries),
+        bout = bytes(v.bytes_out),
+    )
 }
 
 /// The fields removed from the sample's events: what each saved, why it may go, and where its
@@ -255,6 +278,7 @@ fn sources(rows: &[TemplateRow]) -> String {
         volume.events += row.volume.events;
         volume.forwarded += row.volume.forwarded;
         volume.summarized += row.volume.summarized;
+        volume.summaries += row.volume.summaries;
         volume.bytes_in += row.volume.bytes_in;
         volume.bytes_out += row.volume.bytes_out;
         members.push(row);
@@ -353,6 +377,7 @@ mod tests {
                 events: 1,
                 forwarded: 1,
                 summarized: 0,
+                summaries: 0,
                 bytes_in,
                 bytes_out,
             },
@@ -403,23 +428,44 @@ mod tests {
         counted.volume.events = 15_000;
         counted.volume.forwarded = 0;
         counted.volume.summarized = 15_000;
+        counted.volume.summaries = 1_200;
         counted.actions = vec!["drop Message".into(), "forward events …".into()];
         assert_eq!(
             headline(&counted),
-            "count all 15,000 events instead of sending them"
+            "send all 15,000 events as 1,200 summary records"
         );
 
         counted.volume.forwarded = 470;
         counted.volume.summarized = 14_530;
+        counted.volume.summaries = 1;
         assert_eq!(
             headline(&counted),
-            "count 14,530 of 15,000 events instead of sending them; drop Message"
+            "send 14,530 of 15,000 events as 1 summary record; drop Message"
         );
 
         let mut reduced = row("b", 100, 40);
         reduced.actions = vec!["drop Message".into()];
         assert_eq!(headline(&reduced), "drop Message");
         assert_eq!(headline(&row("c", 100, 100)), "sent unchanged");
+    }
+
+    #[test]
+    fn a_counted_kind_of_event_says_how_counting_works_with_its_numbers() {
+        let mut counted = row("a", 1_400_000, 600_000);
+        counted.volume.events = 2_031;
+        counted.volume.forwarded = 0;
+        counted.volume.summarized = 2_031;
+        counted.volume.summaries = 1_766;
+        let html = body(&counted);
+        assert!(html.contains("Summary records sent</span>1,766"), "{html}");
+        assert!(
+            html.contains("Here 2,031 events became 1,766 summary records"),
+            "{html}"
+        );
+        assert!(html.contains("in the 600 KB that is still sent"), "{html}");
+
+        let sent = body(&row("b", 100, 100));
+        assert!(!sent.contains("How counting works"), "{sent}");
     }
 
     #[test]

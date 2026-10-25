@@ -165,7 +165,7 @@ fn rule_guided_routing_forwards_the_lsass_dump_and_summarizes_the_rest() {
             .outcome
         {
             Outcome::Forwarded(_) => forwarded += 1,
-            Outcome::Summarized => {
+            Outcome::Summarized(_) => {
                 assert!(
                     !dump.contains(&event.id),
                     "the LSASS dump must be forwarded"

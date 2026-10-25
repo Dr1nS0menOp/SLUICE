@@ -51,11 +51,20 @@ pub struct Volume {
     pub forwarded: u64,
     /// Events counted into summaries instead.
     pub summarized: u64,
+    /// Summary records those events make: one per window of [`SUMMARY_WINDOW_SECONDS`] and per
+    /// group of the events' summary keys.
+    #[serde(default)]
+    pub summaries: u64,
     /// Bytes in (compact JSON).
     pub bytes_in: u64,
-    /// Bytes forwarded (compact JSON of the forwarded bodies).
+    /// Bytes sent (compact JSON): the forwarded bodies and the summary records. A summary is
+    /// sent too, so counting events saves what they take less what their counts take.
     pub bytes_out: u64,
 }
+
+/// The window summary records count over, as the data plane closes its groups (Vector's
+/// `reduce` every 60 seconds). The proof places each event in the window of its own time.
+pub const SUMMARY_WINDOW_SECONDS: i64 = 60;
 
 impl Volume {
     fn add(&mut self, bytes_in: usize, outcome: &Outcome) {
@@ -66,7 +75,42 @@ impl Volume {
                 self.forwarded += 1;
                 self.bytes_out += to_u64(encoded_size(body));
             }
-            Outcome::Summarized => self.summarized += 1,
+            Outcome::Summarized(_) => self.summarized += 1,
+        }
+    }
+}
+
+/// Where a summary record counts: its template, window and group (the record without its
+/// count).
+type SummaryKey = (Option<TemplateId>, i64, String);
+
+/// The summary records of one run: per template, window and group, the record and the events
+/// it counts.
+#[derive(Default)]
+struct Summaries(BTreeMap<SummaryKey, (Map<String, Value>, u64)>);
+
+impl Summaries {
+    fn count(&mut self, template: Option<TemplateId>, event: &Event, record: Map<String, Value>) {
+        let mut group = record.clone();
+        group.remove("sluice_count");
+        // Serializing a `Map` cannot fail: its keys are strings.
+        let group = serde_json::to_string(&group).unwrap_or_default();
+        let window = event.timestamp.0.div_euclid(SUMMARY_WINDOW_SECONDS);
+        self.0
+            .entry((template, window, group))
+            .or_insert((record, 0))
+            .1 += 1;
+    }
+
+    /// Adds each record, with the events it counts, to the bytes sent.
+    fn send(self, total: &mut Volume, per_template: &mut BTreeMap<Option<TemplateId>, Volume>) {
+        for ((template, _, _), (mut record, events)) in self.0 {
+            record.insert("sluice_count".to_owned(), Value::from(events));
+            let bytes = to_u64(encoded_size(&record));
+            for volume in [&mut *total, per_template.entry(template).or_default()] {
+                volume.summaries += 1;
+                volume.bytes_out += bytes;
+            }
         }
     }
 }
@@ -147,6 +191,7 @@ impl<'a> Run<'a> {
             per_template: BTreeMap::new(),
             removed: BTreeMap::new(),
         };
+        let mut summaries = Summaries::default();
         for event in events {
             let reduced = data_plane.reduce(event)?;
             let bytes_in = encoded_size(&event.fields);
@@ -157,7 +202,14 @@ impl<'a> Run<'a> {
                 .add(bytes_in, &reduced.outcome);
             run.templates
                 .insert(event.id, (event.source.clone(), reduced.template.clone()));
-            if let Outcome::Forwarded(body) = reduced.outcome {
+            let body = match reduced.outcome {
+                Outcome::Forwarded(body) => body,
+                Outcome::Summarized(record) => {
+                    summaries.count(reduced.template, event, record);
+                    continue;
+                }
+            };
+            {
                 run.forwarded.push(if body == event.fields {
                     Cow::Borrowed(event)
                 } else {
@@ -174,6 +226,7 @@ impl<'a> Run<'a> {
                 });
             }
         }
+        summaries.send(&mut run.total, &mut run.per_template);
         Ok(run)
     }
 

@@ -79,8 +79,8 @@ pub(crate) fn why_removed(path: &FieldPath, recipe: &EffectiveRecipe) -> String 
     }
     if let Some(value) = constant {
         return format!(
-            "always {value} on this kind of event, so the kind of event implies it; left out \
-             only while it holds that value, and put back from the plan"
+            "always {value} on this kind of event; left out only when it is {value}, and put back \
+             as {value}"
         );
     }
     if by_value.len() > MANY_VALUES {
@@ -100,8 +100,8 @@ pub(crate) fn why_removed(path: &FieldPath, recipe: &EffectiveRecipe) -> String 
             .next()
             .expect("every value has a field implying it");
         return format!(
-            "follows from {}: each of its {} values goes with one value there, such as {value} \
-             whenever {first} is {}; left out only while that holds, and put back from the plan",
+            "fixed per value of {}: the sample has {} pairs, such as {first} = {} with {path} = \
+             {value}; left out only when an event matches its pair, and put back from that pair",
             list(on.into_iter()),
             by_value.len(),
             whens.join(" or ")
@@ -118,8 +118,7 @@ pub(crate) fn why_removed(path: &FieldPath, recipe: &EffectiveRecipe) -> String 
         })
         .collect();
     format!(
-        "follows from another field: {}; left out only while that holds, and put back from the \
-         plan",
+        "fixed by another field: {}; left out only in those cases, and put back as that value",
         parts.join("; ")
     )
 }
@@ -311,11 +310,11 @@ mod tests {
             ..recipe()
         };
         let three = why_removed(&"Sid".into(), &pairs(3));
-        assert!(three.starts_with("follows from another field: \"S-0\" whenever Name is \"n0\";"));
+        assert!(three.starts_with("fixed by another field: \"S-0\" whenever Name is \"n0\";"));
         assert!(three.contains("\"S-2\" whenever Name is \"n2\""), "{three}");
         let four = why_removed(&"Sid".into(), &pairs(4));
         assert!(
-            four.starts_with("follows from Name: each of its 4 values"),
+            four.starts_with("fixed per value of Name: the sample has 4 pairs"),
             "{four}"
         );
     }

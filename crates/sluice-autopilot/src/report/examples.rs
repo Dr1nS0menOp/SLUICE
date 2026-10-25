@@ -138,6 +138,7 @@ fn volume_of<'a>(volumes: impl Iterator<Item = Option<&'a Volume>>) -> Volume {
         total.events += v.events;
         total.forwarded += v.forwarded;
         total.summarized += v.summarized;
+        total.summaries += v.summaries;
         total.bytes_in += v.bytes_in;
         total.bytes_out += v.bytes_out;
     }
@@ -300,7 +301,7 @@ mod tests {
                 outcome: if self.forward {
                     Outcome::Forwarded(event.fields.clone())
                 } else {
-                    Outcome::Summarized
+                    Outcome::Summarized(serde_json::Map::new())
                 },
             })
         }
@@ -383,6 +384,7 @@ mod tests {
             events: 10,
             forwarded: 4,
             summarized: 6,
+            summaries: 0,
             bytes_in: 1_000,
             bytes_out: 300,
         };
@@ -390,6 +392,7 @@ mod tests {
             events: 1,
             forwarded: 1,
             summarized: 0,
+            summaries: 0,
             bytes_in: 50,
             bytes_out: 50,
         };
@@ -399,6 +402,7 @@ mod tests {
                 events: 11,
                 forwarded: 5,
                 summarized: 6,
+                summaries: 0,
                 bytes_in: 1_050,
                 bytes_out: 350,
             }

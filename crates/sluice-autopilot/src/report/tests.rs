@@ -14,6 +14,7 @@ pub(super) fn report() -> Report {
             events: 10,
             forwarded: 10,
             summarized: 0,
+            summaries: 0,
             bytes_in: 1_000,
             bytes_out: 400,
         },
@@ -341,13 +342,13 @@ fn each_removed_field_says_why_it_may_go_and_where() {
     assert!(why("Message").starts_with("the recipe removes it"));
     assert_eq!(
         why("Keywords"),
-        "always \"0x8020000000000000\" on this kind of event, so the kind of event implies it; \
-         left out only while it holds that value, and put back from the plan"
+        "always \"0x8020000000000000\" on this kind of event; left out only when it is \
+         \"0x8020000000000000\", and put back as \"0x8020000000000000\""
     );
     assert_eq!(
         why("RestrictedAdminMode"),
-        "follows from another field: \"-\" whenever LogonType is 2 or 3; left out only while \
-         that holds, and put back from the plan"
+        "fixed by another field: \"-\" whenever LogonType is 2 or 3; left out only in those \
+         cases, and put back as that value"
     );
     assert!(why("WorkstationName").starts_with("it was empty"));
 
@@ -391,9 +392,9 @@ fn a_field_paired_with_another_is_described_by_one_pair() {
     };
     assert_eq!(
         text::why_removed(&FieldPath::new("TargetUserSid"), &recipe),
-        "follows from TargetUserName: each of its 4 values goes with one value there, such as \
-         \"S-1\" whenever TargetUserName is \"alice\"; left out only while that holds, and put \
-         back from the plan"
+        "fixed per value of TargetUserName: the sample has 4 pairs, such as TargetUserName = \
+         \"alice\" with TargetUserSid = \"S-1\"; left out only when an event matches its pair, \
+         and put back from that pair"
     );
 }
 
