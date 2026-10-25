@@ -47,8 +47,11 @@ All notable changes to Sluice are recorded here. The format follows
   the number of records, and the report says per kind of event how counting works. Samples
   without counting (the real Windows, Sentinel and OTRF runs) are unchanged.
 - **What the SIEM still receives.** The report shows, per source, up to 10 events of the sample
-  as they are sent after the savings, one of each kind of event first, each with what was left
-  out and why (repeats the event, empty, or the implied value that can be put back).
+  as they are sent after the savings, one of each kind of event first, as a table that scrolls
+  sideways: one row per event, one column per field, each cell the value sent, the value left out
+  with its reason (repeats the event, empty, or implied and put back from the plan), or a dot
+  where the event has no such field. The event, its kind and its bytes stay in view, and each
+  event's JSON is folded away below.
   `sluice analyze --no-examples` leaves them out, since they hold the sample's real values.
 - **Implied, explained.** The report says in plain words what an implied value is, why leaving
   it out loses nothing, and how Sluice learns it, with the largest one of the sample as the

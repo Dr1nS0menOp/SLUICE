@@ -31,6 +31,6 @@ pub use crate::plan::{
 pub use crate::recipes::{RecipeBook, Resolution};
 pub use crate::report::{
     EMPTY_PROOF, EXAMPLES_PER_SOURCE, Example, Omission, Omitted, Report, RuleRow, RuleStatus,
-    SourceExamples, TemplateRow, render_html,
+    SentField, SourceExamples, TemplateRow, render_html,
 };
 pub use crate::spot::SpotCheck;

@@ -39,14 +39,26 @@ pub struct SourceExamples {
 pub struct Example {
     /// The kind of event it is.
     pub pattern: String,
-    /// The body sent, as compact JSON, with long text values cut to 80 characters.
-    pub body: String,
+    /// The body sent, as indented JSON, with long text values cut to 80 characters.
+    pub raw: String,
+    /// The values sent, one per field (nested objects flattened to dotted paths; an emptied
+    /// object holds no value and is left out), in the body's order.
+    pub sent: Vec<SentField>,
     /// Bytes of the event as it came in.
     pub bytes_in: u64,
     /// Bytes of the event as sent.
     pub bytes_out: u64,
     /// What was left out of it, largest first.
     pub omitted: Vec<Omitted>,
+}
+
+/// A field an example sends.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SentField {
+    /// Its path.
+    pub path: String,
+    /// Its value: a text as it is, anything else as compact JSON, cut to 80 characters.
+    pub value: String,
 }
 
 /// A field left out of an example.
@@ -67,8 +79,9 @@ pub enum Omission {
     Recipe,
     /// It was null or empty.
     Empty,
-    /// It held the value the kind of event or another field implies, shown here (cut to
-    /// 80 characters): it can be put back exactly.
+    /// It held the value the kind of event or another field implies, shown here as a sent value
+    /// is (a text as it is, anything else as compact JSON, cut to 80 characters): it can be put
+    /// back exactly.
     Implied(String),
 }
 
@@ -208,20 +221,50 @@ fn example(
             bytes: to_u64(member.bytes),
             reason: match recipe {
                 Some(r) if r.drop_fields.iter().any(|f| f.covers(&member.path)) => Omission::Recipe,
-                Some(r) if text::implied(&member.path, r) => {
-                    Omission::Implied(cut(&compact(member.value)))
-                }
+                Some(r) if text::implied(&member.path, r) => Omission::Implied(shown(member.value)),
                 _ => Omission::Empty,
             },
         })
         .collect();
     omitted.sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.path.cmp(&b.path)));
+    let shown = shortened(after);
+    let mut sent = Vec::new();
+    flatten("", &shown, &mut sent);
     Example {
         pattern: pattern.unwrap_or("(no kind of event)").to_owned(),
-        body: compact(&Value::Object(shortened(after))),
+        // Serializing a `Value` cannot fail: its keys are strings.
+        raw: serde_json::to_string_pretty(&Value::Object(shown)).unwrap_or_default(),
+        sent,
         bytes_in: to_u64(encoded_size(before)),
         bytes_out: to_u64(encoded_size(after)),
         omitted,
+    }
+}
+
+/// Every value of `body` below `prefix`, nested objects as dotted paths.
+fn flatten(prefix: &str, body: &Map<String, Value>, out: &mut Vec<SentField>) {
+    for (key, value) in body {
+        let path = if prefix.is_empty() {
+            key.clone()
+        } else {
+            format!("{prefix}.{key}")
+        };
+        match value {
+            Value::Object(members) => flatten(&path, members, out),
+            other => out.push(SentField {
+                path,
+                value: shown(other),
+            }),
+        }
+    }
+}
+
+/// A value as an example shows it: a text as it is, anything else as compact JSON, cut to
+/// [`VALUE_CHARS`] characters.
+fn shown(value: &Value) -> String {
+    match value {
+        Value::String(text) => cut(text),
+        other => cut(&compact(other)),
     }
 }
 
@@ -277,7 +320,8 @@ mod tests {
     fn named(pattern: &str) -> Example {
         Example {
             pattern: pattern.into(),
-            body: String::new(),
+            raw: String::new(),
+            sent: Vec::new(),
             bytes_in: 0,
             bytes_out: 0,
             omitted: Vec::new(),
@@ -448,12 +492,55 @@ mod tests {
             reasons,
             [
                 ("Message", &Omission::Recipe),
-                ("Channel", &Omission::Implied("\"Security\"".into())),
+                ("Channel", &Omission::Implied("Security".into())),
                 ("Note", &Omission::Empty),
             ]
         );
-        assert_eq!(shown.body, r#"{"EventID":4624}"#);
+        assert_eq!(shown.raw, "{\n  \"EventID\": 4624\n}");
         assert_eq!(shown.bytes_out, 16);
+    }
+
+    #[test]
+    fn a_left_out_text_is_shown_as_the_text_it_is_even_when_cut_short() {
+        let recipe = EffectiveRecipe {
+            drop_implied: vec![ImpliedValue {
+                field: "Image".into(),
+                value: Literal::Text(format!(r"C:\Windows\{}", "x".repeat(100))),
+                when: None,
+            }],
+            ..EffectiveRecipe::passthrough("t".into())
+        };
+        let before = object(json!({"Image": format!(r"C:\Windows\{}", "x".repeat(100))}));
+        let shown = example(&before, &Map::new(), None, Some(&recipe));
+        let Omission::Implied(text) = &shown.omitted[0].reason else {
+            panic!("implied: {:?}", shown.omitted)
+        };
+        assert!(text.starts_with(r"C:\Windows\x"), "no JSON escapes: {text}");
+        assert_eq!(text.chars().count(), VALUE_CHARS);
+    }
+
+    #[test]
+    fn the_values_sent_are_flattened_to_paths_and_an_emptied_object_holds_none() {
+        let body = object(json!({
+            "EventID": 4624, "Channel": "Security", "agent": {"name": "WS-BOB", "id": {}},
+            "ecs": {}, "Tags": ["a", "b"], "Gone": null
+        }));
+        let shown = example(&body, &body, None, None);
+        let sent: Vec<(&str, &str)> = shown
+            .sent
+            .iter()
+            .map(|f| (f.path.as_str(), f.value.as_str()))
+            .collect();
+        assert_eq!(
+            sent,
+            [
+                ("Channel", "Security"),
+                ("EventID", "4624"),
+                ("Gone", "null"),
+                ("Tags", r#"["a","b"]"#),
+                ("agent.name", "WS-BOB"),
+            ]
+        );
     }
 
     #[test]
@@ -467,8 +554,14 @@ mod tests {
         );
         let cut = format!("{}…", "x".repeat(VALUE_CHARS - 1));
         assert_eq!(
-            shown.body,
-            format!(r#"{{"CommandLine":"{cut}","Tags":["{cut}"]}}"#)
+            shown.raw,
+            format!("{{\n  \"CommandLine\": \"{cut}\",\n  \"Tags\": [\n    \"{cut}\"\n  ]\n}}")
+        );
+        assert_eq!(shown.sent[0].value, cut, "a sent text is cut too");
+        assert_eq!(
+            shown.sent[1].value.chars().count(),
+            VALUE_CHARS,
+            "and so is a list"
         );
         assert_eq!(shown.pattern, "(no kind of event)");
         assert_eq!(

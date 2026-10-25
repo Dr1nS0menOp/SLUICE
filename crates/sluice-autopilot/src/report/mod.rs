@@ -17,7 +17,9 @@ use sluice_core::recipe::Recipe;
 use sluice_core::rules::RuleRequirements;
 use sluice_core::template::Template;
 
-pub use self::examples::{EXAMPLES_PER_SOURCE, Example, Omission, Omitted, SourceExamples};
+pub use self::examples::{
+    EXAMPLES_PER_SOURCE, Example, Omission, Omitted, SentField, SourceExamples,
+};
 pub use self::html::render_html;
 pub use self::rules::{RuleRow, RuleStatus};
 use crate::analyze::{Analysis, Input};
