@@ -18,8 +18,4 @@ chmod +x "$wrapper"
 
 SLUICE_OTEL_COLLECTOR="$wrapper" cargo test --locked -p sluice-otel -- --nocapture
 # The plan's statements for the synthetic sources, proven end to end.
-out=$(mktemp -d)
-cargo run --locked -q -p sluice-cli -- demo --scale 5 --out "$out" --otel-collector "$wrapper" \
-    --otel-native | grep -E '^  (proof|otel)'
-test -s "$out/otel/processors.yaml"
-rm -rf "$out"
+SLUICE_OTEL_COLLECTOR="$wrapper" cargo test --locked -p sluice-cli --test natives otel -- --nocapture

@@ -32,8 +32,4 @@ export SLUICE_ELASTIC_URL=$url
 cargo test --locked -p sluice-elastic -- --nocapture
 # End to end: the demo's pipelines and the runtime fields that put implied values back, proven in
 # Elasticsearch on the synthetic sample.
-out=$(mktemp -d)
-cargo run --locked -q -p sluice-cli -- demo --scale 5 --out "$out" --elasticsearch "$url" --elastic-native \
-    | grep -E '^  (proof|elastic)' | cut -c1-300
-ls "$out"/elastic/*.pipeline.json "$out"/elastic/*.runtime.json >/dev/null
-rm -rf "$out"
+cargo test --locked -p sluice-cli --test natives elastic -- --nocapture
