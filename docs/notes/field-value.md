@@ -179,6 +179,8 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
 | `sluice demo --scale 100`; the example rules | 74.0 % | 85.3 % | 41 = 41 |
 | OTRF Security-Datasets APT29 day 1, Security and Sysmon of **four machines**; the example rules | 63.2 % (the rules' share) | 80.0 % (implied 16.8 %) | 0 = 0 |
 | The same four machines; all 3,152 SigmaHQ rules | 32.8 % (the rules' share) | 58.8 % (implied 26.1 %) | 29,555 = 29,555 |
+| APT29 day 2, the same four machines, Security; all SigmaHQ | 35.1 % (the rules' share) | 63.5 % (implied 28.4 %) | 287 = 287 |
+| APT29 day 2, Sysmon (407,265 events, 812 MB); all SigmaHQ | 32.6 % (the rules' share) | 58.2 % (implied 25.6 %) | 8,431 = 8,431 |
 
 - On Linux nothing changes, as predicted: its lines are text.
 - With SigmaHQ on records in Sentinel's names, SigmaHQ's rules may read any field (ADR 0018),
@@ -211,7 +213,8 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
   implied values save 16.8 %, no machine name is learned as a constant (`Hostname` only as
   implied by another field), and the list holds only what the four share, such as `host`,
   there the address of the log collector. With all of SigmaHQ: 58.8 % saved, 26.1 % by implied
-  values, 29,555 = 29,555 alerts.
+  values, 29,555 = 29,555 alerts; on day 2 (a second attack, 457,326 events) 58.7 % and about
+  25.9 %, every alert the same.
 - **Analysts see an absent field.** A removed value is implied, not gone, but a query on the
   table itself for `RestrictedAdminMode == "-"` finds nothing. For Sentinel, `<Table>Full`
   reads as before; analytics rules keep querying the table, and the guardrails keep every field
