@@ -197,8 +197,9 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
 - **Billing per SIEM.** Measured for Sentinel on 2026-10-24 (`docs/notes/sentinel-dcr.md`):
   through the Logs Ingestion API a rule empties `Activity`, `EventLevelName` and the other
   implied columns, Azure bills 30.7 % less on 100 real records (the analysis predicted 30.8 %),
-  and `SecurityEventFull` puts every value back. Still open: the Azure Monitor Agent's stream,
-  and the other SIEMs' billing.
+  and `SecurityEventFull` puts every value back. On the Azure Monitor Agent's stream (measured
+  2026-10-25) a rule sees `Activity`, `EventLevelName`, `Channel` and `Keywords` too, may empty
+  them, and Azure bills exactly the bytes left. Still open: the other SIEMs' billing.
 - **Versions.** `Version`, `Task` and `Keywords` can change between Windows builds. A
   value-guarded removal stays exact; only the savings vary.
 - **The learning step needs a fleet.** One PC makes `Computer` look constant. That costs no

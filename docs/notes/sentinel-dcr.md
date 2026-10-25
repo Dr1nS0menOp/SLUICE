@@ -172,8 +172,31 @@ Each batch was checked against the emulator's run of the rule version meant for 
 - **The columns Sentinel shows as its own can be emptied and are then not billed:** `Activity`,
   `EventLevelName`, `Channel`, `EventSourceName`, `Keywords` and `Level` arrived empty, and the
   records cost less. This holds for records sent through the Logs Ingestion API, whose stream
-  declares those columns. Whether a rule on the Azure Monitor Agent's stream sees them is not
-  checked.
+  declares those columns, and for the Azure Monitor Agent's stream (below).
+
+**The Azure Monitor Agent's stream, measured 2026-10-25** on this project's Windows 11 PC,
+onboarded to Azure Arc for the test (Connected Machine agent 1.68.03532.3282, Azure Monitor
+Windows Agent extension) and removed afterwards. Two data collection rules of kind `Windows` took
+the same Security events (`Microsoft-SecurityEvent`, an XPath on 4624, 4634, 4672, 4688, 4798 and
+5379): one with `transformKql` `source`, one that wrote into `TargetInfo` whether each column was
+present (`columnifexists`) and then emptied `Activity` and `EventLevelName`.
+
+- **The agent's stream carries `Activity`, `EventLevelName`, `Channel` and `Keywords` before the
+  transformation,** and a column the transformation empties arrives empty: Azure does not fill
+  it in again.
+- **What the agent puts there differs from the Logs Ingestion route.** `EventLevelName` is
+  `LogAlways` (9 characters) on every Security record. `Activity` is the event ID and its
+  description (`4624 - An account was successfully logged on.`, 45 characters), except for 5379,
+  where it was the ID alone (`5379`).
+- **Billing follows the bytes exactly.** Over 29 pairs of the same records (by `EventRecordId`),
+  `_BilledSize` differed by exactly the characters removed minus those added (4624: −26 bytes,
+  4672: −29, 4798: −35, 5379: +15, where `TargetInfo` added more than the 13 removed).
+- Onboarding needs an elevated `msiexec` and `azcmagent connect`; an access token (`--access-token`)
+  serves instead of the service principal's secret, but it expires within the hour, and an
+  expired one makes `azcmagent disconnect` fail (`ExpiredAuthenticationToken`): then delete the
+  `Microsoft.HybridCompute/machines` resource through the API after uninstalling. The agent
+  had sent no record 7 minutes after the extension was requested, and its first ones 16
+  minutes after.
 - `int(null)` (for `Task`, `KeyLength`) and `guid(null)` (for `LogonGuid`) empty a typed column
   in a transformation.
 - `SecurityEventFull` put back every emptied implied value: 700 values in 22 columns on the 100
