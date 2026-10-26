@@ -64,7 +64,7 @@ synthetic data.
   itself: a field that always holds one value on a kind of event, or one value whenever another
   field holds a given one. Such a field may be removed (L1) only while it holds exactly that value,
   so it can be put back (ADR 0032). `--mode` picks the recipes' savings, the implied values or
-  both.
+  both. An object whose every field went is removed too; one that came empty stays (ADR 0033).
 - **C. Rules into requirements.** Every loaded rule is read into the same engine-neutral
   *requirements*: the log source it applies to, the fields it reads (including those in
   exclusions), whether it matches raw text, whether it counts or correlates events, and a

@@ -311,13 +311,18 @@ fn sources(rows: &[TemplateRow]) -> String {
                 .collect();
             format!(
                 "<details class=\"item\"><summary><span class=\"what\"><b>{source}</b>\
-                 <span class=\"muted\">{events} events, {kinds}</span></span><span \
+                 <span class=\"muted\">{events} {noun}, {kinds}</span></span><span \
                  class=\"amount\">{pill}<span class=\"muted\">{bin} → {bout}</span>{bar}</span>\
                  </summary><div class=\"body\"><div class=\"scroll\"><table class=\"fields\"><tr>\
                  <th>Kind of event</th><th>Events</th><th>Bytes in → out</th><th>Saved</th></tr>\
                  {rows}</table></div></div></details>",
                 source = escape(source),
                 events = thousands(volume.events),
+                noun = if volume.events == 1 {
+                    "event"
+                } else {
+                    "events"
+                },
                 kinds = kinds(members.len()),
                 pill = pill(saved),
                 bin = bytes(volume.bytes_in),
@@ -569,7 +574,7 @@ mod tests {
         assert!(windows < dns, "3 KB saved before 100 B");
         assert!(html[windows..dns].contains("10 events, 2 kinds of event"));
         assert!(html[windows..dns].contains("−60%</span><span class=\"muted\">5 KB → 2 KB"));
-        assert!(html[dns..].contains("1 events, 1 kind of event"));
+        assert!(html[dns..].contains("1 event, 1 kind of event"));
         assert!(html[dns..].contains("−10%"));
     }
 

@@ -174,7 +174,7 @@ gives the saving of each:
   Vector, Painless and Lua note before the removals whether the object held a field; the
   collector needs no note, as its exact recognition never takes a record with an extra empty
   object. Sentinel's transformation removes whole columns only, so nothing changes there; the
-  put-back steps read a missing parent as a missing field, as before.
+  put-back steps read a missing parent as a missing field, as before (ADR 0033).
 - **The report** shows per source up to 10 events as they are sent, with what was left out and
   why, and says in plain words what an implied value is.
 
