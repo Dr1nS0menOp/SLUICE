@@ -83,6 +83,31 @@ fn logon() -> Template {
 }
 
 #[test]
+fn an_object_is_noted_before_the_removals_and_removed_after_them_if_they_emptied_it() {
+    let t = template(
+        "nested",
+        &[("EventID", "1")],
+        &[&["EventID", "agent.id", "host.os.name"]],
+    );
+    let recipe = removing("nested", &["agent.id", "host.os.name"], None);
+    let out = of(&[(&t, &recipe)]);
+    let script = script(&out);
+    let at = |line: &str| {
+        script
+            .find(line)
+            .unwrap_or_else(|| panic!("{line} in {script}"))
+    };
+    let noted = at(r#"local sluice_o0 = sluice_filled(r, {"host", "os"})"#);
+    assert!(noted < at(r#"local sluice_o1 = sluice_filled(r, {"agent"})"#));
+    let removed = at(r#"sluice_remove(r, {"host", "os", "name"})"#);
+    let os =
+        at(r#"if sluice_remove_emptied(r, {"host", "os"}, sluice_o0) then changed = true end"#);
+    let host = at(r#"if sluice_remove_emptied(r, {"host"}, sluice_o2) then changed = true end"#);
+    assert!(noted < removed && removed < os && os < host, "{script}");
+    assert!(script.contains(r#"sluice_remove_emptied(r, {"agent"}, sluice_o1)"#));
+}
+
+#[test]
 fn a_plan_that_removes_nothing_has_no_script() {
     let t = logon();
     let unchanged = of(&[(&t, &EffectiveRecipe::passthrough(t.id.clone()))]);

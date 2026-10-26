@@ -197,6 +197,11 @@ count, which a test with counts of one digit cannot see) until a group of ten ev
 `report/html/savings.rs`, never run before, missed 43 of 96 (the ranking's boundaries, the folded
 sections, the removed-fields table, the per-source sums, the colour steps). After the new tests
 every viable mutant is caught there too; three per-source sums no line showed went instead.
+After the emptied objects (the same day): every viable mutant caught in `guard/emptied.rs`,
+`proof.rs`, `report/mod.rs`, `report/examples.rs` (with `--test demo`, which runs `pick`, and
+a source volume whose summary records are not zero) and `sluice-vector` `program.rs`. The Lua,
+Painless and OTTL lines are tested against the real engines, and each generator also has a
+unit test of the statements and their order, since cargo-mutants runs without the engines.
 
 **Give cargo-mutants a target directory of its own.** `scripts/wsl.ps1` sets
 `CARGO_TARGET_DIR`, and mutants built its copy of the tree into the shared one: the build script

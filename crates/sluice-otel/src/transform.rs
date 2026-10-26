@@ -238,7 +238,7 @@ fn removal(plan: &Plan<'_>, left_out: &mut Vec<String>) -> Option<Removal> {
             let value = ottl::path(ROOT, &object);
             statements.push(delete(
                 &object,
-                Some(&format!("IsMap({value}) and Len({value}) == 0")),
+                Some(&format!("(IsMap({value}) and Len({value}) == 0)")),
             ));
         }
     }

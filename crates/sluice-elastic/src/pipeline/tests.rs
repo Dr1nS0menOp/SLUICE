@@ -306,6 +306,30 @@ fn a_script_too_large_to_compile_removes_nothing() {
     );
 }
 
+#[test]
+fn an_object_is_noted_before_the_removals_and_removed_after_them_if_they_emptied_it() {
+    let t = template(
+        "nested",
+        &[("EventID", "1")],
+        &[&["EventID", "agent.id", "host.os.name"]],
+    );
+    let recipe = removing("nested", &["agent.id", "host.os.name"], None);
+    let out = of(&[(&t, &recipe)]);
+    let script = script(&out);
+    let at = |line: &str| {
+        script
+            .find(line)
+            .unwrap_or_else(|| panic!("{line} in {script}"))
+    };
+    let noted = at("boolean sluiceO0 = sluiceFilled(ctx, ['host', 'os']);");
+    assert!(noted < at("boolean sluiceO1 = sluiceFilled(ctx, ['agent']);"));
+    let removed = at("sluiceRemove(ctx, ['host', 'os', 'name']);");
+    let os = at("if (sluiceO0) { sluiceRemoveEmptied(ctx, ['host', 'os']); }");
+    let host = at("if (sluiceO2) { sluiceRemoveEmptied(ctx, ['host']); }");
+    assert!(noted < removed && removed < os && os < host, "{script}");
+    assert!(script.contains("if (sluiceO1) { sluiceRemoveEmptied(ctx, ['agent']); }"));
+}
+
 fn event(fields: &Value) -> Event {
     Event {
         id: EventId(0),

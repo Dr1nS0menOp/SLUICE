@@ -447,7 +447,7 @@ mod tests {
             events: 10,
             forwarded: 4,
             summarized: 6,
-            summaries: 0,
+            summaries: 2,
             bytes_in: 1_000,
             bytes_out: 300,
         };
@@ -455,7 +455,7 @@ mod tests {
             events: 1,
             forwarded: 1,
             summarized: 0,
-            summaries: 0,
+            summaries: 1,
             bytes_in: 50,
             bytes_out: 50,
         };
@@ -465,7 +465,7 @@ mod tests {
                 events: 11,
                 forwarded: 5,
                 summarized: 6,
-                summaries: 0,
+                summaries: 3,
                 bytes_in: 1_050,
                 bytes_out: 350,
             }

@@ -88,6 +88,32 @@ fn overlapping() -> Template {
 }
 
 #[test]
+fn an_object_the_removals_emptied_goes_after_them_deepest_first() {
+    let t = template(
+        "nested",
+        &[("EventID", "1")],
+        &[&["EventID", "agent.id", "host.os.name"]],
+    );
+    let recipe = removing("nested", &["agent.id", "host.os.name"], None);
+    let out = of(&[(&t, &recipe)]);
+    let at = |text: &str| {
+        out.statements
+            .iter()
+            .position(|s| s.starts_with(text))
+            .unwrap_or_else(|| panic!("{text} in {:#?}", out.statements))
+    };
+    let removed = at(r#"delete_key(log.body["host"]["os"], "name")"#);
+    let os = at(
+        r#"delete_key(log.body["host"], "os") where IsMap(log.body["host"]) and (IsMap(log.body["host"]["os"]) and Len(log.body["host"]["os"]) == 0) and"#,
+    );
+    let host = at(
+        r#"delete_key(log.body, "host") where IsMap(log.body) and (IsMap(log.body["host"]) and Len(log.body["host"]) == 0) and"#,
+    );
+    assert!(removed < os && os < host, "{:#?}", out.statements);
+    at(r#"delete_key(log.body, "agent") where IsMap(log.body) and (IsMap(log.body["agent"])"#);
+}
+
+#[test]
 fn a_plan_that_removes_nothing_has_no_statements() {
     let t = logon();
     let unchanged = of(&[(&t, &EffectiveRecipe::passthrough(t.id.clone()))]);
