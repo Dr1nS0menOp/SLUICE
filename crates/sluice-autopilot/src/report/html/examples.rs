@@ -27,9 +27,10 @@ pub(super) fn section(sources: &[SourceExamples]) -> String {
          event first, the kinds with the most data left first. Each row is one event and each \
          column one field: a plain value is sent, a struck-through value is left out with the \
          reason in its marker, and a dot means the event has no such field. Scroll sideways for \
-         every field.</p><p class=\"muted\">These are real events from your sample, with long \
-         text cut short. Leave them out with <code>sluice analyze --no-examples</code> before you \
-         share this report outside your team.</p>{}",
+         every field.</p><p class=\"muted\">These are events of the sample as it was given, with \
+         long text cut short: from your own logs, they hold your real values. Leave them out \
+         with <code>sluice analyze --no-examples</code> before you share such a report outside \
+         your team.</p>{}",
         items.concat()
     )
 }
