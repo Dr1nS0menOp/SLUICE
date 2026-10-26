@@ -27,8 +27,8 @@ survived:
 
 ```
 80,536 events from 6 sources, 76 templates
-  ingest  121.0 MB → 25.6 MB  (78.8% saved, 41,562 events summarized into 17,161 records)
-  modes   rules 67.5%, implied 11.3%
+  ingest  121.0 MB → 26.0 MB  (78.5% saved, 41,562 events summarized into 17,161 records)
+  modes   rules 67.5%, implied 11.0%
   proof   41 alerts on full data, 41 on forwarded data  ✓ no detection changed
 ```
 
@@ -104,8 +104,8 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
    every Sigma rule your SIEM runs. Without either, Sluice makes only savings that keep every
    event, and says so (ADR 0021).
 
-4. **Read the report.** `report.html` is the advice ([an example](example-report.html), the
-   demo's). It starts with a paragraph on what it means, for readers without context such as a
+4. **Read the report.** `report.html` is the advice ([an example](example-report.html), for
+   OTRF's APT29 attack data). It starts with a paragraph on what it means, for readers without context such as a
    manager, and the saving at a glance, per mode. *What "implied" means* explains implied values
    with the sample's largest one, and names per source the values that are the same on every
    kind of event, which may be one machine's rather than the kind of event's. Then the largest

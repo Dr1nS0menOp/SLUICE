@@ -18,7 +18,7 @@ Most of this file is the history of how it got here. After the alpha, in this or
    `--mode rules,implied`. Also: summary records counted in what is sent, emptied objects not
    sent (ADR 0033), the report rewritten (implied explained, per-field reasons, the events the
    SIEM still receives as a table), and an example report in the repository. Measured on a
-   Windows PC (25.0 % → 42.3 %), on four machines of OTRF's APT29 (58.3 %) and of its APT3
+   Windows PC (25.0 % → 42.3 %), on four machines of OTRF's APT29 (57.6 %) and of its APT3
    (24.7 %), every alert the same ([field value study](docs/notes/field-value.md)).
 2. Problems in `plan.json` too, not only in the report.
 3. One `--native` flag instead of one per target.
@@ -885,7 +885,8 @@ sluice/
     sluice-http/        # the one HTTP client of the adapters
     sluice-cli/         # `sluice` binary: demo, analyze, prove, rules, recipes, connect
   recipes/<vendor>/<product>/<event>.yaml + samples/   # community recipes (YAML)
-  examples/rules/
+  examples/rules/       # example Sigma rules for the demo
+  examples/apt29/       # sources and rules of the example report (OTRF's APT29 data)
   docs/{adr/, notes/, architecture.md, compatibility.md}
   scripts/wsl.ps1       # run cargo in WSL on machines where code-integrity policy blocks builds
 ```

@@ -30,6 +30,15 @@ Runtime::default().resolve(&mut target, &compiled.program, &TimeZone::default())
   the `cli` (clap, rustyline) and network functions (reqwest), which we don't need.
 - `stdlib-base` turns on `datadog`, which compiles `onig` (C), so the build needs a C compiler
   (gcc).
+- `stdlib-base` also pulls in `zstd` 0.13 (`encode_zstd`, `decode_zstd`). RUSTSEC-2026-0391
+  (zstd's `with_context`), -0398 (zstd-safe's `seekable` feature) and -0403 (legacy frames in
+  the streaming writer) are fixed only in zstd 0.14, which vrl 0.36 does not accept. None is
+  reachable here: vrl calls only `zstd::encode_all` and `decode_all`, which make a fresh context
+  each time and which -0403 names as unaffected; vrl turns zstd's default features off, so
+  `legacy` and `seekable` are off (`cargo tree -i zstd-safe -e features`); and Sluice never
+  generates either function. All three are ignored in `deny.toml` with that reason; drop the
+  ignores when vrl moves on. RUSTSEC-2026-0410 (zstd-sys on wasm32) is fixed by zstd-sys
+  2.1.2, which the lockfile holds (verified 2026-10-26, vrl 0.36.0).
 
 ## Verified behaviour
 

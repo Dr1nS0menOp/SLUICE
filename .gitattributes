@@ -1,2 +1,5 @@
 # Sources are edited on Windows and built on Linux: normalize to LF everywhere.
 * text=auto eol=lf
+# The example report is compared byte for byte (scripts/example-report.sh --check), and the
+# event values it quotes hold carriage returns: store it as written.
+docs/example-report.html -text

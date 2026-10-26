@@ -16,7 +16,7 @@ Where a recipe or a decision rests on one of these sources, it links here or to 
 | Windows Logging Cheat Sheets | Michael Gough (Malware Archaeology) | The same, as audit settings. |
 | Cribl Stream guidance on Windows XML events; the cribl-windows-events pack | Cribl; David Maislin | How much of a Windows event is placeholders and rendered text, and why a blanket rule is unsafe. |
 | *Top 4 tricks to reduce SIEM data volume* (2025) | Balázs Scheidler (Axoflow) | The rendered text repeats the event. |
-| Security-Datasets (formerly Mordor), `compound/apt29` day 1, MIT | Open Threat Research Forge (Roberto Rodriguez, Jose Rodriguez) | A sample from four machines, to measure implied values beyond one PC (`docs/notes/field-value.md`). Kept in a user cache, not in the repository. |
+| Security-Datasets (formerly Mordor), `compound/apt29` day 1, MIT | Open Threat Research Forge (Roberto Rodriguez, Jose Rodriguez) | A sample from four machines, to measure implied values beyond one PC (`docs/notes/field-value.md`), and the data of the [example report](example-report.html). The dataset is kept in a user cache, not in the repository; the report quotes excerpts of it (see below). |
 | Pre-SIEM log filtering and log reduction | NXLog | Drop only what no detection, investigation or compliance need depends on. |
 | SigmaHQ, *Pass the Hash Activity 2* | Dave Kennedy, Jeff Warren, David Vassallo | The counterexample that a placeholder can be a detection signal. |
 | Sysmon documentation | Mark Russinovich, Thomas Garnier | `ProcessGuid` as the correlation key. |
@@ -29,6 +29,39 @@ Where a recipe or a decision rests on one of these sources, it links here or to 
 | CLP, OSDI 2021 | Kirk Rodrigues, Yu Luo, Ding Yuan | Template plus variables, for archives. |
 
 Links to each source are in the [field value study](notes/field-value.md).
+
+## Data in the example report
+
+[The example report](example-report.html) quotes events from Security-Datasets
+(`compound/apt29/day1/apt29_evals_day1_manual.zip`), which `scripts/example-report.sh`
+downloads and checks by its SHA-256. Those excerpts are under the dataset's license:
+
+```text
+MIT License
+
+Copyright (c) 2021 Open Threat Research Forge
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+The eight rules in `examples/apt29/rules/` are Sluice's own, written for this example after
+the techniques the dataset's emulation plan names; they are not SigmaHQ rules.
 
 ## Software
 

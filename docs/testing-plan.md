@@ -209,6 +209,10 @@ After the emptied objects (the same day): every viable mutant caught in `guard/e
 a source volume whose summary records are not zero) and `sluice-vector` `program.rs`. The Lua,
 Painless and OTTL lines are tested against the real engines, and each generator also has a
 unit test of the statements and their order, since cargo-mutants runs without the engines.
+After the network rule and the rules named in the report (the same day): `report/text.rs` 40 of
+40 caught, `report/mod.rs` 75 of 75 viable; `implied.rs` missed one (`||` to `&&` between the
+category's size and `closed`, which no test held apart) until a test of one, 32 and 33 values was
+added.
 
 **Give cargo-mutants a target directory of its own.** `scripts/wsl.ps1` sets
 `CARGO_TARGET_DIR`, and mutants built its copy of the tree into the shared one: the build script

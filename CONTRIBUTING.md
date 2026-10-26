@@ -28,7 +28,7 @@ bash scripts/check.sh
 ```
 
 This runs `cargo fmt`, `cargo clippy` (pedantic, warnings are errors), the tests, `cargo doc`,
-the check that `docs/example-report.html` is what the demo writes now, and `cargo deny`. With Vector installed and Docker running, it also runs the generated code in the
+the check that `docs/example-report.html` is what the analysis writes now (it fetches OTRF's APT29 dataset into `~/.cache` once), and `cargo deny`. With Vector installed and Docker running, it also runs the generated code in the
 real engines (Vector, the Kusto emulator, Elasticsearch, Fluent Bit and the OpenTelemetry
 Collector) and fails when one removes more than Vector does.
 
@@ -54,7 +54,7 @@ engine is there. CI runs all of them but `kql-check.sh`, whose emulator image is
 | `scripts/otel-check.sh` | Generated `transform` statements in the OpenTelemetry Collector |
 | `scripts/sigma-differential.sh [--sigmahq]` | Rule requirements against pySigma, on the examples or the full SigmaHQ set |
 | `scripts/bench.sh [source] [scale]` | Data plane throughput with the real Vector ([docs/notes/benchmarks.md](docs/notes/benchmarks.md)) |
-| `scripts/example-report.sh` | Writes `docs/example-report.html`, the demo's report the README links to |
+| `scripts/example-report.sh` | Writes `docs/example-report.html`, the report of OTRF's APT29 data the README links to |
 
 `scripts/real-data/` takes samples from real systems (`collect-sentinel.sh`, `collect-elastic.sh`,
 `collect-linux.sh`, `collect-windows.ps1`) and repeats the real-data runs of

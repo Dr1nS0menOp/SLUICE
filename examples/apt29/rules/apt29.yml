@@ -1,0 +1,140 @@
+# Example Sigma rules for the APT29 example report (docs/example-report.html). Written for this
+# project from what OTRF's APT29 day 1 dataset shows; not derived from SigmaHQ.
+title: PowerShell Hidden, Bypassed or Encoded
+id: 7d2e1a40-3b6c-4f1e-9a8d-1c5b2e7f0a01
+status: experimental
+description: PowerShell started with a hidden window, the execution policy bypassed, or an encoded command.
+author: Sluice
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection_image:
+        Image|endswith: '\powershell.exe'
+    selection_flag:
+        CommandLine|contains:
+            - ' -e '
+            - ' -enc'
+            - ' -w hidden'
+            - ' -window hidden'
+            - ' -ep bypass'
+    condition: all of selection_*
+level: high
+---
+title: LSASS Opened With Full Access
+id: 7d2e1a40-3b6c-4f1e-9a8d-1c5b2e7f0a02
+status: experimental
+description: A process opens LSASS with the rights credential dumping needs.
+author: Sluice
+logsource:
+    product: windows
+    category: process_access
+detection:
+    selection:
+        TargetImage|endswith: '\lsass.exe'
+        GrantedAccess:
+            - '0x1fffff'
+            - '0x1f3fff'
+            - '0x1010'
+            - '0x1410'
+    filter_system:
+        SourceImage|endswith:
+            - '\wininit.exe'
+            - '\csrss.exe'
+    condition: selection and not filter_system
+level: high
+---
+title: PsExec Remote Execution
+id: 7d2e1a40-3b6c-4f1e-9a8d-1c5b2e7f0a03
+status: experimental
+description: PsExec, or the service it installs on the target, runs a process.
+author: Sluice
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection:
+        Image|endswith:
+            - '\psexec.exe'
+            - '\psexec64.exe'
+            - '\PSEXESVC.exe'
+    condition: selection
+level: medium
+---
+title: SDelete Wipes Files
+id: 7d2e1a40-3b6c-4f1e-9a8d-1c5b2e7f0a04
+status: experimental
+description: SDelete overwrites files so they cannot be recovered, a way to remove traces.
+author: Sluice
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection:
+        Image|endswith:
+            - '\sdelete.exe'
+            - '\sdelete64.exe'
+    condition: selection
+level: high
+---
+title: UAC Bypass Through sdclt
+id: 7d2e1a40-3b6c-4f1e-9a8d-1c5b2e7f0a05
+status: experimental
+description: sdclt.exe auto-elevates, and attackers point it at their own command to skip the UAC prompt.
+author: Sluice
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection:
+        Image|endswith: '\sdclt.exe'
+    condition: selection
+level: medium
+---
+title: Network Discovery Commands
+id: 7d2e1a40-3b6c-4f1e-9a8d-1c5b2e7f0a06
+status: experimental
+description: ipconfig, route or arp, run to map the network after a compromise.
+author: Sluice
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection:
+        Image|endswith:
+            - '\ipconfig.exe'
+            - '\route.exe'
+            - '\arp.exe'
+    condition: selection
+level: low
+---
+title: Remote Desktop Logon
+id: 7d2e1a40-3b6c-4f1e-9a8d-1c5b2e7f0a07
+status: experimental
+description: An account logged on over Remote Desktop.
+author: Sluice
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4624
+        LogonType: 10
+    condition: selection
+level: medium
+---
+title: Run Key or Registry Payload Written
+id: 7d2e1a40-3b6c-4f1e-9a8d-1c5b2e7f0a08
+status: experimental
+description: A value is set under a Run key, or under a key APT29 hid a payload in.
+author: Sluice
+logsource:
+    product: windows
+    category: registry_set
+detection:
+    selection:
+        TargetObject|contains:
+            - '\CurrentVersion\Run'
+            - '\Javasoft'
+    condition: selection
+level: high

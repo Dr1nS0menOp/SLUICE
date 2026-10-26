@@ -247,6 +247,20 @@ fn an_implication_is_worth_its_events_times_the_bytes_of_the_value() {
 }
 
 #[test]
+fn a_field_implies_another_only_with_two_to_thirty_two_values() {
+    let (mode, on) = (field("Mode"), field("LogonType"));
+    let modes = vec![text("-"); 40 * 33];
+    // One value is the kind of event's to imply, 33 are no category; both repeat in the later
+    // half, so neither is refused for a value that came late.
+    let one = vec![Literal::Integer(2); 40 * 33];
+    let many: Vec<Literal> = (0..40 * 33).map(|i| Literal::Integer(i % 33)).collect();
+    let fewer: Vec<Literal> = (0..40 * 33).map(|i| Literal::Integer(i % 32)).collect();
+    assert!(implied_by(&mode, &modes, &on, &one).is_none());
+    assert!(implied_by(&mode, &modes, &on, &many).is_none());
+    assert!(implied_by(&mode, &modes, &on, &fewer).is_some());
+}
+
+#[test]
 fn at_most_sixty_four_values_are_learned_per_kind_of_event() {
     let names: Vec<String> = (0..70).map(|i| format!("F{i:02}")).collect();
     let events: Vec<Map<String, Value>> = (0..30)
@@ -453,4 +467,56 @@ fn an_identifier_is_implied_by_the_kind_of_event_but_never_by_another_field() {
     let removed: BTreeSet<&str> = values.iter().map(|v| v.field.as_str()).collect();
     assert_eq!(removed, ["SubjectLogonId"].into(), "{values:?}");
     assert!(values.iter().all(|v| v.when.is_none()));
+}
+
+#[test]
+fn an_address_or_a_port_is_never_implied_nor_implies_another() {
+    // The log collector's address and port, the same on every event, and a host's address per
+    // machine: a lab's, not the kind of event's. `Transport` only ends in "port".
+    let events: Vec<Map<String, Value>> = (0..80)
+        .filter_map(|i| {
+            let (host, address) = if i % 2 == 0 {
+                ("dc01", "10.0.1.4")
+            } else {
+                ("ws01", "fe80::1")
+            };
+            match json!({"Computer": host, "SourceAddress": address, "collector": "10.0.0.9",
+                         "port": 60737, "DestinationPort": "445", "Transport": "tcp",
+                         "Workstation": format!("{host}-ws")})
+            {
+                Value::Object(map) => Some(map),
+                _ => None,
+            }
+        })
+        .collect();
+    let refs: Vec<&Map<String, Value>> = events.iter().collect();
+    let fields = variant(&[
+        "Computer",
+        "SourceAddress",
+        "collector",
+        "port",
+        "DestinationPort",
+        "Transport",
+        "Workstation",
+    ]);
+    let values = learn_template(&BTreeSet::new(), std::slice::from_ref(&fields), &refs);
+    let removed: BTreeSet<&str> = values.iter().map(|v| v.field.as_str()).collect();
+    assert_eq!(removed, ["Transport", "Workstation"].into(), "{values:?}");
+    assert!(
+        values
+            .iter()
+            .filter(|v| v.field.as_str() == "Workstation")
+            .all(|v| v
+                .when
+                .as_ref()
+                .is_some_and(|(on, _)| on.as_str() == "Computer")),
+        "implied by the host's name, never by its address: {values:?}"
+    );
+    assert!(network(&field("IpPort"), &[]));
+    assert!(network(&field("src_port"), &[]));
+    assert!(!network(&field("Transport"), &[]));
+    assert!(
+        !network(&field("Name"), &[text("10.0.0.1"), text("host")]),
+        "not every value"
+    );
 }

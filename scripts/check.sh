@@ -17,7 +17,7 @@ cargo test --workspace --all-features --locked
 step "doc"
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features --locked
 
-step "example report (docs/example-report.html is what the demo writes now)"
+step "example report (docs/example-report.html is what the analysis writes now)"
 bash "$(dirname "$0")/example-report.sh" --check
 
 if command -v cargo-deny >/dev/null 2>&1; then
