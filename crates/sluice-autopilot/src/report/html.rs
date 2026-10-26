@@ -52,6 +52,7 @@ h4 { font-size:13px; margin:16px 0 6px; }
 .card .k, .facts .k { display:block; color:var(--muted); font-size:12px; }
 .card .v { font-size:20px; font-weight:600; }
 .good { color:var(--good); } .bad { color:var(--bad); } .muted { color:var(--muted); }
+a { color:var(--accent); }
 .pill { display:inline-block; min-width:56px; text-align:center; padding:2px 10px;
         border-radius:999px; font-weight:700; font-variant-numeric:tabular-nums; }
 .pill.s0, .pill.s1, .pill.s2 { color:var(--on-light); } .pill.s3, .pill.s4 { color:var(--on); }

@@ -8,6 +8,12 @@ use super::{bytes, escape, thousands};
 use crate::mode::Mode;
 use crate::report::{RemovedField, Report, TemplateRow};
 
+/// Microsoft's reference page of event 4624, the explanation's example (checked 2026-10-26): it
+/// gives the event's description, and says `RestrictedAdminMode` is `-` on every logon that is
+/// not remote interactive.
+const EVENT_4624: &str = "https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/\
+                          windows-10/security/threat-protection/auditing/event-4624";
+
 /// The explanation, or nothing when the mode did not run.
 pub(super) fn explain(report: &Report) -> String {
     if !report.modes.contains(&Mode::Implied) {
@@ -22,11 +28,13 @@ pub(super) fn explain(report: &Report) -> String {
          <code>Activity</code> column holds the same text on each of them: <code>4624 - An \
          account was successfully logged on.</code> Such a text carries no data of the event \
          itself: it is the event ID's description, which Microsoft's event reference on the \
-         internet gives for every ID, so it can always be looked up again.</li>\
+         internet gives for every ID (for 4624: <a href=\"{EVENT_4624}\">4624(S) An account \
+         was successfully logged on</a>), so it can always be looked up again.</li>\
          <li><b>Another field fixes it.</b> In the same event 4624, \
          <code>RestrictedAdminMode</code> is <code>-</code> on every logon whose \
-         <code>LogonType</code> is not 10 (remote desktop): once the SIEM has \
-         <code>LogonType</code>, it knows <code>RestrictedAdminMode</code>.</li></ul>\
+         <code>LogonType</code> is not 10 (remote desktop), as the same reference says: once \
+         the SIEM has <code>LogonType</code>, it knows <code>RestrictedAdminMode</code>.</li>\
+         </ul>\
          <p><b>What Sluice does with it.</b> It leaves the field out only on an event that holds \
          exactly that value. An event with any other value in the field is sent with the field \
          as it is. <code>plan.json</code> lists every implied value and when it applies, under \
@@ -203,6 +211,13 @@ mod tests {
         let text = explain(&report);
         assert!(text.contains("only on an event that holds exactly that value"));
         assert!(text.contains("Microsoft's event reference"), "{text}");
+        assert!(
+            text.contains(
+                "<a href=\"https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/\
+                 windows-10/security/threat-protection/auditing/event-4624\">"
+            ),
+            "{text}"
+        );
         assert!(text.contains("at least 20 events"), "{text}");
         assert!(text.contains("<code>Keywords</code> on windows-security events"));
         assert!(text.contains("Leaving it out of 1,200 events saved 45 KB"));
