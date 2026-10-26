@@ -223,7 +223,16 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
     smaller event costs less stays to be measured (Splunk is parked).
   - Wazuh is self-hosted: nothing is billed per byte, only disk and the indexer's load.
 - **Versions.** `Version`, `Task` and `Keywords` can change between Windows builds. A
-  value-guarded removal stays exact; only the savings vary.
+  value-guarded removal stays exact; only the savings vary. Microsoft's page on 4624 (read
+  2026-10-26, [event-4624](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4624))
+  lists event version 0 for Windows Server 2008 and Vista, 1 for Server 2012 and Windows 8
+  (which added `ImpersonationLevel`), and 2 for Windows 10 (which added `RestrictedAdminMode`,
+  `VirtualAccount`, `ElevatedToken`, `TargetLinkedLogonId` and the outbound account fields). On
+  a fleet of mixed versions, `Version` holds more than one value on one kind of event, so it is
+  no constant there; the learner may still find it implied by another field, such as
+  `Computer` (each machine runs one version), which is exact as long as a machine is not
+  upgraded, and after an upgrade the field is simply sent again. A rare version's key set keeps
+  a template of its own (ADR 0019) and learns nothing, as rare kinds of event never do.
 - **The learning step needs a fleet.** One PC makes `Computer` look constant. That costs no
   data (a value guard keeps any other host's name), but it overstates the saving. Nothing in
   one machine's data tells its name from a value the kind of event fixes, so the report says per
