@@ -52,9 +52,22 @@ All notable changes to Sluice are recorded here. The format follows
   restart. It is now implied by the kind of event only (a `SubjectLogonId` that is always
   `0x0`). Found on OTRF's APT3 data (four machines of a second network); the demo saves 78.8 %
   instead of 79.6 %, savings that would not have lasted.
-- **An example report in the repository.** `docs/example-report.html` is the demo's report, so
-  the README shows what Sluice finds before anything is installed; `scripts/example-report.sh`
-  writes it again.
+- **An address or a port is never implied.** A field named as a port (`port`, `…Port`,
+  `…_port`) or one that holds only IP addresses is no longer learned as implied, nor as the
+  field that implies another. On OTRF's APT29 data the collector's `port` was learned as a
+  constant, `SourcePort` per `Application` and `SourceAddress` per `Hostname`: true for four
+  machines behind one collector, and exactly what an attack changes. The demo saves 78.5 %
+  instead of 78.8 %, APT29 with all of SigmaHQ 57.6 % instead of 58.3 %.
+- **An example report in the repository.** `docs/example-report.html` is the report for real
+  attack data: OTRF's APT29 day 1, four machines, 184,886 events, with eight example rules
+  written for that attack in `examples/apt29/` (987 = 987 alerts, 77.2 % saved). The README
+  shows what Sluice finds before anything is installed, and `scripts/example-report.sh` writes
+  it again from the same data, which it fetches once into `~/.cache` and checks by its SHA-256;
+  `--check` (in the gates and CI) fails when the report in the repository is out of date. The
+  data's MIT notice is in `docs/credits.md`.
+- **Rules by name in the report.** Where the report says why a saving was held back (a field
+  kept on the events a rule could match), it names the rule by its title; `plan.json` keeps the
+  rule's id.
 - **Emptied objects go.** When the savings remove every field of a nested object, the object
   itself is no longer sent as `{}` (Vector, the ingest pipeline, the Lua filter and the
   collector). An object that came empty with the event is sent as it came. The report credits

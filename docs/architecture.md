@@ -98,7 +98,7 @@ synthetic data.
   0023) and the configurations built from the same proven selection: always a `vector.yaml`,
   and on request a configuration in a tool's own language (`--sentinel-native`,
   `--elastic-native`, `--fluent-bit-native`, `--otel-native`), each run in that tool on the
-  sample before it is written. The report ([an example](example-report.html), from `sluice demo
+  sample before it is written. The report ([an example](example-report.html), for OTRF's APT29 data; written by `scripts/example-report.sh`, not by `sluice demo
   --scale 100`) gives the saving per mode, explains implied values with the sample's largest
   one, lists per kind of event what goes, why, and where it can run, says how counting works
   where events are counted, shows per source up to 10 events as they are sent in a table of
@@ -330,8 +330,8 @@ Every engine Sluice generates code for gets a test against the real engine:
 
 Property tests cover the central claim: for all inputs, the alerts over the forwarded data equal
 the alerts over the full data. `scripts/check.sh` runs every gate; CI runs the same, including
-the check that [the example report](example-report.html) the README links is what the demo
-writes now (`scripts/example-report.sh --check`; the demo is deterministic). Beyond the
+the check that [the example report](example-report.html) the README links is what the analysis
+writes now (`scripts/example-report.sh --check`; the analysis is deterministic). Beyond the
 gates, `cargo-mutants` checks that the tests catch a changed line, and `cargo llvm-cov` measures
 line coverage with every engine attached; both, per crate and file, are in the
 [testing plan](testing-plan.md). Real data runs (`scripts/real-data/`, and public datasets such

@@ -186,13 +186,13 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
 | Linux `auth.log` and `syslog`; SigmaHQ | 25.7 % | 25.7 % | 0 = 0 |
 | Sentinel `SecurityEvent` and `WindowsEvent`; the Windows Security Events solution and SigmaHQ | 0.0 % | 0.0 % | 1,706 = 1,706 |
 | Sentinel `SecurityEvent` of the test workspace; its own two rules | 4.1 % | 37.9 % | 0 = 0 |
-| `sluice demo --scale 100`; the example rules | 67.9 % | 78.8 % | 41 = 41 |
-| OTRF Security-Datasets APT29 day 1, Security and Sysmon of **four machines**; the example rules (summary records counted, 2026-10-26) | 61.2 % (the rules' share) | 77.7 % (implied 16.5 %) | 0 = 0 |
-| The same four machines; all 3,152 SigmaHQ rules (again on 2026-10-26) | 32.8 % (the rules' share) | 58.3 % (implied 25.5 %) | 29,555 = 29,555 |
+| `sluice demo --scale 100`; the example rules | 67.9 % | 78.5 % | 41 = 41 |
+| OTRF Security-Datasets APT29 day 1, Security and Sysmon of **four machines**; the example rules (summary records counted, 2026-10-26) | 61.2 % (the rules' share) | 77.3 % (implied 16.1 %) | 0 = 0 |
+| The same four machines; all 3,152 SigmaHQ rules (again on 2026-10-26) | 32.8 % (the rules' share) | 57.6 % (implied 24.8 %) | 29,555 = 29,555 |
 | OTRF APT3 Empire (Shire, a domain controller and three workstations), Security and Sysmon, renamed to Sigma's names; the example rules | 58.3 % (the rules' share) | 69.7 % (implied 11.4 %) | 112 = 112 |
 | The same; all 3,152 SigmaHQ rules | 0.0 % (the rules' share) | 24.7 % (implied 24.7 %) | 15,806 = 15,806 |
-| APT29 day 2, the same four machines, Security; all SigmaHQ (again on 2026-10-26) | 35.2 % (the rules' share) | 62.8 % (implied 27.7 %) | 287 = 287 |
-| APT29 day 2, Sysmon (407,265 events, 812 MB); all SigmaHQ (again on 2026-10-26, 139 s, 4.6 GB peak) | 32.6 % (the rules' share) | 57.7 % (implied 25.1 %) | 8,431 = 8,431 |
+| APT29 day 2, the same four machines, Security; all SigmaHQ (again on 2026-10-26) | 35.2 % (the rules' share) | 62.1 % (implied 26.9 %) | 287 = 287 |
+| APT29 day 2, Sysmon (407,265 events, 812 MB); all SigmaHQ (again on 2026-10-26, 134 s, 4.6 GB peak) | 32.6 % (the rules' share) | 57.1 % (implied 24.5 %) | 8,431 = 8,431 |
 
 - On Linux nothing changes, as predicted: its lines are text.
 - With SigmaHQ on records in Sentinel's names, SigmaHQ's rules may read any field (ADR 0018),
@@ -247,8 +247,9 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
   `windows-security`, from five machines, the list holds no machine name: only values the fleet
   shares (`Channel`, `Keywords`, the agent's and the OS's versions, the domain).
   On OTRF's APT29 day 1 (four real machines, 184,886 Security and Sysmon events, 2026-10-24)
-  implied values save 16.5 %, no machine name is learned as a constant (`Hostname` only as
-  implied by another field), and the list holds only what the four share, such as `host`,
+  implied values save 16.1 %, no machine name is learned as a constant (`Hostname` only as
+  implied by another field), and the list holds only what the four share, 
+
   there the address of the log collector. With all of SigmaHQ: 58.3 % saved, 25.5 % by implied
   values, 29,555 = 29,555 alerts (measured again on 2026-10-26, after the identifier rule below);
   on day 2 (a second attack) every alert the same as well.
@@ -264,12 +265,19 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
   an identifier is now implied by the kind of event only (a `SubjectLogonId` that is always
   `0x0`), never by another field. That costs the demo 0.8 points (79.6 % → 78.8 %) and APT3 4.5
   points, savings that would not have lasted.
+  The example report on APT29 found a second weakness of the same sort (2026-10-26): the
+  collector's `port` (60737 on every event) was learned as a constant, `SourcePort` as implied
+  by `Application`, and `SourceAddress` by `Hostname`. Four machines behind one collector show
+  few addresses, and an attack is exactly a new address or port. A field named as a port
+  (`port`, `…Port`, `…_port`) or one that holds only IP addresses is now never learned, as
+  implied or as implying. That costs the demo 0.3 points (78.8 % → 78.5 %) and APT29 0.4 to 0.7;
+  APT3 and the Windows PC are unchanged.
 - **Analysts see an absent field.** A removed value is implied, not gone, but a query on the
   table itself for `RestrictedAdminMode == "-"` finds nothing. For Sentinel, `<Table>Full`
   reads as before; analytics rules keep querying the table, and the guardrails keep every field
   they read. For Elasticsearch, the runtime fields of `SOURCE.runtime.json` do the same in a
   search or a data view. Splunk has no such step yet (parked). **Wazuh needs none:** with its
-  stock ruleset loaded (4,652 rules) the demo saves 0.0 %, implied values included (78.8 %
+  stock ruleset loaded (4,652 rules) the demo saves 0.0 %, implied values included (78.5 %
   without them, measured 2026-10-24 and recounted 2026-10-26 with the summary records and the
   emptied objects), because raw-text rules such as 1002 read the whole JSON
   line (`docs/notes/wazuh.md`), and Windows data reaches Wazuh through its agent, not through

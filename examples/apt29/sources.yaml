@@ -1,0 +1,11 @@
+# The two sources of the APT29 example (scripts/example-report.sh): OTRF Security-Datasets'
+# APT29 day 1, Security and Sysmon of four machines, in Sigma's field names.
+sources:
+  - id: security
+    logsource: { product: windows, service: security }
+    format: { kind: json }
+    schema: sigma
+  - id: sysmon
+    logsource: { product: windows, service: sysmon }
+    format: { kind: json }
+    schema: sigma

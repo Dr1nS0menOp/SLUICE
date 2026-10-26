@@ -256,6 +256,33 @@ fn every_adjustment_names_its_contract_rule() {
 }
 
 #[test]
+fn the_report_names_a_rule_by_its_title_and_the_plan_by_its_id() {
+    let rule = RuleId::from("sigma:7d2e");
+    let adjustment = Adjustment {
+        contract: ContractRule::RuleMatchesForwarded,
+        level: None,
+        reason: Reason::KeptWhereRuleMayMatch {
+            field: Some("Image".into()),
+            rule: rule.clone(),
+        },
+    };
+    let names = [(rule.to_string(), "PsExec Remote Execution".to_owned())].into();
+    assert_eq!(
+        text::adjustment_named(&adjustment, &names),
+        "Image kept on events “PsExec Remote Execution” could match (contract rule 3)"
+    );
+    assert_eq!(
+        text::adjustment(&adjustment),
+        "Image kept on events sigma:7d2e could match (contract rule 3)"
+    );
+    assert_eq!(
+        text::adjustment_named(&adjustment, &BTreeMap::new()),
+        text::adjustment(&adjustment),
+        "a rule without a title keeps its id"
+    );
+}
+
+#[test]
 fn a_log_source_without_attributes_reads_as_any() {
     assert_eq!(text::logsource(&LogSource::default()), "(any)");
     let windows = LogSource {

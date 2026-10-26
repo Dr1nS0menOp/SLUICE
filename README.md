@@ -10,11 +10,23 @@ runs.**
 > the commands, `plan.json` and the report may still change. See [Status: alpha](#status-alpha).
 
 **See what it finds before you install anything:**
-[`docs/example-report.html`](docs/example-report.html) is the report Sluice writes for its demo,
-an hour of a small company network with six planted attacks. Download it and open it in a
-browser (GitHub shows an HTML file as its source). It shows where the bytes go, which fields can
-be left out and why that is safe, what the SIEM still receives, event by event, and the proof that
-every alert stays the same.
+[`docs/example-report.html`](docs/example-report.html) is the report Sluice writes for real
+attack data: [OTRF](https://github.com/OTRF/Security-Datasets)'s APT29 emulation on four Windows
+machines, 184,886 Security and Sysmon events, with eight detection rules written for that attack.
+Sluice sends 77.2 % less (357.3 MB → 81.6 MB) and every one of the 987 alerts stays the same.
+Download the file and open it in a browser (GitHub shows an HTML file as its source). It shows
+each saving at work:
+- the rendered `Message` text and empty fields left out;
+- implied values, such as `SignatureStatus`, which is `Valid` whenever `Signed` is `true`,
+  left out only while they hold and put back exactly;
+- 39,278 routine LSASS accesses counted into 2,489 summary records, while the 5 the
+  credential-dumping rule could match are sent whole;
+- the fields each rule reads kept on the events it could match, and rare events left alone;
+- per source, the events as the SIEM would still receive them, field by field.
+
+The events it quotes are OTRF's, under the MIT license
+([credits](docs/credits.md#data-in-the-example-report)); `scripts/example-report.sh` writes the
+report again from the same data.
 
 ## The idea
 
@@ -132,14 +144,14 @@ example Sigma rules:
 
 ```
 80,536 events from 6 sources, 76 templates
-  ingest  121.0 MB → 25.6 MB  (78.8% saved, 41,562 events summarized into 17,161 records)
-  modes   rules 67.5%, implied 11.3%
+  ingest  121.0 MB → 26.0 MB  (78.5% saved, 41,562 events summarized into 17,161 records)
+  modes   rules 67.5%, implied 11.0%
   proof   41 alerts on full data, 41 on forwarded data  ✓ no detection changed
 ```
 
 It writes into `out/`:
-- `report.html`: the advice, for people ([this one](docs/example-report.html), regenerated with
-  `scripts/example-report.sh`). It opens with what the report means and the saving per mode,
+- `report.html`: the advice, for people (the [example report](docs/example-report.html) is one,
+  for real attack data). It opens with what the report means and the saving per mode,
   explains implied values, then shows the largest savings first, each with the fields it
   removes, why that is safe, and the proof, and per source the events as the SIEM would still
   receive them. Every analysis writes one; it is a single page without scripts that you can mail

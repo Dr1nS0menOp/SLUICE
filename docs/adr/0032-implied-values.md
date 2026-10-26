@@ -30,8 +30,11 @@ removal must lose nothing, and a reader of the forwarded data must be able to se
    each, no new value late in the sample, and no name that marks an identifier. A field named as
    an identifier is implied by the kind of event alone, never by another field (added
    2026-10-26: a thread or an agent's run one machine kept through a sample changes at its next
-   restart). A field that implies another is never removed. A recipe file may carry implied values too, which is the
-   route for documented ones.
+   restart). A network observable is never learned, as implied or as implying: a field named as
+   a port (`port`, `…Port`, `…_port`) or one that holds only IP addresses (added 2026-10-26: a
+   sample from few machines, or behind one collector, shows the same address or port on every
+   event, and an attack is exactly a new one). A field that implies another is never removed. A
+   recipe file may carry implied values too, which is the route for documented ones.
 3. **Every engine, tested as VRL tests.** Vector removes them. So do the Sentinel data collection
    rule (within the characters a rule takes; the most worthwhile values go first), the
    Elasticsearch ingest pipeline, the Fluent Bit filter and the collector's statements. Each is
@@ -51,7 +54,7 @@ removal must lose nothing, and a reader of the forwarded data must be able to se
 
 - Measured savings with implied values:
   - a Windows PC with all of SigmaHQ: 25.0 % → 42.3 %;
-  - four machines of OTRF's APT29 data with all of SigmaHQ: 58.3 % saved on day 1, 25.5 % by
+  - four machines of OTRF's APT29 data with all of SigmaHQ: 57.6 % saved on day 1, 24.8 % by
     implied values, and about as much on day 2;
   - four machines of a second network (OTRF's APT3) with all of SigmaHQ: 24.7 %, all of it by
     implied values;

@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sluice_core::field::FieldPath;
 use sluice_core::guard::{Adjustment, EffectiveRecipe, Reason, Route};
+use sluice_core::ids::RuleId;
 use sluice_core::logsource::LogSource;
 use sluice_core::recipe::{ImpliedValue, Literal, Provenance};
 
@@ -142,7 +143,26 @@ pub(crate) fn where_removed(path: &FieldPath, recipe: &EffectiveRecipe, shared: 
     }
 }
 
+/// Why a reduction was refused or narrowed, with each rule named by its id: for `plan.json`,
+/// whose readers are tools.
 pub(crate) fn adjustment(adjustment: &Adjustment) -> String {
+    described(adjustment, &|rule| rule.to_string())
+}
+
+/// The same, with each rule named by its title where the rules give one (`"PsExec Remote
+/// Execution"`), for a reader of the report; by its id otherwise.
+pub(crate) fn adjustment_named(
+    adjustment: &Adjustment,
+    names: &BTreeMap<String, String>,
+) -> String {
+    described(adjustment, &|rule| {
+        names
+            .get(&rule.to_string())
+            .map_or_else(|| rule.to_string(), |name| format!("“{name}”"))
+    })
+}
+
+fn described(adjustment: &Adjustment, named: &dyn Fn(&RuleId) -> String) -> String {
     let what = match &adjustment.reason {
         Reason::NoRecipe => "no recipe: forwarded unchanged".to_owned(),
         Reason::NoArchive => "archiving is off, so nothing is saved".to_owned(),
@@ -153,12 +173,14 @@ pub(crate) fn adjustment(adjustment: &Adjustment) -> String {
             "rare ({events} of {source_events} events in its source), so nothing is saved on it"
         ),
         Reason::AllFieldsNeededByRule { rule } => {
-            format!("{rule} may read any field, so no field is dropped")
+            format!("{} may read any field, so no field is dropped", named(rule))
         }
-        Reason::FieldNeededByRule { field, rule } => format!("kept {field}: {rule} reads it"),
+        Reason::FieldNeededByRule { field, rule } => {
+            format!("kept {field}: {} reads it", named(rule))
+        }
         Reason::KeptWhereRuleMayMatch { field, rule } => match field {
-            Some(field) => format!("{field} kept on events {rule} could match"),
-            None => format!("events {rule} could match are kept whole"),
+            Some(field) => format!("{field} kept on events {} could match", named(rule)),
+            None => format!("events {} could match are kept whole", named(rule)),
         },
         Reason::ProtectionTooBroad { tests } => {
             format!("kept: {tests} rule tests could apply, too many to check per event")
@@ -170,8 +192,8 @@ pub(crate) fn adjustment(adjustment: &Adjustment) -> String {
             data_names,
         } => {
             let who = match rules {
-                1 => format!("{rule} names"),
-                n => format!("{n} rules such as {rule} name"),
+                1 => format!("{} names", named(rule)),
+                n => format!("{n} rules such as {} name", named(rule)),
             };
             format!(
                 "{who} fields as {rule_names} does, the records use {data_names}: they may read \
@@ -180,8 +202,8 @@ pub(crate) fn adjustment(adjustment: &Adjustment) -> String {
         }
         Reason::FieldsParsedFromText { rule, rules } => {
             let who = match rules {
-                1 => format!("{rule} tests"),
-                n => format!("{n} rules such as {rule} test"),
+                1 => format!("{} tests", named(rule)),
+                n => format!("{n} rules such as {} test", named(rule)),
             };
             format!(
                 "{who} fields the SIEM parses out of the line, which Sluice cannot see: every \
@@ -193,7 +215,10 @@ pub(crate) fn adjustment(adjustment: &Adjustment) -> String {
                                      --rules-complete)"
             .to_owned(),
         Reason::UnboundedRule { rule } => {
-            format!("{rule} could match any event, so every event is forwarded")
+            format!(
+                "{} could match any event, so every event is forwarded",
+                named(rule)
+            )
         }
         Reason::SemanticOnCoveredTemplate => {
             "rules apply, so summarizing became rule-guided forwarding".to_owned()

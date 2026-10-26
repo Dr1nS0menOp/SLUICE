@@ -79,6 +79,22 @@ fn identifier(field: &FieldPath) -> bool {
         .any(|suffix| name.ends_with(suffix))
 }
 
+/// Whether `field` holds a network observation: a port by its name (`DestinationPort`,
+/// `IpPort`, `src_port`, `port`), or an IP address in every event of the sample. An address
+/// or a port that stayed the same through a sample is the lab's or the log collector's
+/// (OTRF's APT29 data learned the collector's `port` as a constant, and `SourcePort` per
+/// program), not the kind of event's, and an analyst pivots on exactly these values: such a
+/// field is never implied, and implies nothing.
+fn network(field: &FieldPath, column: &[Literal]) -> bool {
+    let name = field.segments().last().unwrap_or_default();
+    let port = name == "port" || name.ends_with("Port") || name.ends_with("_port");
+    let addresses = !column.is_empty()
+        && column.iter().all(|value| {
+            matches!(value, Literal::Text(text) if text.parse::<std::net::IpAddr>().is_ok())
+        });
+    port || addresses
+}
+
 /// Whether every value of `column` in the later half of the sample already occurs in the
 /// earlier half. A category (a logon type, an account) repeats its values; an identifier (a
 /// thread, a process, a logon session) keeps bringing new ones, and what it seems to imply on
@@ -119,6 +135,7 @@ fn learn_template(
                 .collect();
             Some((field, column?))
         })
+        .filter(|(field, column)| !network(field, column))
         .collect();
     let mut candidates: Vec<Candidate<'_>> = columns
         .iter()

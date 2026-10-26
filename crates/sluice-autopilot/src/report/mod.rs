@@ -126,12 +126,17 @@ impl Report {
     #[must_use]
     pub fn new(analysis: &Analysis, input: Input<'_>) -> Self {
         let proof = &analysis.selection.proof;
+        let rule_rows = rules::rows(input);
+        let names: BTreeMap<String, String> = rule_rows
+            .iter()
+            .filter_map(|row| row.name.clone().map(|name| (row.rule.clone(), name)))
+            .collect();
         let mut templates: Vec<TemplateRow> = analysis
             .discovery
             .templates
             .iter()
             .zip(&analysis.selection.recipes)
-            .map(|(template, recipe)| row(analysis, template, recipe))
+            .map(|(template, recipe)| row(analysis, template, recipe, &names))
             .collect();
         templates.sort_by(|a, b| {
             b.saved_bytes()
@@ -170,7 +175,7 @@ impl Report {
             problems: analysis.problems.clone(),
             spot_check: analysis.spot_check.clone(),
             rules_basis: analysis.rules,
-            rule_rows: rules::rows(input),
+            rule_rows,
             inventory_notes: Vec::new(),
             modes: analysis.modes.clone(),
             examples: examples::pick(analysis, input, EXAMPLES_PER_SOURCE),
@@ -236,7 +241,12 @@ pub(crate) fn percent(part: u64, whole: u64) -> f64 {
     }
 }
 
-fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> TemplateRow {
+fn row(
+    analysis: &Analysis,
+    template: &Template,
+    recipe: &EffectiveRecipe,
+    names: &BTreeMap<String, String>,
+) -> TemplateRow {
     let proof = &analysis.selection.proof;
     let key = Some(template.id.clone());
     let volume = proof.per_template.get(&key).copied().unwrap_or_default();
@@ -257,7 +267,12 @@ fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> Te
         pattern: template.pattern.clone(),
         volume,
         actions: text::actions(recipe),
-        adjustments: unique(recipe.adjustments.iter().map(text::adjustment)),
+        adjustments: unique(
+            recipe
+                .adjustments
+                .iter()
+                .map(|a| text::adjustment_named(a, names)),
+        ),
         provenance: proposal.map(|p| text::provenance(p.provenance())),
         runs_in: text::placements(&crate::plan::placements(template, recipe)),
         rationale: rationale(proposal, recipe),

@@ -12,6 +12,15 @@ ignore = [
     # serde_yaml_ng, which vrl 0.36 itself depends on, so it stays as long as Sluice targets
     # Vector 0.59. Moving our own YAML parsing to a safe-Rust parser is on PLAN.md (M12).
     { id = "RUSTSEC-2024-0449", reason = "unmaintained only; required by vrl 0.36 (Vector 0.59)" },
+    # zstd 0.13 and zstd-safe 7.3 come in through vrl 0.36's encode_zstd and decode_zstd, and
+    # the fixes need zstd 0.14, which vrl 0.36 does not accept. None is reachable: vrl calls
+    # only encode_all and decode_all, which make a fresh context each time (0391 is about a
+    # reused one passed to with_context) and which 0403 names as unaffected; vrl turns zstd's
+    # default features off, so legacy frames (0403) and seekable (0398) are off too; and Sluice
+    # never generates either function. Verified 2026-10-26 (docs/notes/vrl.md); drop with vrl.
+    { id = "RUSTSEC-2026-0391", reason = "zstd with_context, unused; vrl 0.36 (Vector 0.59)" },
+    { id = "RUSTSEC-2026-0398", reason = "zstd-safe seekable feature, off; vrl 0.36 (Vector 0.59)" },
+    { id = "RUSTSEC-2026-0403", reason = "zstd legacy frames, off; decode_all unaffected; vrl 0.36" },
 ]
 
 [licenses]
