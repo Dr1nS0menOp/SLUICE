@@ -11,7 +11,10 @@ pub enum Outcome {
     /// Forwarded to the SIEM with this body (possibly reduced).
     Forwarded(Map<String, Value>),
     /// Not forwarded in full: counted into a summary, with the original kept in the archive.
-    Summarized,
+    /// The record is the summary this event counts into, with a count of one
+    /// (`sluice_count`); the data plane adds up the records of one group per window, and the
+    /// sum is what the SIEM receives.
+    Summarized(Map<String, Value>),
 }
 
 /// The result of reducing one event.

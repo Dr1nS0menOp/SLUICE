@@ -46,7 +46,7 @@ and contribute to.
 ## Quality gates (must pass before anything counts as done)
 
 `scripts/check.sh` runs all of them: fmt, clippy `-D warnings`, tests, `cargo doc -D warnings`,
-cargo-deny and, when `vector` is installed (`scripts/install-vector.sh`), `scripts/vector-check.sh`.
+the example report's check (`scripts/example-report.sh --check`), cargo-deny and, when `vector` is installed (`scripts/install-vector.sh`), `scripts/vector-check.sh`.
 That step runs `vector validate` and `vector test` on a generated config, so the real Vector
 binary must reproduce what the `vrl` crate computed. When the Kusto emulator image is present
 (`docker pull mcr.microsoft.com/azuredataexplorer/kustainer-linux`), `scripts/kql-check.sh` runs
@@ -93,6 +93,23 @@ freshly built binaries. Run everything in WSL:
   and whether a smaller option exists.
 - Keep no third-party rule content in the repo. SigmaHQ is DRL-licensed, so it is fetched at
   runtime into a user cache.
+
+## Keep the docs current (very important)
+
+**Every piece of work updates the documentation it touches, in the same piece of work, before it
+counts as done.** Docs that describe last month's Sluice mislead the people the project is for.
+After each change, check and update:
+
+- `README.md`, `docs/usage.md`, `docs/guide.md`, `docs/architecture.md` and `docs/glossary.md`:
+  every command, option, file, behaviour and term the change adds or alters, and every number
+  they quote (the demo's output, the measured savings);
+- `CHANGELOG.md` (`[Unreleased]`), and the ADR or `docs/notes/<topic>.md` the change belongs to;
+- `docs/example-report.html`, regenerated with `scripts/example-report.sh` whenever the report
+  or the analysis changes (the gates and CI fail when it is out of date);
+- `docs/testing-plan.md` when tests, mutation results or coverage change.
+
+Search the docs for the old wording and the old numbers (`grep -rn`), not only the page you
+remember. A change whose docs are not updated is not finished.
 
 ## Knowledge capture
 

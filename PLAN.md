@@ -12,6 +12,14 @@ Most of this file is the history of how it got here. After the alpha, in this or
    as text that can always be looked up again (an EventID's description, which `Message`
    repeats). Ideally an algorithm that sees it by itself. It must still go through the
    guardrails and the proof.
+   **Status 2026-10-26: built on branch `study/field-value`, not merged, awaiting review.**
+   *Implied values* (ADR 0032): learned from the sample, removed only while they hold, put back
+   by `plan.json`, Sentinel's `<Table>Full` and Elasticsearch's runtime fields, in every engine;
+   `--mode rules,implied`. Also: summary records counted in what is sent, emptied objects not
+   sent (ADR 0033), the report rewritten (implied explained, per-field reasons, the events the
+   SIEM still receives as a table), and an example report in the repository. Measured on a
+   Windows PC (25.0 % → 42.3 %), on four machines of OTRF's APT29 (58.3 %) and of its APT3
+   (24.7 %), every alert the same ([field value study](docs/notes/field-value.md)).
 2. Problems in `plan.json` too, not only in the report.
 3. One `--native` flag instead of one per target.
 4. Splunk out of the freezer, once its licence question is settled.

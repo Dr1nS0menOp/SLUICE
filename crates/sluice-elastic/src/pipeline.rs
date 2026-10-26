@@ -76,6 +76,11 @@ struct Action {
 /// The ingest pipeline carrying out `plans`' field removals; `description` says what it is for.
 #[must_use]
 pub fn ingest_pipeline(description: &str, plans: &[Plan<'_>]) -> IngestPipeline {
+    pipeline_within(description, plans, MAX_SCRIPT)
+}
+
+/// As [`ingest_pipeline`], with a script of at most `max` bytes.
+fn pipeline_within(description: &str, plans: &[Plan<'_>], max: usize) -> IngestPipeline {
     let mut ordered: Vec<&Plan<'_>> = plans.iter().collect();
     ordered.sort_by(|a, b| a.template.id.cmp(&b.template.id));
     let mut left_out = Vec::new();
@@ -101,8 +106,9 @@ pub fn ingest_pipeline(description: &str, plans: &[Plan<'_>]) -> IngestPipeline 
         // A template that changes nothing only needs recognising where Vector would give it a
         // document before a template that does change it.
         let claims = action.is_some()
-            || recognised[n + 1..]
+            || recognised[n..]
                 .iter()
+                .skip(1)
                 .any(|(later, _, a)| a.is_some() && overlap(plan.template, later.template));
         if !claims {
             continue;
@@ -144,9 +150,9 @@ pub fn ingest_pipeline(description: &str, plans: &[Plan<'_>]) -> IngestPipeline 
         branches.join("\nelse "),
         actions.join("\n")
     );
-    if script.len() > MAX_SCRIPT {
+    if script.len() > max {
         pipeline.left_out.push(format!(
-            "the script would be {} bytes, more than the {MAX_SCRIPT} Elasticsearch compiles, so \
+            "the script would be {} bytes, more than the {max} Elasticsearch compiles, so \
              nothing is removed",
             script.len()
         ));
@@ -272,20 +278,20 @@ fn recognition(template: &Template, left_out: &mut Vec<String>) -> Option<Recogn
 }
 
 /// Whether the path's first segment is a name of Elasticsearch metadata.
-fn metadata(path: &FieldPath) -> bool {
+pub(crate) fn metadata(path: &FieldPath) -> bool {
     path.segments()
         .next()
         .is_some_and(|s| METADATA_FIELDS.contains(&s))
 }
 
 /// A key set as `sluiceKeys` shows it: metadata left out.
-fn visible(variant: &BTreeSet<FieldPath>) -> BTreeSet<&FieldPath> {
+pub(crate) fn visible(variant: &BTreeSet<FieldPath>) -> BTreeSet<&FieldPath> {
     variant.iter().filter(|path| !metadata(path)).collect()
 }
 
 /// Whether VRL may render as `value` a float `sluiceDisc` cannot render: zero, a fraction, or
 /// 10^15 and more. Any other value Painless renders exactly as VRL does.
-fn undecidable(value: &str) -> bool {
+pub(crate) fn undecidable(value: &str) -> bool {
     value
         .parse::<f64>()
         .is_ok_and(|x| x == 0.0 || x.fract() != 0.0 || x.abs() >= 1e15)
@@ -352,6 +358,12 @@ fn action(
         .map(|field| format!("  sluiceRemove(ctx, {});", painless::segments(field)))
         .collect();
     if let Some(except) = &recipe.drop_empty_except {
+        // A field that may go as implied stays when it is empty, unlike in Vector: then a
+        // document without it held the implied value, which `crate::rebuild` puts back.
+        let except: BTreeSet<&FieldPath> = except
+            .iter()
+            .chain(recipe.drop_implied.iter().map(|v| &v.field))
+            .collect();
         let keep = |field: &FieldPath| except.iter().any(|e| e.covers(field) || field.covers(e));
         if plan
             .template
@@ -370,15 +382,41 @@ fn action(
             });
             lines.push(format!(
                 "  sluiceRemoveEmptyExcept(ctx, keys, {}, {});",
-                painless::list(relevant.map(FieldPath::as_str)),
+                painless::list(relevant.map(|e| e.as_str())),
                 painless::list(recipe.drop_fields.iter().map(FieldPath::as_str))
             ));
             empty_fields = true;
         }
     }
+    // Last, as in Vector: a field that implies another is tested as it is sent.
+    for implied in &recipe.drop_implied {
+        let mut test = painless::equals(&implied.field, &implied.value);
+        if let Some((on, value)) = &implied.when {
+            test = format!("{test} && {}", painless::equals(on, value));
+        }
+        lines.push(format!(
+            "  if ({test}) {{ sluiceRemove(ctx, {}); }}",
+            painless::segments(&implied.field)
+        ));
+    }
     if lines.is_empty() {
         return None;
     }
+    // As in Vector: an object the removals emptied goes, one that came empty stays.
+    let objects = plan.emptiable_objects();
+    let before = objects.iter().enumerate().map(|(n, object)| {
+        format!(
+            "  boolean sluiceO{n} = sluiceFilled(ctx, {});",
+            painless::segments(object)
+        )
+    });
+    let after = objects.iter().enumerate().map(|(n, object)| {
+        format!(
+            "  if (sluiceO{n}) {{ sluiceRemoveEmptied(ctx, {}); }}",
+            painless::segments(object)
+        )
+    });
+    let lines: Vec<String> = before.chain(lines).chain(after).collect();
     let body = lines.join("\n");
     let code = match &recipe.keep_whole_when {
         Some(keep) => format!("  if (!({})) {{\n{body}\n  }}", conditions.call(keep)),
@@ -386,7 +424,12 @@ fn action(
     };
     Some(Action {
         code,
-        fields: recipe.drop_fields.iter().cloned().collect(),
+        fields: recipe
+            .drop_fields
+            .iter()
+            .chain(recipe.drop_implied.iter().map(|v| &v.field))
+            .cloned()
+            .collect(),
         empty_fields,
     })
 }

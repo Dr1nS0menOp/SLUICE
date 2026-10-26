@@ -19,6 +19,27 @@ are.
 
    Proposals come from the community recipes in [`recipes/`](../recipes/), your own recipes
    (`--recipes DIR`), or an AI model (`--llm`). None of them is trusted.
+
+   Sluice also proposes **implied values** itself (L1): per kind of event, a field that always
+   holds one value (Windows' `Channel`, `Keywords`), or holds one value whenever another field
+   holds a given one (4624's `RestrictedAdminMode` is `-` unless `LogonType` is 10). Such a
+   field is removed only while it holds that value, so every removed value can be put back from
+   `plan.json`. They are learned from the sample, only from fields that are categories, and a
+   field named as an identifier (`ExecutionThreadID`, `agent.ephemeral_id`) is never implied by
+   another field: its value changes at the next restart. Vector removes them, and so does the
+   data collection rule of `--sentinel-native`, which also writes `sentinel/<Table>Full.kql`: a
+   workspace function that puts them back, so a query reads the table as before. The ingest
+   pipeline of `--elastic-native` removes them too, with runtime fields that put them back, and
+   so do the agents, except values tested against a whole number. The report says per field why
+   it may go and where ([field value study](notes/field-value.md)). An object whose every field
+   went is not sent as `{}`; one that came empty is (ADR 0033).
+
+   The two kinds of saving are **modes**, and both run unless `--mode` names fewer:
+   `--mode rules` uses the recipes only (remove what no rule or query reads, empty fields,
+   counting), `--mode implied` the implied values only. The report and `plan.json`
+   (`saved_by_mode`) give the saving of each side by side. With both, implied values are
+   credited with what they save after the recipes: on the demo, `rules` 67.5 % and `implied`
+   11.3 % together, while `implied` alone saves 32.6 %.
 3. **Guardrails.** For each template, Sluice works out which of your rules could see it (by log
    source, and by the template's fixed values) and what each rule reads. A field a rule reads is
    never removed from an event that rule could match; such events are forwarded whole (ADR
@@ -27,7 +48,9 @@ are.
    reduced pipeline would forward: Sigma rules always, Microsoft Sentinel's analytics rules in
    the Kusto emulator when `--kusto` is given, and Elastic's detection rules in Elasticsearch
    when `--elasticsearch` is given. Only if both raise exactly the same alerts is a recipe kept;
-   otherwise it is rolled back, per template. The proof runs the same VRL code Vector will run.
+   otherwise it is rolled back, per template. The proof runs the same VRL code Vector will run,
+   and counts in bytes what would be sent: the forwarded events and the summary records that
+   counted events become (one per minute per summary group).
 5. **Advice.** Sluice writes down what it decided ([What Sluice writes](#what-sluice-writes)) and
    changes nothing itself. You review the configurations and deploy them
    ([ADR 0030](adr/0030-advice-only.md)).
@@ -121,8 +144,8 @@ line`); a keyword rule is matched against the line as it is.
 
 | Command | What it does |
 |---------|--------------|
-| `sluice demo` | Generates an hour of synthetic traffic with planted attacks and runs the whole analysis on it. `--elastic-native`, `--fluent-bit-native`, `--otel-native` and `--llm` as for `analyze`. |
-| `sluice analyze --input DIR --sources FILE --rules DIR` | Runs the analysis on your sample (`DIR/<source>.ndjson`) and writes the files below. `--wazuh-rules` (with `--wazuh-decoders` to bound them), `--wazuh-api` (logtest spot check), `--sentinel-rules` with `--kusto` and `--sentinel-table` (proof in the Kusto emulator; add `--sentinel-native` for a proven DCR `transformKql` per table, and `--sentinel-dcr RULE.json` to have it written into that rule together with an untransformed flow into an Auxiliary archive table, ADR 0013), `--elasticsearch URL` (runs the Elastic rules in the proof, ADR 0025) with `--elastic-native` (an ingest pipeline per source, proven there, ADR 0024), `--fluent-bit CMD --fluent-bit-native` (a Fluent Bit Lua filter per source, proven in Fluent Bit, ADR 0027), `--otel-collector CMD --otel-native` (OpenTelemetry Collector transform statements per source, proven in the collector, ADR 0028), `--elastic-rules DIR` (Elastic Security detection rules as Kibana exports them, ADR 0025), `--splunk-rules DIR` (Splunk's `savedsearches.conf` and `macros.conf`, ADR 0026), `--sigma-pipeline`, `--recipes`, `--llm` are optional. Summaries need a complete rule set: fetched, or `--rules-complete`. |
+| `sluice demo` | Generates an hour of synthetic traffic with planted attacks and runs the whole analysis on it. `--elastic-native`, `--fluent-bit-native`, `--otel-native`, `--llm` and `--mode` as for `analyze`. |
+| `sluice analyze --input DIR --sources FILE --rules DIR` | Runs the analysis on your sample (`DIR/<source>.ndjson`) and writes the files below. `--wazuh-rules` (with `--wazuh-decoders` to bound them), `--wazuh-api` (logtest spot check), `--sentinel-rules` with `--kusto` and `--sentinel-table` (proof in the Kusto emulator; add `--sentinel-native` for a proven DCR `transformKql` per table, and `--sentinel-dcr RULE.json` to have it written into that rule together with an untransformed flow into an Auxiliary archive table, ADR 0013), `--elasticsearch URL` (runs the Elastic rules in the proof, ADR 0025) with `--elastic-native` (an ingest pipeline per source, proven there, ADR 0024), `--fluent-bit CMD --fluent-bit-native` (a Fluent Bit Lua filter per source, proven in Fluent Bit, ADR 0027), `--otel-collector CMD --otel-native` (OpenTelemetry Collector transform statements per source, proven in the collector, ADR 0028), `--elastic-rules DIR` (Elastic Security detection rules as Kibana exports them, ADR 0025), `--splunk-rules DIR` (Splunk's `savedsearches.conf` and `macros.conf`, ADR 0026), `--sigma-pipeline`, `--recipes`, `--llm` are optional, and `--mode` picks the kinds of saving (`rules`, `implied` or both, the default), and `--no-examples` leaves the sample's events out of the report. Summaries need a complete rule set: fetched, or `--rules-complete`. |
 | `sluice prove --config FILE --input DIR --sources FILE --rules DIR` | Proves a Vector configuration as it is, on a sample: exit 1 when the rules' alerts on what it forwards differ from those on the full sample, or when the sample raises no alert (`--allow-no-alerts` accepts that). `--json` for CI; `--sentinel-rules`, `--kusto` and `--sentinel-table` as for `analyze` (ADR 0022). |
 | `sluice connect sentinel --out DIR …` | Writes Sentinel tables and data collection rules as files; it changes nothing in Azure. `--sample FILE --table NAME` (with `--time-field F` for `TimeGenerated`) derives a custom table `NAME_CL` and its rule; `--summary-table` writes the table `SluiceSummary_CL`, its rule and the function `SluiceCounts.kql` (ADR 0029). `--workspace ID` and `--location` fill in the rules. |
 | `sluice recipes [schema \| export --out DIR \| contribute --from DIR --into REPO]` | Lists the built-in recipes, prints their JSON Schema, exports them to edit, or copies the recipes an AI proposed and the proof kept (`OUT/ai-recipes` from `analyze --llm`) into a recipe repository, checked. |
@@ -135,12 +158,13 @@ line`); a keyword rule is matched against the line as it is.
 
 | File | What it is |
 |---|---|
-| `report.html` | The advice, as one page without scripts. A paragraph on what it means, for readers without context; the saving at a glance; the kinds of event that make 90 % of the saving, largest first, each with what to change, the fields removed on the sample with their bytes, where it can run and why it is safe; savings by source; and, folded away, the smaller savings, the kinds of event sent unchanged with their reasons, every rule next to what Sluice made of it, and the problems. |
+| `report.html` | The advice, as one page without scripts ([an example](example-report.html), from `sluice demo --scale 100`). A paragraph on what it means, for readers without context; the saving at a glance, per mode, with how many summary records counted events become; what "implied" means, with this sample's largest implied value and, per source, the values that are the same on every kind of event (to check on a one-machine sample); the kinds of event that make 90 % of the saving, largest first, each with what to change, the fields removed on the sample with their bytes, why each may go and where it can run, and how counting works where events are counted; savings by source; what the SIEM still receives: per source up to 10 events as they are sent, one of each kind of event first, as a table that scrolls sideways with one column per field, each cell the value sent, the value left out with its reason (implied, repeats the event, empty) or a dot, and each event's JSON folded below (from your own logs these are your real values, long text cut; `--no-examples` leaves them out before you share the report); and, folded away, the smaller savings, the kinds of event sent unchanged with their reasons, every rule next to what Sluice made of it, and the problems. |
 | `rules.json` | That list of rules, for tools. |
-| `plan.json` | The savings plan (`sluice.plan/1`): per source and kind of event what may be removed or counted, which events keep every field, where the saving can run (`runs_in`), and the proof (ADR 0023). |
+| `plan.json` | The savings plan (`sluice.plan/1`): per source and kind of event what may be removed or counted, the implied values (`remove_implied`: a field absent from a forwarded event holds the value given), which events keep every field, where the saving can run (`runs_in`), and the proof (ADR 0023). |
 | `vector.yaml` | A Vector configuration that carries out the whole plan, with Vector unit tests drawn from the sample. Per source it reads a file and has three sinks: the archive, what is forwarded, and the summaries. |
-| `sentinel/` | With `--sentinel-native --sentinel-dcr RULE.json`: `dcr.json`, that rule with each proven `transformKql` and an untransformed flow into an Auxiliary archive table; the archive tables (`*.table.json`); each transformation (`*.transform.kql`). |
+| `sentinel/` | With `--sentinel-native --sentinel-dcr RULE.json`: `dcr.json`, that rule with each proven `transformKql` and an untransformed flow into an Auxiliary archive table; the archive tables (`*.table.json`); each transformation (`*.transform.kql`); and, where the rule empties implied values, `<Table>Full.kql`, a function to save in the workspace that puts them back. |
 | `elastic/SOURCE.pipeline.json` | With `--elastic-native`: an ingest pipeline per source. |
+| `elastic/SOURCE.runtime.json` | With `--elastic-native`, where the pipeline removes implied values: runtime fields that put them back when a query runs, each shadowing the field of its name. Use them as a search's `runtime_mappings` or as runtime fields of a Kibana data view, and query the field itself (`Mode`, not `Mode.keyword`). Proven on the sample: they read every forwarded document as they read the full one. Each has the type of its values: `keyword`, `long` or `boolean`. |
 | `fluent-bit/SOURCE.lua`, `fluent-bit/filters.conf` | With `--fluent-bit-native`: a Lua filter per source, and the filter sections to add to the agent's configuration. |
 | `otel/processors.yaml` | With `--otel-native`: a `transform` processor per source. |
 | `ai-recipes/` | With `--llm`: the recipes the AI proposed and the proof kept, for `sluice recipes contribute`. |

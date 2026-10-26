@@ -26,6 +26,7 @@ use sluice_core::ids::TemplateId;
 use sluice_core::predicate::Predicate;
 use sluice_core::template::{Template, TemplateShape};
 
+pub use self::rebuild::{Rebuilt, function as rebuilding_function};
 pub use self::run::{Records, run_transformations};
 use crate::predicate::compile_known;
 use crate::syntax::{self, STRCAT_MAX};
@@ -90,14 +91,18 @@ pub struct Transformation {
     pub columns: BTreeSet<String>,
     /// Parts of the plan only a pipeline tool can carry out, and why.
     pub left_out: Vec<String>,
+    /// The implied values it empties: what the table's rebuilding function puts back.
+    pub implied: Vec<Rebuilt>,
 }
 
 /// Records the transformation cannot tell apart: one signature and its discriminator values.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct Group {
     discriminators: BTreeMap<String, String>,
     templates: BTreeSet<TemplateId>,
     removes: Option<BTreeSet<String>>,
+    /// The implied values every template of the group removes.
+    implied: Option<BTreeSet<Rebuilt>>,
     keep_whole: Vec<Predicate>,
     /// Two templates with this signature test different discriminator fields: a record could
     /// fit both, so neither is recognised.
@@ -116,11 +121,23 @@ type Groups = BTreeMap<String, BTreeMap<Vec<(String, String)>, Group>>;
 /// flow into a standard table carries the table's columns: [`Table::column_names`].
 #[must_use]
 pub fn transformation(table: &Table, stream: &[&str], plans: &[Plan<'_>]) -> Transformation {
+    transformation_within(table, stream, plans, MAX_TRANSFORM_KQL)
+}
+
+/// As [`transformation`], in at most `budget` characters: what a data flow's own
+/// transformation leaves of [`MAX_TRANSFORM_KQL`].
+#[must_use]
+pub fn transformation_within(
+    table: &Table,
+    stream: &[&str],
+    plans: &[Plan<'_>],
+    budget: usize,
+) -> Transformation {
     let columns: Vec<(&str, &str)> = table
         .own_columns()
         .filter(|(name, _)| stream.contains(name))
         .collect();
-    transformation_on(table.name(), &columns, stream, plans)
+    transformation_on_within(table.name(), &columns, stream, plans, budget)
 }
 
 /// As [`transformation`], on `columns` (name and type, among `stream`) as they are where the
@@ -132,6 +149,18 @@ pub fn transformation_on(
     columns: &[(&str, &str)],
     stream: &[&str],
     plans: &[Plan<'_>],
+) -> Transformation {
+    transformation_on_within(table, columns, stream, plans, MAX_TRANSFORM_KQL)
+}
+
+/// As [`transformation_on`], in at most `budget` characters.
+#[must_use]
+pub fn transformation_on_within(
+    table: &str,
+    columns: &[(&str, &str)],
+    stream: &[&str],
+    plans: &[Plan<'_>],
+    budget: usize,
 ) -> Transformation {
     let columns: Vec<(&str, &str)> = columns
         .iter()
@@ -151,6 +180,7 @@ pub fn transformation_on(
                 "{table}: the column {name:?} holds a character KQL cannot name, so nothing is \
                  removed"
             )],
+            implied: Vec::new(),
         };
     }
     let types: BTreeMap<&str, &str> = columns.iter().copied().collect();
@@ -178,37 +208,23 @@ pub fn transformation_on(
         .filter(|(name, _)| used.contains(name))
         .collect();
     let mut groups = Groups::new();
-    for (plan, (discriminators, variants)) in &recognised {
+    for (plan, recognition) in &recognised {
         let id = &plan.template.id;
         if plan.recipe.route != Route::ForwardAll {
             left_out.push(format!(
                 "{id}: counting instead of sending needs a pipeline tool"
             ));
         }
+        let discriminators = &recognition.0;
         let removes = removable(plan, discriminators, &types, table, &mut left_out);
-        for variant in variants {
-            let signature: String = signed
-                .iter()
-                .map(|(name, _)| if variant.contains(*name) { '1' } else { '0' })
-                .collect();
-            let group = groups
-                .entry(signature)
-                .or_default()
-                .entry(
-                    discriminators
-                        .iter()
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect(),
-                )
-                .or_default();
-            group.discriminators.clone_from(discriminators);
-            group.templates.insert(id.clone());
-            group.removes = Some(match group.removes.take() {
-                None => removes.clone(),
-                Some(before) => before.intersection(&removes).cloned().collect(),
-            });
-            group.keep_whole.extend(plan.recipe.keep_whole_when.clone());
-        }
+        let implied = rebuild::implied(plan, discriminators, &types, plans, &mut left_out);
+        add(
+            &mut groups,
+            plan,
+            recognition,
+            &signed,
+            (&removes, &implied),
+        );
     }
     let rest: Vec<(&str, &str)> = columns
         .iter()
@@ -219,11 +235,11 @@ pub fn transformation_on(
         block(template, &signed, &rest, &mut groups);
     }
     let kept = separable(groups, &mut left_out);
-    let mut transformation = render(&signed, &rest, stream, &kept, left_out);
-    if transformation.kql.len() > MAX_TRANSFORM_KQL {
+    let mut transformation = fitting(&signed, &rest, stream, &kept, &left_out, budget);
+    if transformation.kql.len() > budget {
         transformation.left_out.push(format!(
-            "the transformation would be {} characters, more than the {MAX_TRANSFORM_KQL} a data \
-             collection rule takes, so nothing is removed",
+            "the transformation would be {} characters, more than the {budget} left of what a \
+             data collection rule takes, so nothing is removed",
             transformation.kql.len()
         ));
         "source".clone_into(&mut transformation.kql);
@@ -231,6 +247,44 @@ pub fn transformation_on(
         transformation.columns.clear();
     }
     transformation
+}
+
+/// Puts `plan`'s template into the group of each of its key sets, where it removes only what
+/// every template of the group removes: `removes` (columns) and `implied` (values).
+fn add(
+    groups: &mut Groups,
+    plan: &Plan<'_>,
+    (discriminators, variants): &Recognition,
+    signed: &[(&str, &str)],
+    (removes, implied): (&BTreeSet<String>, &BTreeSet<Rebuilt>),
+) {
+    for variant in variants {
+        let signature: String = signed
+            .iter()
+            .map(|(name, _)| if variant.contains(*name) { '1' } else { '0' })
+            .collect();
+        let group = groups
+            .entry(signature)
+            .or_default()
+            .entry(
+                discriminators
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+            )
+            .or_default();
+        group.discriminators.clone_from(discriminators);
+        group.templates.insert(plan.template.id.clone());
+        group.removes = Some(match group.removes.take() {
+            None => removes.clone(),
+            Some(before) => before.intersection(removes).cloned().collect(),
+        });
+        group.implied = Some(match group.implied.take() {
+            None => implied.clone(),
+            Some(before) => before.intersection(implied).cloned().collect(),
+        });
+        group.keep_whole.extend(plan.recipe.keep_whole_when.clone());
+    }
 }
 
 /// Puts a key-set template the transformation cannot recognise into every group its records
@@ -269,6 +323,7 @@ fn block(template: &Template, signed: &[(&str, &str)], rest: &[(&str, &str)], gr
         group.discriminators.clone_from(&values);
         group.templates.insert(template.id.clone());
         group.removes = Some(BTreeSet::new());
+        group.implied = Some(BTreeSet::new());
     }
 }
 
@@ -301,7 +356,9 @@ fn separable(mut groups: Groups, left_out: &mut Vec<String>) -> Vec<(String, Gro
                         .collect::<Vec<_>>()
                         .join(", ")
                 ));
-            } else if group.removes.as_ref().is_some_and(|r| !r.is_empty()) {
+            } else if group.removes.as_ref().is_some_and(|r| !r.is_empty())
+                || group.implied.as_ref().is_some_and(|i| !i.is_empty())
+            {
                 kept.push((signature.clone(), group));
             }
         }
@@ -412,6 +469,71 @@ fn empty(column: &str, kind: &str) -> String {
     }
 }
 
+/// The transformation with as many implied values as fit in `budget` characters, the most
+/// worthwhile first: values the kind of event implies alone (they hold on every record) before
+/// those another column implies, longer values before shorter. The rest is left to a pipeline
+/// tool.
+fn fitting(
+    signed: &[(&str, &str)],
+    rest: &[(&str, &str)],
+    stream: &[&str],
+    groups: &[(String, Group)],
+    left_out: &[String],
+    budget: usize,
+) -> Transformation {
+    let mut ranked: Vec<&Rebuilt> = groups
+        .iter()
+        .flat_map(|(_, group)| group.implied.iter().flatten())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    ranked.sort_by(|a, b| {
+        (a.when.is_some(), std::cmp::Reverse(a.value.len()))
+            .cmp(&(b.when.is_some(), std::cmp::Reverse(b.value.len())))
+            .then(a.cmp(b))
+    });
+    let with = |count: usize| {
+        let allowed: BTreeSet<&Rebuilt> = ranked.iter().take(count).copied().collect();
+        let limited: Vec<(String, Group)> = groups
+            .iter()
+            .map(|(signature, group)| {
+                let mut group = group.clone();
+                group.implied = group
+                    .implied
+                    .map(|values| values.into_iter().filter(|v| allowed.contains(v)).collect());
+                (signature.clone(), group)
+            })
+            .filter(|(_, group)| {
+                group.removes.as_ref().is_some_and(|r| !r.is_empty())
+                    || group.implied.as_ref().is_some_and(|i| !i.is_empty())
+            })
+            .collect();
+        render(signed, rest, stream, &limited, left_out.to_vec())
+    };
+    let all = with(ranked.len());
+    if all.kql.len() <= budget || ranked.is_empty() {
+        return all;
+    }
+    // The largest count that fits: adding a value only adds text.
+    let (mut fits, mut too_many) = (0, ranked.len());
+    while too_many - fits > 1 {
+        let middle = usize::midpoint(fits, too_many);
+        if with(middle).kql.len() <= budget {
+            fits = middle;
+        } else {
+            too_many = middle;
+        }
+    }
+    let mut transformation = with(fits);
+    transformation.left_out.push(format!(
+        "{} of {} implied values did not fit in the {budget} characters left of what a data \
+         collection rule takes; a pipeline tool removes them",
+        ranked.len() - fits,
+        ranked.len()
+    ));
+    transformation
+}
+
 /// `signed` are the columns of the signature, `rest` the columns that must be empty, and
 /// `stream` every column (keyword tests scan them all).
 fn render(
@@ -426,6 +548,7 @@ fn render(
         templates: BTreeSet::new(),
         columns: BTreeSet::new(),
         left_out,
+        implied: Vec::new(),
     };
     if groups.is_empty() {
         return transformation;
@@ -447,6 +570,8 @@ fn render(
     };
     let mut cases = Vec::new();
     let mut removed: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut implied: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut rebuilt: BTreeSet<Rebuilt> = BTreeSet::new();
     for (n, (signature, group)) in groups.iter().enumerate() {
         let label = format!("g{n}");
         let mut tests: Vec<String> = group
@@ -459,18 +584,27 @@ fn render(
             })
             .collect();
         tests.push(format!("__sluice_s == \"{signature}\" and __sluice_r"));
+        // A record a protecting rule could match gets no label, so nothing is removed from it.
+        // Tested once here, on the record as it came, rather than again in every column's test:
+        // that kept the transformation within the size a data collection rule takes.
+        if !group.keep_whole.is_empty() {
+            let keep = compile_known(&Predicate::any(group.keep_whole.clone()), stream);
+            tests.push(format!("not({keep})"));
+        }
         cases.push(format!("{}, \"{label}\"", tests.join(" and ")));
-        let keep = if group.keep_whole.is_empty() {
-            "false".to_owned()
-        } else {
-            compile_known(&Predicate::any(group.keep_whole.clone()), stream)
-        };
-        let condition = format!("(__sluice_t == \"{label}\" and not({keep}))");
+        let condition = format!("__sluice_t == \"{label}\"");
         for name in group.removes.iter().flatten() {
             removed
                 .entry(name.clone())
                 .or_default()
                 .push(condition.clone());
+        }
+        for value in group.implied.iter().flatten() {
+            implied
+                .entry(value.column.clone())
+                .or_default()
+                .push(format!("({condition} and {})", rebuild::holds(value)));
+            rebuilt.insert(value.clone());
         }
         transformation
             .templates
@@ -495,6 +629,19 @@ fn render(
         ));
         transformation.columns.insert(name.clone());
     }
+    // Last, as in Vector: a column that implies another is tested as it is sent.
+    for (name, conditions) in &implied {
+        let quoted = column(name);
+        lines.push(format!(
+            "| extend {quoted} = iff({}, {}, {})",
+            conditions.join(" or "),
+            empty_value(types.get(name.as_str()).copied().unwrap_or("string"))
+                .expect("rebuild::implied keeps only columns whose type has a null"),
+            quoted
+        ));
+        transformation.columns.insert(name.clone());
+    }
+    transformation.implied = rebuilt.into_iter().collect();
     lines.push(SLUICE_PART_END.to_owned());
     transformation.kql = lines.join("\n");
     transformation
@@ -517,7 +664,7 @@ fn strcat(parts: &[String]) -> String {
 
 /// What an emptied column of type `kind` holds: `""` for text, which is not billed, else a
 /// typed null of [`ALLOWED_FUNCTIONS`]. `None` for a type without one, such as `timespan`.
-fn empty_value(kind: &str) -> Option<String> {
+pub(crate) fn empty_value(kind: &str) -> Option<String> {
     match kind {
         "string" => Some(r#""""#.to_owned()),
         "bool" | "boolean" => Some("bool(null)".to_owned()),
@@ -560,6 +707,7 @@ pub fn disallowed_functions(kql: &str) -> BTreeSet<String> {
     found
 }
 
+mod rebuild;
 mod run;
 #[cfg(test)]
 mod tests;

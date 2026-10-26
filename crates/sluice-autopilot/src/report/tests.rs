@@ -14,6 +14,7 @@ pub(super) fn report() -> Report {
             events: 10,
             forwarded: 10,
             summarized: 0,
+            summaries: 0,
             bytes_in: 1_000,
             bytes_out: 400,
         },
@@ -29,6 +30,8 @@ pub(super) fn report() -> Report {
         rules_basis: RulesBasis::NotKnown,
         rule_rows: Vec::new(),
         inventory_notes: Vec::new(),
+        modes: Mode::ALL.into(),
+        examples: Vec::new(),
     }
 }
 
@@ -48,7 +51,12 @@ fn hostile() -> Report {
                 path: HOSTILE.into(),
                 events: 1,
                 bytes: 1,
+                mode: Mode::Implied,
+                constant: None,
+                why: HOSTILE.into(),
+                runs_in: HOSTILE.into(),
             }],
+            rationale: Some(HOSTILE.into()),
         }],
         coverage_gaps: vec![HOSTILE.into()],
         problems: vec![
@@ -308,4 +316,395 @@ fn equal_adjustments_are_listed_once_in_their_order() {
 fn a_scope_hint_counts_its_rules_in_words() {
     assert_eq!(rules_apply(1), "1 rule applies");
     assert_eq!(rules_apply(4), "4 rules apply");
+}
+
+#[test]
+fn each_removed_field_says_why_it_may_go_and_where() {
+    use sluice_core::guard::EffectiveRecipe;
+    use sluice_core::recipe::{ImpliedValue, Literal};
+
+    let implied = |field: &str, value: &str, when: Option<(&str, i64)>| ImpliedValue {
+        field: FieldPath::new(field),
+        value: Literal::Text(value.into()),
+        when: when.map(|(on, v)| (FieldPath::new(on), Literal::Integer(v))),
+    };
+    let recipe = EffectiveRecipe {
+        drop_fields: [FieldPath::new("Message")].into(),
+        drop_empty_except: Some(std::collections::BTreeSet::new()),
+        drop_implied: vec![
+            implied("Keywords", "0x8020000000000000", None),
+            implied("RestrictedAdminMode", "-", Some(("LogonType", 2))),
+            implied("RestrictedAdminMode", "-", Some(("LogonType", 3))),
+        ],
+        ..EffectiveRecipe::passthrough("t".into())
+    };
+    let why = |field: &str| text::why_removed(&FieldPath::new(field), &recipe);
+    assert!(why("Message").starts_with("the recipe removes it"));
+    assert_eq!(
+        why("Keywords"),
+        "always \"0x8020000000000000\" on this kind of event; left out only on an event that \
+         holds it, and put back from the plan"
+    );
+    assert_eq!(
+        why("RestrictedAdminMode"),
+        "fixed by another field: \"-\" whenever LogonType is 2 or 3; left out only in those \
+         cases, and put back as that value"
+    );
+    assert!(why("WorkstationName").starts_with("it was empty"));
+
+    let place = |field: &str| text::where_removed(&FieldPath::new(field), &recipe, true);
+    assert_eq!(
+        place("Keywords"),
+        "Vector, the SIEM's own ingestion, or the agent"
+    );
+    assert_eq!(
+        place("RestrictedAdminMode"),
+        "Vector or the SIEM's own ingestion (an agent cannot tell 3 from 3.0)"
+    );
+    assert_eq!(
+        place("Message"),
+        "Vector, the SIEM's own ingestion, or the agent"
+    );
+    assert_eq!(
+        text::where_removed(&FieldPath::new("Message"), &recipe, false),
+        "Vector (a pipeline tool)"
+    );
+}
+
+#[test]
+fn a_field_paired_with_another_is_described_by_one_pair() {
+    use sluice_core::guard::EffectiveRecipe;
+    use sluice_core::recipe::{ImpliedValue, Literal};
+
+    let pair = |sid: &str, name: &str| ImpliedValue {
+        field: FieldPath::new("TargetUserSid"),
+        value: Literal::Text(sid.into()),
+        when: Some((FieldPath::new("TargetUserName"), Literal::Text(name.into()))),
+    };
+    let recipe = EffectiveRecipe {
+        drop_implied: vec![
+            pair("S-1", "alice"),
+            pair("S-2", "bob"),
+            pair("S-3", "carol"),
+            pair("S-4", "dave"),
+        ],
+        ..EffectiveRecipe::passthrough("t".into())
+    };
+    assert_eq!(
+        text::why_removed(&FieldPath::new("TargetUserSid"), &recipe),
+        "fixed per value of TargetUserName: the sample has 4 pairs, such as TargetUserName = \
+         \"alice\" with TargetUserSid = \"S-1\"; left out only when an event matches its pair, \
+         and put back from that pair"
+    );
+}
+
+pub(super) fn row_removing(fields: &[(&str, u64, Mode)]) -> TemplateRow {
+    TemplateRow {
+        id: "t".into(),
+        source: "s".into(),
+        pattern: "p".into(),
+        volume: Volume::default(),
+        actions: Vec::new(),
+        adjustments: Vec::new(),
+        provenance: None,
+        runs_in: None,
+        removed: fields
+            .iter()
+            .map(|(path, bytes, mode)| RemovedField {
+                path: (*path).into(),
+                events: 1,
+                bytes: *bytes,
+                mode: *mode,
+                constant: None,
+                why: String::new(),
+                runs_in: String::new(),
+            })
+            .collect(),
+        rationale: None,
+    }
+}
+
+#[test]
+fn each_mode_is_credited_with_what_it_saved_and_together_they_make_the_whole() {
+    // 600 of 1,000 bytes saved: 150 by implied values, the rest by the recipes.
+    let report = Report {
+        templates: vec![row_removing(&[
+            ("Message", 400, Mode::Rules),
+            ("Keywords", 100, Mode::Implied),
+            ("Channel", 50, Mode::Implied),
+        ])],
+        ..report()
+    };
+    assert_eq!(report.saved_by(Mode::Implied), 150);
+    assert_eq!(report.saved_by(Mode::Rules), 450);
+    assert!((report.saved_percent_by(Mode::Rules) - 45.0).abs() < 1e-9);
+    assert_eq!(
+        report.saved_by(Mode::Rules) + report.saved_by(Mode::Implied),
+        600
+    );
+}
+
+#[test]
+fn the_report_shows_every_mode_and_how_to_ask_for_one_not_run() {
+    let page = render_html(&Report {
+        modes: [Mode::Rules].into(),
+        ..report()
+    });
+    assert!(page.contains("<code>rules</code>"));
+    assert!(page.contains("<code>implied</code><span class=\"muted\">not run"));
+}
+
+fn windows_template(complete: bool) -> Template {
+    serde_json::from_value(serde_json::json!({
+        "id": "t", "source": "s", "logsource": {"product": "windows", "complete": complete},
+        "pattern": "p",
+        "shape": {"kind": "keyset", "discriminators": [], "paths": ["a"], "variants": [["a"]]},
+        "fields": ["a"], "text_fields": [],
+        "stats": {"events": 1, "bytes": 1, "source_events": 1}
+    }))
+    .expect("a template")
+}
+
+fn rule_for(id: &str, service: Option<&str>) -> RuleRequirements {
+    RuleRequirements {
+        logsource: LogSource {
+            product: Some("windows".into()),
+            service: service.map(Into::into),
+            ..LogSource::default()
+        },
+        ..RuleRequirements::opaque(RuleId::new(id))
+    }
+}
+
+#[test]
+fn a_source_hears_which_rules_apply_only_because_its_log_source_is_not_fully_described() {
+    let security = rule_for("a", Some("security"));
+    let system = rule_for("b", Some("system"));
+    let any = rule_for("c", None);
+    let open = [windows_template(false)];
+    assert_eq!(
+        scope_hints(&[&security, &any], &open),
+        [
+            "s: 1 rule applies only because its log source (product=windows) leaves an attribute \
+          unknown; if that is all it is, add `complete: true`"
+        ]
+    );
+    assert!(scope_hints(&[&security, &system], &open)[0].starts_with("s: 2 rules apply only"));
+    assert_eq!(scope_hints(&[&any], &open), Vec::<String>::new());
+    let closed = [windows_template(true)];
+    assert_eq!(scope_hints(&[&security], &closed), Vec::<String>::new());
+}
+
+#[test]
+fn a_rule_with_several_requirements_counts_once() {
+    let rules = [
+        rule_for("a", None),
+        rule_for("a", Some("x")),
+        rule_for("b", None),
+    ];
+    assert_eq!(count(&rules), 2);
+    assert_eq!(count(&[]), 0);
+}
+
+#[test]
+fn only_a_key_set_template_that_forwards_everything_shares_its_saving_with_the_siem() {
+    let template = windows_template(false);
+    let removing = EffectiveRecipe {
+        drop_fields: ["a".into()].into(),
+        ..EffectiveRecipe::passthrough("t".into())
+    };
+    assert!(shared(&template, &removing));
+    assert!(!shared(
+        &template,
+        &EffectiveRecipe::passthrough("t".into())
+    ));
+    let counting = EffectiveRecipe {
+        route: sluice_core::guard::Route::ForwardMatching {
+            prefilter: sluice_core::predicate::Predicate::Always,
+            summary_keys: Vec::new(),
+        },
+        ..removing
+    };
+    assert!(
+        !shared(&template, &counting),
+        "counting needs a pipeline tool"
+    );
+}
+
+#[test]
+fn a_removed_field_says_its_mode_and_the_value_it_always_held() {
+    use sluice_core::recipe::{ImpliedValue, Literal};
+    let recipe = EffectiveRecipe {
+        drop_fields: ["Message".into()].into(),
+        drop_implied: vec![
+            ImpliedValue {
+                field: "Channel".into(),
+                value: Literal::Text("Security".into()),
+                when: None,
+            },
+            ImpliedValue {
+                field: "Mode".into(),
+                value: Literal::Text("-".into()),
+                when: Some(("LogonType".into(), Literal::Integer(3))),
+            },
+            // Listed and implied: the recipe's removal is what takes it.
+            ImpliedValue {
+                field: "Message".into(),
+                value: Literal::Text("x".into()),
+                when: None,
+            },
+        ],
+        ..EffectiveRecipe::passthrough("t".into())
+    };
+    let removal = Removal {
+        events: 2,
+        bytes: 40,
+    };
+    let field =
+        |path: &str, shared: bool| removed_field(&path.into(), removal, &recipe, shared, None);
+    let channel = field("Channel", true);
+    assert_eq!(
+        (channel.mode, channel.constant.as_deref()),
+        (Mode::Implied, Some("\"Security\""))
+    );
+    assert_eq!((channel.events, channel.bytes), (2, 40));
+    assert_eq!(
+        channel.runs_in,
+        "Vector, the SIEM's own ingestion, or the agent"
+    );
+    let mode = field("Mode", false);
+    assert_eq!((mode.mode, mode.constant), (Mode::Implied, None));
+    assert_eq!(mode.runs_in, "Vector (a pipeline tool)");
+    let message = field("Message", true);
+    assert_eq!((message.mode, message.constant), (Mode::Rules, None));
+}
+
+#[test]
+fn a_proposal_s_reasoning_is_shown_only_when_it_says_something_and_fields_go_by_it() {
+    use sluice_core::recipe::{Provenance, Recipe, Reduction};
+    let proposal = |why: &str| {
+        Recipe::new(
+            "t".into(),
+            vec![Reduction::DropFields {
+                fields: ["a".into()].into(),
+            }],
+            Provenance::Operator,
+            why.to_owned(),
+        )
+        .expect("a valid recipe")
+    };
+    let removing = EffectiveRecipe {
+        drop_fields: ["a".into()].into(),
+        ..EffectiveRecipe::passthrough("t".into())
+    };
+    assert_eq!(
+        rationale(Some(&proposal("  it repeats the event  ")), &removing).as_deref(),
+        Some("it repeats the event")
+    );
+    assert_eq!(rationale(Some(&proposal("   ")), &removing), None);
+    assert_eq!(
+        rationale(
+            Some(&proposal("it repeats")),
+            &EffectiveRecipe::passthrough("t".into())
+        ),
+        None,
+        "the guardrails kept every field"
+    );
+    assert_eq!(rationale(None, &removing), None);
+}
+
+#[test]
+fn the_rules_verdict_is_that_of_the_report_s_rules() {
+    let report = report();
+    let verdict = report.rules_verdict();
+    assert_ne!(verdict, "");
+    assert_eq!(verdict, rules::verdict(&report.rule_rows));
+}
+
+#[test]
+fn the_fields_of_an_object_the_recipe_removes_whole_are_shown_as_that_object() {
+    let recipe = EffectiveRecipe {
+        drop_fields: [FieldPath::from("EventData")].into(),
+        ..EffectiveRecipe::passthrough("t".into())
+    };
+    let removal = |events, bytes| Removal { events, bytes };
+    let removals: BTreeMap<FieldPath, Removal> = [
+        ("EventData".into(), removal(10, 14)),
+        ("EventData.User".into(), removal(10, 200)),
+        ("EventData.Note".into(), removal(4, 30)),
+        ("Channel".into(), removal(10, 50)),
+    ]
+    .into();
+    let grouped = by_what_removed_them(Some(&removals), &recipe);
+    assert_eq!(
+        grouped,
+        [
+            ("Channel".into(), removal(10, 50)),
+            ("EventData".into(), removal(10, 244)),
+        ]
+        .into()
+    );
+    assert!(by_what_removed_them(None, &recipe).is_empty());
+}
+
+#[test]
+fn an_object_emptied_by_implied_values_saves_as_implied_and_one_with_any_other_as_rules() {
+    use sluice_core::recipe::{ImpliedValue, Literal};
+    let recipe = EffectiveRecipe {
+        drop_fields: [FieldPath::from("agent.ephemeral")].into(),
+        drop_implied: vec![
+            ImpliedValue {
+                field: "agent.id".into(),
+                value: Literal::Text("a".into()),
+                when: None,
+            },
+            ImpliedValue {
+                field: "ecs.version".into(),
+                value: Literal::Text("8".into()),
+                when: None,
+            },
+            ImpliedValue {
+                field: "host.os.version".into(),
+                value: Literal::Text("10".into()),
+                when: None,
+            },
+        ],
+        ..EffectiveRecipe::passthrough("t".into())
+    };
+    let one = Removal {
+        events: 1,
+        bytes: 1,
+    };
+    let grouped: BTreeMap<FieldPath, Removal> = [
+        "agent",
+        "agent.id",
+        "agent.ephemeral",
+        "ecs",
+        "ecs.version",
+        "Message",
+        "host",
+        "host.os",
+        "host.os.version",
+    ]
+    .into_iter()
+    .map(|p| (FieldPath::from(p), one))
+    .collect();
+    let mode = |p: &str| shell_mode(&FieldPath::from(p), &grouped, &recipe);
+    assert_eq!(mode("ecs"), Some(Mode::Implied));
+    assert_eq!(
+        mode("host"),
+        Some(Mode::Implied),
+        "host.os is a shell inside it, emptied by an implied value"
+    );
+    assert_eq!(mode("host.os"), Some(Mode::Implied));
+    assert_eq!(mode("agent"), Some(Mode::Rules), "a recipe field went too");
+    assert_eq!(mode("Message"), None, "no field inside: not a shell");
+    assert_eq!(mode("agent.id"), None);
+
+    let shell = removed_field(&"ecs".into(), one, &recipe, true, Some(Mode::Implied));
+    assert_eq!(shell.mode, Mode::Implied);
+    assert!(shell.why.starts_with("its fields went"), "{}", shell.why);
+    let plain = removed_field(&"ecs.version".into(), one, &recipe, true, None);
+    assert_eq!(plain.mode, Mode::Implied);
+    assert!(plain.why.starts_with("always"), "{}", plain.why);
 }

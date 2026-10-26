@@ -65,7 +65,9 @@ impl Reducer for FakePlane {
             .iter()
             .find(|r| Some(&r.template) == template.as_ref());
         let outcome = match recipe {
-            Some(r) if r.route != Route::ForwardAll => Outcome::Summarized,
+            Some(r) if r.route != Route::ForwardAll => {
+                Outcome::Summarized(summary(&r.template, event))
+            }
             Some(r) => {
                 let mut body = event.fields.clone();
                 for field in &r.drop_fields {
@@ -77,6 +79,19 @@ impl Reducer for FakePlane {
         };
         Ok(Reduced { template, outcome })
     }
+}
+
+/// The summary record an event of `template` counts into: keyed by its field `k`.
+fn summary(template: &TemplateId, event: &Event) -> serde_json::Map<String, Value> {
+    let Value::Object(record) = json!({
+        "sluice_summary": true,
+        "sluice_template": template.as_str(),
+        "sluice_keys": {"k": event.fields.get("k").cloned().unwrap_or(Value::Null)},
+        "sluice_count": 1,
+    }) else {
+        unreachable!("an object")
+    };
+    record
 }
 
 fn event(id: u64, source: &str, fields: Value) -> Event {
@@ -333,17 +348,50 @@ fn volume_counts_events_bytes_and_outcomes() {
     let mut volume = Volume::default();
     let body: serde_json::Map<String, Value> = [("a".to_owned(), json!(1))].into_iter().collect();
     volume.add(100, &Outcome::Forwarded(body));
-    volume.add(50, &Outcome::Summarized);
+    volume.add(50, &Outcome::Summarized(serde_json::Map::new()));
     assert_eq!(
         volume,
         Volume {
             events: 2,
             forwarded: 1,
             summarized: 1,
+            summaries: 0,
             bytes_in: 150,
             bytes_out: 7, // {"a":1}
         }
     );
+}
+
+#[test]
+fn counted_events_send_one_summary_per_window_and_group_and_its_bytes_count() {
+    // Events of `C`: key `x` ten times in the first minute (a count of two digits, so its bytes
+    // tell it from a count of one), `y` once, then `x` again in the second minute: three records.
+    let at = |id: u64, second: i64, k: &str| Event {
+        timestamp: crate::event::Timestamp(second),
+        ..event(id, "s", json!({"t": "C", "k": k}))
+    };
+    let mut events: Vec<Event> = (0u8..10)
+        .map(|i| at(u64::from(i), i64::from(i) * 5, "x"))
+        .collect();
+    events.push(at(10, 20, "y"));
+    events.push(at(11, 70, "x"));
+    let plane = FakePlane {
+        recipes: vec![summarize("C")],
+    };
+    let proof = prove(&events, &FakeEngine { fail: false }, &plane).unwrap();
+    let c = proof.per_template[&Some("C".into())];
+    assert_eq!((c.summarized, c.summaries, c.forwarded), (12, 3, 0));
+    let record = |k: &str, count: u64| {
+        let mut record = summary(&"C".into(), &event(0, "s", json!({"k": k})));
+        record.insert("sluice_count".into(), json!(count));
+        crate::event::encoded_size(&record) as u64
+    };
+    assert_eq!(
+        c.bytes_out,
+        record("x", 10) + record("y", 1) + record("x", 1)
+    );
+    assert_eq!(proof.total.bytes_out, c.bytes_out, "nothing else is sent");
+    assert_eq!(proof.total.summaries, 3);
 }
 
 #[test]
@@ -411,10 +459,24 @@ fn removed_fields_are_named_by_path_with_their_bytes() {
     assert_eq!(
         removed,
         [
-            // `"Message":"long text",` and `"os":{"kernel":""},`
+            // `"Message":"long text",`; `"os":{"kernel":""},` as its field `"kernel":"",` and
+            // its shell `"os":{` and `},`, together the 19 bytes the object took.
             (FieldPath::new("Message"), 22),
-            (FieldPath::new("host.os"), 19),
+            (FieldPath::new("host.os.kernel"), 12),
+            (FieldPath::new("host.os"), 7),
         ]
     );
     assert_eq!(removed_paths(&before, &before), []);
+    let members = removed_members(&before, &after);
+    assert_eq!(
+        members.iter().map(|m| m.shell).collect::<Vec<_>>(),
+        [false, false, true]
+    );
+
+    // An object that came empty and went is a field of its own, not a shell.
+    let (Value::Object(empty), Value::Object(none)) = (json!({"x": {}}), json!({})) else {
+        unreachable!("objects")
+    };
+    assert_eq!(removed_paths(&empty, &none), [(FieldPath::new("x"), 7)]);
+    assert!(!removed_members(&empty, &none)[0].shell);
 }

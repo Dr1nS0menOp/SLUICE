@@ -172,6 +172,18 @@ pub(super) fn write(rule: Value, proven: &[(Proven, Flow)], dir: &Path) -> Resul
             &dir.join(format!("{}.transform.kql", one.source)),
             &(one.kql.clone() + "\n"),
         )?;
+        let table = one.table.name();
+        if let Some(function) = sluice_kql::rebuilding_function(&one.table, &one.generated.implied)
+        {
+            let path = dir.join(format!("{table}Full.kql"));
+            crate::output::write(&path, &function)?;
+            println!(
+                "  native  wrote {}: save it in the workspace as the function {table}Full, which \
+                 puts back the {} implied value(s) the rule empties",
+                path.display(),
+                one.generated.implied.len()
+            );
+        }
     }
     let path = dir.join("dcr.json");
     crate::output::write(&path, &(serde_json::to_string_pretty(&rule)? + "\n"))?;

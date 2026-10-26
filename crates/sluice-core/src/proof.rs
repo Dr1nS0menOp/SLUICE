@@ -51,11 +51,20 @@ pub struct Volume {
     pub forwarded: u64,
     /// Events counted into summaries instead.
     pub summarized: u64,
+    /// Summary records those events make: one per window of [`SUMMARY_WINDOW_SECONDS`] and per
+    /// group of the events' summary keys.
+    #[serde(default)]
+    pub summaries: u64,
     /// Bytes in (compact JSON).
     pub bytes_in: u64,
-    /// Bytes forwarded (compact JSON of the forwarded bodies).
+    /// Bytes sent (compact JSON): the forwarded bodies and the summary records. A summary is
+    /// sent too, so counting events saves what they take less what their counts take.
     pub bytes_out: u64,
 }
+
+/// The window summary records count over, as the data plane closes its groups (Vector's
+/// `reduce` every 60 seconds). The proof places each event in the window of its own time.
+pub const SUMMARY_WINDOW_SECONDS: i64 = 60;
 
 impl Volume {
     fn add(&mut self, bytes_in: usize, outcome: &Outcome) {
@@ -66,7 +75,42 @@ impl Volume {
                 self.forwarded += 1;
                 self.bytes_out += to_u64(encoded_size(body));
             }
-            Outcome::Summarized => self.summarized += 1,
+            Outcome::Summarized(_) => self.summarized += 1,
+        }
+    }
+}
+
+/// Where a summary record counts: its template, window and group (the record without its
+/// count).
+type SummaryKey = (Option<TemplateId>, i64, String);
+
+/// The summary records of one run: per template, window and group, the record and the events
+/// it counts.
+#[derive(Default)]
+struct Summaries(BTreeMap<SummaryKey, (Map<String, Value>, u64)>);
+
+impl Summaries {
+    fn count(&mut self, template: Option<TemplateId>, event: &Event, record: Map<String, Value>) {
+        let mut group = record.clone();
+        group.remove("sluice_count");
+        // Serializing a `Map` cannot fail: its keys are strings.
+        let group = serde_json::to_string(&group).unwrap_or_default();
+        let window = event.timestamp.0.div_euclid(SUMMARY_WINDOW_SECONDS);
+        self.0
+            .entry((template, window, group))
+            .or_insert((record, 0))
+            .1 += 1;
+    }
+
+    /// Adds each record, with the events it counts, to the bytes sent.
+    fn send(self, total: &mut Volume, per_template: &mut BTreeMap<Option<TemplateId>, Volume>) {
+        for ((template, _, _), (mut record, events)) in self.0 {
+            record.insert("sluice_count".to_owned(), Value::from(events));
+            let bytes = to_u64(encoded_size(&record));
+            for volume in [&mut *total, per_template.entry(template).or_default()] {
+                volume.summaries += 1;
+                volume.bytes_out += bytes;
+            }
         }
     }
 }
@@ -147,6 +191,7 @@ impl<'a> Run<'a> {
             per_template: BTreeMap::new(),
             removed: BTreeMap::new(),
         };
+        let mut summaries = Summaries::default();
         for event in events {
             let reduced = data_plane.reduce(event)?;
             let bytes_in = encoded_size(&event.fields);
@@ -157,7 +202,14 @@ impl<'a> Run<'a> {
                 .add(bytes_in, &reduced.outcome);
             run.templates
                 .insert(event.id, (event.source.clone(), reduced.template.clone()));
-            if let Outcome::Forwarded(body) = reduced.outcome {
+            let body = match reduced.outcome {
+                Outcome::Forwarded(body) => body,
+                Outcome::Summarized(record) => {
+                    summaries.count(reduced.template, event, record);
+                    continue;
+                }
+            };
+            {
                 run.forwarded.push(if body == event.fields {
                     Cow::Borrowed(event)
                 } else {
@@ -174,6 +226,7 @@ impl<'a> Run<'a> {
                 });
             }
         }
+        summaries.send(&mut run.total, &mut run.per_template);
         Ok(run)
     }
 
@@ -196,23 +249,49 @@ impl<'a> Run<'a> {
     }
 }
 
-/// The paths of the fields in `before` that `after` no longer has, each with the bytes it took.
-/// An object that lost only some of its fields is followed into; one removed whole counts as its
-/// own path.
+/// A field the data plane removed from one event.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemovedMember<'a> {
+    /// Its path.
+    pub path: FieldPath,
+    /// The value it held.
+    pub value: &'a Value,
+    /// The bytes it took, as `"name":value,` in compact JSON.
+    pub bytes: usize,
+    /// Whether this is what was left of an object whose fields are members of their own: its
+    /// name and braces, `"name":{}`.
+    pub shell: bool,
+}
+
+/// The fields of `before` that `after` no longer has. An object is followed into, whether it
+/// lost some of its fields or went whole: each field counts as its own path, and an object that
+/// went counts once more as its shell, so a saving is credited to the fields that made it (an
+/// object a recipe removes whole, and one the removals emptied, look alike here).
+#[must_use]
+pub fn removed_members<'a>(
+    before: &'a Map<String, Value>,
+    after: &Map<String, Value>,
+) -> Vec<RemovedMember<'a>> {
+    let mut members = Vec::new();
+    removed_under("", before, after, &mut members);
+    members
+}
+
 fn removed_paths(
     before: &Map<String, Value>,
     after: &Map<String, Value>,
 ) -> Vec<(FieldPath, usize)> {
-    let mut paths = Vec::new();
-    removed_under("", before, after, &mut paths);
-    paths
+    removed_members(before, after)
+        .into_iter()
+        .map(|member| (member.path, member.bytes))
+        .collect()
 }
 
-fn removed_under(
+fn removed_under<'a>(
     prefix: &str,
-    before: &Map<String, Value>,
+    before: &'a Map<String, Value>,
     after: &Map<String, Value>,
-    paths: &mut Vec<(FieldPath, usize)>,
+    members: &mut Vec<RemovedMember<'a>>,
 ) {
     for (key, value) in before {
         let path = if prefix.is_empty() {
@@ -221,9 +300,26 @@ fn removed_under(
             format!("{prefix}.{key}")
         };
         match (value, after.get(key)) {
-            (_, None) => paths.push((FieldPath::new(path), member_size(key, value))),
-            (Value::Object(inner), Some(Value::Object(kept))) if inner != kept => {
-                removed_under(&path, inner, kept, paths);
+            (Value::Object(inner), None) if !inner.is_empty() => {
+                removed_under(&path, inner, &Map::new(), members);
+                // `"name":{` and `}` with the member's comma, less the comma the last field
+                // was counted with and an object does not write.
+                let shell = member_size(key, &Value::Object(Map::new())).saturating_sub(1);
+                members.push(RemovedMember {
+                    path: FieldPath::new(path),
+                    value,
+                    bytes: shell,
+                    shell: true,
+                });
+            }
+            (_, None) => members.push(RemovedMember {
+                path: FieldPath::new(path),
+                value,
+                bytes: member_size(key, value),
+                shell: false,
+            }),
+            (Value::Object(inner), Some(Value::Object(kept))) => {
+                removed_under(&path, inner, kept, members);
             }
             _ => {}
         }

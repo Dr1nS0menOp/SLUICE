@@ -147,7 +147,18 @@ fn reduction(plan: &Plan<'_>) -> String {
                 }),
         );
     }
+    // Last, so a field that implies another is tested as it is forwarded: the value is only
+    // removed while what implies it stays, and can be put back from the plan.
+    shaping.extend(plan.recipe.drop_implied.iter().map(|implied| {
+        let path = syntax::path(&implied.field);
+        let mut test = syntax::equals(&path, &implied.value);
+        if let Some((on, value)) = &implied.when {
+            test = format!("{test} && {}", syntax::equals(&syntax::path(on), value));
+        }
+        format!("if {test} {{ del({path}) }}")
+    }));
     if !shaping.is_empty() {
+        shaping = emptied_objects_go(&plan.emptiable_objects(), shaping);
         // Events a protecting rule could match are forwarded whole (contract rule 3). The test
         // runs on the event before any field is removed.
         let mut condition = format!("%sluice.{ROUTE_METADATA} == {}", syntax::string(FORWARD));
@@ -166,6 +177,29 @@ fn reduction(plan: &Plan<'_>) -> String {
         syntax::string(plan.template.id.as_str()),
         body.join("\n  ")
     )
+}
+
+/// `shaping`, followed by removing each of `parents` (deepest first) that it emptied. An object
+/// is removed only if it held a field before the shaping: an empty object that came with the
+/// event is sent as it came.
+fn emptied_objects_go(parents: &[FieldPath], shaping: Vec<String>) -> Vec<String> {
+    if parents.is_empty() {
+        return shaping;
+    }
+    let mut out: Vec<String> = parents
+        .iter()
+        .enumerate()
+        .map(|(n, parent)| {
+            let path = syntax::path(parent);
+            format!("_sluice_o{n} = is_object({path}) && (length({path}) ?? 0) > 0")
+        })
+        .collect();
+    out.extend(shaping);
+    out.extend(parents.iter().enumerate().map(|(n, parent)| {
+        let path = syntax::path(parent);
+        format!("if _sluice_o{n} && (length({path}) ?? 1) == 0 {{ del({path}) }}")
+    }));
+    out
 }
 
 #[cfg(test)]

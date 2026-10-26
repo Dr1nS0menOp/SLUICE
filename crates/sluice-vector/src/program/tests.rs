@@ -77,7 +77,7 @@ fn reduce(plans: &[(Template, EffectiveRecipe)], body: Value) -> (Option<String>
 fn forwarded(outcome: Outcome) -> Map<String, Value> {
     match outcome {
         Outcome::Forwarded(body) => body,
-        Outcome::Summarized => panic!("summarized"),
+        Outcome::Summarized(_) => panic!("summarized"),
     }
 }
 
@@ -136,7 +136,7 @@ fn c3_rule_guided_routing_forwards_matches_whole_and_summarizes_the_rest() {
         "dropped on forwarded events"
     );
     let (_, other) = reduce(&plans, logon_event("bob"));
-    assert_eq!(other, Outcome::Summarized);
+    assert!(matches!(other, Outcome::Summarized(_)), "{other:?}");
 }
 
 #[test]
@@ -245,4 +245,161 @@ fn a_summarized_event_keeps_every_field_for_its_summary_keys() {
     let program = reducer.program(&"s".into()).unwrap();
     let (body, _) = program.run(&sample.fields).unwrap();
     assert_eq!(serde_json::to_value(&body).unwrap()["User"], "bob");
+}
+
+#[test]
+fn an_implied_value_goes_only_while_it_holds_and_is_of_its_type() {
+    use sluice_core::recipe::{ImpliedValue, Literal};
+    let t = keyset(
+        "windows:4624",
+        "4624",
+        &[
+            "EventID",
+            "Keywords",
+            "Level",
+            "Elevated",
+            "LogonType",
+            "Mode",
+        ],
+    );
+    let recipe = EffectiveRecipe {
+        drop_implied: vec![
+            ImpliedValue {
+                field: "Keywords".into(),
+                value: Literal::Text("0x80".into()),
+                when: None,
+            },
+            ImpliedValue {
+                field: "Level".into(),
+                value: Literal::Integer(0),
+                when: None,
+            },
+            ImpliedValue {
+                field: "Elevated".into(),
+                value: Literal::Bool(false),
+                when: None,
+            },
+            ImpliedValue {
+                field: "Mode".into(),
+                value: Literal::Text("-".into()),
+                when: Some(("LogonType".into(), Literal::Integer(3))),
+            },
+        ],
+        ..EffectiveRecipe::passthrough(t.id.clone())
+    };
+    let plans = [(t, recipe)];
+    let kept = |body: Value| -> BTreeSet<String> {
+        forwarded(reduce(&plans, body).1).keys().cloned().collect()
+    };
+    let base = json!({"EventID": 4624, "Keywords": "0x80", "Level": 0, "Elevated": false,
+                      "LogonType": 3, "Mode": "-"});
+    let with = |field: &str, value: Value| {
+        let mut body = base.clone();
+        body[field] = value;
+        body
+    };
+    let names = |n: &[&str]| n.iter().map(|s| (*s).to_owned()).collect::<BTreeSet<_>>();
+    assert_eq!(kept(base.clone()), names(&["EventID", "LogonType"]));
+    assert!(kept(with("Keywords", json!("0x10"))).contains("Keywords"));
+    assert!(
+        kept(with("Level", json!(0.0))).contains("Level"),
+        "0.0 is not 0"
+    );
+    assert!(
+        kept(with("Level", json!("0"))).contains("Level"),
+        "\"0\" is not 0"
+    );
+    assert!(kept(with("Elevated", json!("false"))).contains("Elevated"));
+    assert!(
+        kept(with("LogonType", json!(10))).contains("Mode"),
+        "only while it is implied"
+    );
+    assert!(kept(with("LogonType", json!(3.0))).contains("Mode"));
+}
+
+#[test]
+fn an_object_the_removals_emptied_goes_and_one_with_a_field_left_stays() {
+    let template = keyset(
+        "nested",
+        "1",
+        &[
+            "EventID",
+            "agent.id",
+            "agent.name",
+            "host.os.name",
+            "ecs.version",
+        ],
+    );
+    let recipe = EffectiveRecipe {
+        drop_fields: paths(&["agent.id", "host.os.name", "ecs.version"]),
+        ..EffectiveRecipe::passthrough("nested".into())
+    };
+    let plans = [(template, recipe)];
+    let body = forwarded(
+        reduce(
+            &plans,
+            json!({"EventID": 1, "agent": {"id": "a", "name": "WS"},
+                   "host": {"os": {"name": "Windows"}}, "ecs": {"version": "8"}}),
+        )
+        .1,
+    );
+    assert_eq!(
+        Value::Object(body),
+        json!({"EventID": 1, "agent": {"name": "WS"}}),
+        "host.os, then host, and ecs went; agent keeps its name"
+    );
+}
+
+#[test]
+fn c3_an_empty_object_that_came_with_the_event_is_sent_as_it_came() {
+    let template = keyset("nested", "1", &["EventID", "agent.id"]);
+    let recipe = EffectiveRecipe {
+        drop_fields: paths(&["agent.id"]),
+        ..EffectiveRecipe::passthrough("nested".into())
+    };
+    let plans = [(template, recipe)];
+    // `flatten` drops empty objects, so `extra: {}` classifies as the template; `agent` held a
+    // field the recipe removed, `extra` held none.
+    let body = forwarded(
+        reduce(
+            &plans,
+            json!({"EventID": 1, "agent": {"id": "a"}, "extra": {}}),
+        )
+        .1,
+    );
+    assert_eq!(Value::Object(body), json!({"EventID": 1, "extra": {}}));
+}
+
+#[test]
+fn c3_events_kept_whole_keep_their_objects_too() {
+    let template = keyset("nested", "1", &["EventID", "User", "agent.id"]);
+    let recipe = EffectiveRecipe {
+        drop_fields: paths(&["agent.id"]),
+        keep_whole_when: Some(eq("User", "admin")),
+        ..EffectiveRecipe::passthrough("nested".into())
+    };
+    let plans = [(template, recipe)];
+    let admin = json!({"EventID": 1, "User": "admin", "agent": {"id": "a"}});
+    assert_eq!(
+        Value::Object(forwarded(reduce(&plans, admin.clone()).1)),
+        admin
+    );
+}
+
+#[test]
+fn a_text_template_without_wildcards_is_tried_after_every_key_set() {
+    // By id `a-text` would come first; key sets go before any text template.
+    let program = super::source_program(&[
+        Plan {
+            template: &text("a-text", &["Accepted", "password"]),
+            recipe: &EffectiveRecipe::passthrough("a-text".into()),
+        },
+        Plan {
+            template: &keyset("z-keys", "1", &["EventID"]),
+            recipe: &EffectiveRecipe::passthrough("z-keys".into()),
+        },
+    ]);
+    let keys = program.find("z-keys").expect("the key set");
+    let line = program.find("a-text").expect("the text template");
+    assert!(keys < line, "{program}");
 }

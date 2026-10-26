@@ -1,23 +1,30 @@
 //! What the autopilot did and why, as data (for tools) and as a self-contained HTML page.
 
+mod examples;
 mod html;
 mod rules;
 pub(crate) mod text;
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use sluice_core::field::FieldPath;
 use sluice_core::guard::EffectiveRecipe;
 use sluice_core::ids::RuleId;
 use sluice_core::logsource::LogSource;
 use sluice_core::problem::Problem;
-use sluice_core::proof::Volume;
+use sluice_core::proof::{Removal, Volume};
+use sluice_core::recipe::Recipe;
 use sluice_core::rules::RuleRequirements;
 use sluice_core::template::Template;
 
+pub use self::examples::{
+    EXAMPLES_PER_SOURCE, Example, Omission, Omitted, SentField, SourceExamples,
+};
 pub use self::html::render_html;
 pub use self::rules::{RuleRow, RuleStatus};
 use crate::analyze::{Analysis, Input};
 use crate::basis::RulesBasis;
+use crate::mode::Mode;
 use crate::spot::SpotCheck;
 
 /// The report of one analysis.
@@ -51,6 +58,11 @@ pub struct Report {
     /// What the fetched inventory says about rules that run but have no query to read (such
     /// as Fusion); filled in by whoever read the inventory.
     pub inventory_notes: Vec<String>,
+    /// The kinds of saving the analysis made.
+    pub modes: BTreeSet<Mode>,
+    /// Per source, a few events as the SIEM receives them. They hold the sample's real values,
+    /// so whoever shares the report may clear them first.
+    pub examples: Vec<SourceExamples>,
 }
 
 /// Said when the full sample raises no alert: the proof then shows nothing about detections.
@@ -78,6 +90,8 @@ pub struct TemplateRow {
     pub runs_in: Option<String>,
     /// The fields removed from its forwarded events on the sample, largest first.
     pub removed: Vec<RemovedField>,
+    /// Why the recipe that removes fields holds that safe, in its author's words.
+    pub rationale: Option<String>,
 }
 
 impl TemplateRow {
@@ -97,6 +111,14 @@ pub struct RemovedField {
     pub events: u64,
     /// Bytes it took in them.
     pub bytes: u64,
+    /// The kind of saving that removes it.
+    pub mode: Mode,
+    /// The value it always holds on this kind of event, when it goes as such an implied value.
+    pub constant: Option<String>,
+    /// Why it may go, in plain words.
+    pub why: String,
+    /// Where its removal can run, in plain words.
+    pub runs_in: String,
 }
 
 impl Report {
@@ -150,7 +172,35 @@ impl Report {
             rules_basis: analysis.rules,
             rule_rows: rules::rows(input),
             inventory_notes: Vec::new(),
+            modes: analysis.modes.clone(),
+            examples: examples::pick(analysis, input, EXAMPLES_PER_SOURCE),
         }
+    }
+
+    /// Bytes `mode` saved. Implied values are fields of their own, so their bytes are counted
+    /// per field on the sample; the recipes' savings are the rest, counting included. Implied
+    /// values are removed after the recipes, so with both modes they are credited with what they
+    /// save on top of the recipes, which is less than they save alone.
+    #[must_use]
+    pub fn saved_by(&self, mode: Mode) -> u64 {
+        let implied: u64 = self
+            .templates
+            .iter()
+            .flat_map(|row| &row.removed)
+            .filter(|field| field.mode == Mode::Implied)
+            .map(|field| field.bytes)
+            .sum();
+        let saved = self.total.bytes_in.saturating_sub(self.total.bytes_out);
+        match mode {
+            Mode::Implied => implied.min(saved),
+            Mode::Rules => saved.saturating_sub(implied),
+        }
+    }
+
+    /// [`Report::saved_by`] as a percentage of the bytes in.
+    #[must_use]
+    pub fn saved_percent_by(&self, mode: Mode) -> f64 {
+        percent(self.saved_by(mode), self.total.bytes_in)
     }
 
     /// [`EMPTY_PROOF`] when the full sample raised no alert.
@@ -190,18 +240,17 @@ fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> Te
     let proof = &analysis.selection.proof;
     let key = Some(template.id.clone());
     let volume = proof.per_template.get(&key).copied().unwrap_or_default();
-    let mut removed: Vec<RemovedField> = proof
-        .removed
-        .get(&key)
-        .into_iter()
-        .flatten()
-        .map(|(path, removal)| RemovedField {
-            path: path.to_string(),
-            events: removal.events,
-            bytes: removal.bytes,
+    let shared = shared(template, recipe);
+    let grouped = by_what_removed_them(proof.removed.get(&key), recipe);
+    let mut removed: Vec<RemovedField> = grouped
+        .iter()
+        .map(|(path, removal)| {
+            let shell = shell_mode(path, &grouped, recipe);
+            removed_field(path, *removal, recipe, shared, shell)
         })
         .collect();
     removed.sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.path.cmp(&b.path)));
+    let proposal = analysis.proposals.get(&template.id);
     TemplateRow {
         id: template.id.to_string(),
         source: template.source.to_string(),
@@ -209,15 +258,101 @@ fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> Te
         volume,
         actions: text::actions(recipe),
         adjustments: unique(recipe.adjustments.iter().map(text::adjustment)),
-        provenance: analysis
-            .proposals
-            .get(&template.id)
-            .map(|p| text::provenance(p.provenance())),
+        provenance: proposal.map(|p| text::provenance(p.provenance())),
         runs_in: text::placements(&crate::plan::placements(template, recipe)),
+        rationale: rationale(proposal, recipe),
         removed,
     }
 }
 
+/// Whether the template's saving can run beyond a pipeline tool, in the SIEM's ingestion or
+/// the agent.
+fn shared(template: &Template, recipe: &EffectiveRecipe) -> bool {
+    crate::plan::placements(template, recipe).len() > 1
+}
+
+/// The proof's removals, with the fields of an object the recipe removes whole gathered under
+/// that object: the recipe names it, not its fields. The events are the most that lost any of
+/// them, which the object's shell, there in every event that lost it, makes exact.
+fn by_what_removed_them(
+    removals: Option<&BTreeMap<FieldPath, Removal>>,
+    recipe: &EffectiveRecipe,
+) -> BTreeMap<FieldPath, Removal> {
+    let mut grouped: BTreeMap<FieldPath, Removal> = BTreeMap::new();
+    for (path, removal) in removals.into_iter().flatten() {
+        let named = recipe
+            .drop_fields
+            .iter()
+            .filter(|f| f.covers(path))
+            .min()
+            .unwrap_or(path);
+        let entry = grouped.entry(named.clone()).or_default();
+        entry.events = entry.events.max(removal.events);
+        entry.bytes += removal.bytes;
+    }
+    grouped
+}
+
+/// For an object that went because its fields did (its shell, `"name":{}`), the mode of those
+/// fields: implied when every one of them went as implied. `None` for any other field.
+fn shell_mode(
+    path: &FieldPath,
+    grouped: &BTreeMap<FieldPath, Removal>,
+    recipe: &EffectiveRecipe,
+) -> Option<Mode> {
+    let below = |p: &FieldPath| grouped.keys().any(|q| q != p && p.covers(q));
+    // The fields inside, not the shells of objects inside it: those went by the same fields.
+    let mut inside = grouped
+        .keys()
+        .filter(|p| *p != path && path.covers(p) && !below(p))
+        .peekable();
+    inside.peek()?;
+    Some(if inside.all(|p| text::implied(p, recipe)) {
+        Mode::Implied
+    } else {
+        Mode::Rules
+    })
+}
+
+/// What removing `path` came to on the sample, by which mode, why, and where it can run. A
+/// `shell` is an object that went because its fields did, with their mode.
+fn removed_field(
+    path: &FieldPath,
+    removal: Removal,
+    recipe: &EffectiveRecipe,
+    shared: bool,
+    shell: Option<Mode>,
+) -> RemovedField {
+    let implied = text::implied(path, recipe);
+    RemovedField {
+        path: path.to_string(),
+        events: removal.events,
+        bytes: removal.bytes,
+        mode: match shell {
+            Some(mode) => mode,
+            None if implied => Mode::Implied,
+            None => Mode::Rules,
+        },
+        constant: recipe
+            .drop_implied
+            .iter()
+            .find(|v| implied && &v.field == path && v.when.is_none())
+            .map(|v| v.value.to_string()),
+        why: if shell.is_some() {
+            "its fields went, and an empty object says nothing".to_owned()
+        } else {
+            text::why_removed(path, recipe)
+        },
+        runs_in: text::where_removed(path, recipe, shared),
+    }
+}
+
+/// The proposal's reasoning, when it says something and the recipe removes fields by it.
+fn rationale(proposal: Option<&Recipe>, recipe: &EffectiveRecipe) -> Option<String> {
+    proposal
+        .map(|p| p.rationale().trim().to_owned())
+        .filter(|r| !r.is_empty() && !recipe.drop_fields.is_empty())
+}
 /// For each source whose log source is not complete, the rules that apply only because an
 /// attribute is undeclared: they would not apply if the declared attributes were all there is.
 fn scope_hints(requirements: &[&RuleRequirements], templates: &[Template]) -> Vec<String> {

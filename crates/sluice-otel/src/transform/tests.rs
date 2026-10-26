@@ -88,6 +88,32 @@ fn overlapping() -> Template {
 }
 
 #[test]
+fn an_object_the_removals_emptied_goes_after_them_deepest_first() {
+    let t = template(
+        "nested",
+        &[("EventID", "1")],
+        &[&["EventID", "agent.id", "host.os.name"]],
+    );
+    let recipe = removing("nested", &["agent.id", "host.os.name"], None);
+    let out = of(&[(&t, &recipe)]);
+    let at = |text: &str| {
+        out.statements
+            .iter()
+            .position(|s| s.starts_with(text))
+            .unwrap_or_else(|| panic!("{text} in {:#?}", out.statements))
+    };
+    let removed = at(r#"delete_key(log.body["host"]["os"], "name")"#);
+    let os = at(
+        r#"delete_key(log.body["host"], "os") where IsMap(log.body["host"]) and (IsMap(log.body["host"]["os"]) and Len(log.body["host"]["os"]) == 0) and"#,
+    );
+    let host = at(
+        r#"delete_key(log.body, "host") where IsMap(log.body) and (IsMap(log.body["host"]) and Len(log.body["host"]) == 0) and"#,
+    );
+    assert!(removed < os && os < host, "{:#?}", out.statements);
+    at(r#"delete_key(log.body, "agent") where IsMap(log.body) and (IsMap(log.body["agent"])"#);
+}
+
+#[test]
 fn a_plan_that_removes_nothing_has_no_statements() {
     let t = logon();
     let unchanged = of(&[(&t, &EffectiveRecipe::passthrough(t.id.clone()))]);
@@ -273,7 +299,7 @@ fn vrl(plans: &[(&Template, &EffectiveRecipe)], events: &[Event]) -> Vec<Map<Str
         .iter()
         .map(|e| match reducer.reduce(e).expect("VRL runs").outcome {
             Outcome::Forwarded(body) => body,
-            Outcome::Summarized => panic!("nothing is counted here"),
+            Outcome::Summarized(_) => panic!("nothing is counted here"),
         })
         .collect()
 }
@@ -416,9 +442,9 @@ fn c1_in_the_collector_records_lose_exactly_what_they_lose_in_vector() {
         }
         let was = leaf_values(before);
         for (path, value) in leaf_values(after) {
+            // An object whose last field went is gone, as in Vector: nothing new appears.
             let Some(was) = was.get(&path) else {
-                assert_eq!(value, json!({}), "{path} is new: {shown}");
-                continue;
+                panic!("{path} is new, {value}: {shown}");
             };
             assert!(
                 same(was, &value),
@@ -484,4 +510,208 @@ fn statements_that_do_not_parse_are_refused() {
     let record = Map::new();
     let result = Collector::new(command).run(Some(&["set(".to_owned()]), &[&record]);
     assert!(result.is_err(), "{result:?}");
+}
+
+fn implied_value(
+    field: &str,
+    value: sluice_core::recipe::Literal,
+    when: Option<(&str, sluice_core::recipe::Literal)>,
+) -> sluice_core::recipe::ImpliedValue {
+    sluice_core::recipe::ImpliedValue {
+        field: field.into(),
+        value,
+        when: when.map(|(on, v)| (on.into(), v)),
+    }
+}
+
+fn text(s: &str) -> sluice_core::recipe::Literal {
+    sluice_core::recipe::Literal::Text(s.into())
+}
+
+fn implied_template() -> Template {
+    template(
+        "windows:4624:i",
+        &[("EventID", "4624")],
+        &[&["EventID", "Keywords", "Level", "LogonType", "Mode"]],
+    )
+}
+
+/// Implied values of text only, which every engine compares as VRL does.
+fn implied_text(id: &str) -> EffectiveRecipe {
+    EffectiveRecipe {
+        drop_implied: vec![
+            implied_value("Keywords", text("0x80"), None),
+            implied_value("Mode", text("-"), Some(("LogonType", text("3")))),
+        ],
+        ..EffectiveRecipe::passthrough(id.into())
+    }
+}
+
+fn implied_events() -> Vec<Event> {
+    let base = json!({"EventID": 4624, "Keywords": "0x80", "Level": 0, "LogonType": "3",
+                      "Mode": "-"});
+    let with = |change: &dyn Fn(&mut Value)| {
+        let mut fields = base.clone();
+        change(&mut fields);
+        event(&fields)
+    };
+    vec![
+        with(&|_| {}),
+        with(&|f| f["Keywords"] = json!("0x10")),
+        with(&|f| f["Keywords"] = json!(128)),
+        with(&|f| f["LogonType"] = json!("10")),
+        with(&|f| f["LogonType"] = json!(3)),
+        with(&|f| f["Mode"] = json!("Yes")),
+    ]
+}
+
+#[test]
+fn an_implied_whole_number_is_left_to_vector() {
+    let t = implied_template();
+    let recipe = EffectiveRecipe {
+        drop_implied: vec![implied_value(
+            "Level",
+            sluice_core::recipe::Literal::Integer(0),
+            None,
+        )],
+        ..EffectiveRecipe::passthrough(t.id.clone())
+    };
+    let out = of(&[(&t, &recipe)]);
+    assert!(out.fields.is_empty(), "nothing is removed");
+    assert!(
+        out.left_out.iter().any(|l| l.contains("`Level`")),
+        "{:?}",
+        out.left_out
+    );
+}
+
+/// In a real collector: implied values of text leave exactly as in Vector.
+#[test]
+fn c1_in_the_collector_implied_values_leave_exactly_as_in_vector() {
+    let Ok(command) = std::env::var(ENV) else {
+        return;
+    };
+    let t = implied_template();
+    let recipe = implied_text(t.id.as_str());
+    let plans = [(&t, &recipe)];
+    let events = implied_events();
+    let expected = vrl(&plans, &events);
+    let out = of(&plans);
+    let records: Vec<&Map<String, Value>> = events.iter().map(|e| &e.fields).collect();
+    let collector = Collector::new(command);
+    let baseline = collector.run(None, &records).expect("the collector runs");
+    let actual = collector
+        .run(Some(&out.statements), &records)
+        .unwrap_or_else(|e| panic!("{e}\n{:#?}", out.statements));
+    for (((event, vector), before), after) in
+        events.iter().zip(&expected).zip(&baseline).zip(&actual)
+    {
+        let lost_in_vector: BTreeSet<String> = leaves(&event.fields)
+            .difference(&leaves(vector))
+            .cloned()
+            .collect();
+        let lost_here: BTreeSet<String> =
+            leaves(before).difference(&leaves(after)).cloned().collect();
+        assert_eq!(
+            lost_here,
+            lost_in_vector,
+            "event {}",
+            Value::Object(event.fields.clone())
+        );
+    }
+    assert_ne!(
+        expected[0], events[0].fields,
+        "the first event loses its implied values"
+    );
+}
+
+#[test]
+fn an_implied_text_is_tested_as_text() {
+    let t = implied_template();
+    let recipe = implied_text(t.id.as_str());
+    let out = of(&[(&t, &recipe)]);
+    let all = out.statements.join("\n");
+    assert!(all.contains(r#"log.body["Keywords"] == "0x80""#), "{all}");
+    assert!(out.fields.contains(&FieldPath::from("Mode")));
+}
+
+#[test]
+fn two_templates_overlap_only_with_a_key_set_in_common_and_no_value_apart() {
+    let a = template("a", &[("EventID", "4624")], &[&["EventID", "User"]]);
+    let same = template("b", &[("EventID", "4624")], &[&["EventID", "User"]]);
+    let other_value = template("c", &[("EventID", "4625")], &[&["EventID", "User"]]);
+    let other_field = template("d", &[("Channel", "Security")], &[&["EventID", "User"]]);
+    let other_keys = template("e", &[("EventID", "4624")], &[&["EventID", "Host"]]);
+    assert!(overlap(&a, &same));
+    assert!(!overlap(&a, &other_value), "4624 and 4625 are apart");
+    assert!(
+        overlap(&a, &other_field),
+        "different fields ask nothing of each other"
+    );
+    assert!(!overlap(&a, &other_keys));
+}
+
+#[test]
+fn only_fields_no_exception_touches_and_no_removal_takes_are_removed_when_empty() {
+    let t = template(
+        "windows:4624:e",
+        &[("EventID", "4624")],
+        &[&["EventID", "Host.name", "Note", "Message", "Other"]],
+    );
+    let recipe = EffectiveRecipe {
+        drop_fields: paths(&["Message"]),
+        drop_empty_except: Some(paths(&["EventID", "Host", "Note.text"])),
+        ..EffectiveRecipe::passthrough(t.id.clone())
+    };
+    let out = of(&[(&t, &recipe)]);
+    assert!(out.empty_fields);
+    let empty: Vec<&String> = out
+        .statements
+        .iter()
+        .filter(|s| s.contains(r#" == "" or "#))
+        .collect();
+    assert_eq!(empty.len(), 1, "{empty:?}");
+    assert!(empty[0].contains(r#"log.body["Other"]"#), "{empty:?}");
+}
+
+#[test]
+fn each_key_set_is_checked_with_a_probe_of_its_own() {
+    let t = template(
+        "windows:4624:v",
+        &[("EventID", "4624")],
+        &[&["EventID", "Message"], &["EventID", "Message", "Extra"]],
+    );
+    let recipe = removing(t.id.as_str(), &["Message"], None);
+    let all = of(&[(&t, &recipe)]).statements.join("\n");
+    assert!(all.contains(r#"log.cache["sluice_p0"]"#), "{all}");
+    assert!(all.contains(r#"log.cache["sluice_p1"]"#), "{all}");
+    assert!(all.contains(" or "), "two key sets: {all}");
+}
+
+#[test]
+fn a_single_key_set_is_tested_without_alternatives() {
+    let t = template(
+        "windows:4624:s",
+        &[("EventID", "4624")],
+        &[&["EventID", "Message"]],
+    );
+    let recipe = removing(t.id.as_str(), &["Message"], None);
+    let all = of(&[(&t, &recipe)]).statements.join("\n");
+    assert!(
+        all.contains(r#"log.cache["sluice_t"] == nil and (IsMap(log.body)"#),
+        "{all}"
+    );
+}
+
+#[test]
+fn a_whole_number_has_at_most_fifteen_digits_and_no_leading_zero() {
+    assert!(whole("4624"));
+    assert!(whole("-5"));
+    assert!(whole("123456789012345"));
+    assert!(!whole("1234567890123456"));
+    assert!(!whole("0"));
+    assert!(!whole("05"));
+    assert!(!whole(""));
+    assert!(!whole("-"));
+    assert!(!whole("1.5"));
 }

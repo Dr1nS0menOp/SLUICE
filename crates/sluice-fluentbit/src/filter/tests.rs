@@ -83,6 +83,31 @@ fn logon() -> Template {
 }
 
 #[test]
+fn an_object_is_noted_before_the_removals_and_removed_after_them_if_they_emptied_it() {
+    let t = template(
+        "nested",
+        &[("EventID", "1")],
+        &[&["EventID", "agent.id", "host.os.name"]],
+    );
+    let recipe = removing("nested", &["agent.id", "host.os.name"], None);
+    let out = of(&[(&t, &recipe)]);
+    let script = script(&out);
+    let at = |line: &str| {
+        script
+            .find(line)
+            .unwrap_or_else(|| panic!("{line} in {script}"))
+    };
+    let noted = at(r#"local sluice_o0 = sluice_filled(r, {"host", "os"})"#);
+    assert!(noted < at(r#"local sluice_o1 = sluice_filled(r, {"agent"})"#));
+    let removed = at(r#"sluice_remove(r, {"host", "os", "name"})"#);
+    let os =
+        at(r#"if sluice_remove_emptied(r, {"host", "os"}, sluice_o0) then changed = true end"#);
+    let host = at(r#"if sluice_remove_emptied(r, {"host"}, sluice_o2) then changed = true end"#);
+    assert!(noted < removed && removed < os && os < host, "{script}");
+    assert!(script.contains(r#"sluice_remove_emptied(r, {"agent"}, sluice_o1)"#));
+}
+
+#[test]
 fn a_plan_that_removes_nothing_has_no_script() {
     let t = logon();
     let unchanged = of(&[(&t, &EffectiveRecipe::passthrough(t.id.clone()))]);
@@ -271,7 +296,7 @@ fn vrl(plans: &[(&Template, &EffectiveRecipe)], events: &[Event]) -> Vec<Map<Str
         .iter()
         .map(|e| match reducer.reduce(e).expect("VRL runs").outcome {
             Outcome::Forwarded(body) => body,
-            Outcome::Summarized => panic!("nothing is counted here"),
+            Outcome::Summarized(_) => panic!("nothing is counted here"),
         })
         .collect()
 }
@@ -426,10 +451,9 @@ fn c1_in_fluent_bit_records_lose_exactly_what_they_lose_in_vector() {
         }
         let was = leaf_values(before);
         for (path, value) in leaf_values(after) {
-            // An object whose last field went is a leaf of its own now, as in Vector.
+            // An object whose last field went is gone, as in Vector: nothing new appears.
             let Some(was) = was.get(&path) else {
-                assert_eq!(value, json!({}), "{path} is new: {shown}");
-                continue;
+                panic!("{path} is new, {value}: {shown}");
             };
             assert!(
                 same(was, &value),
@@ -497,4 +521,177 @@ fn a_script_that_does_not_load_is_refused() {
     let record = Map::new();
     let result = FluentBit::new(command).run(Some("function sluice( broken"), &[&record]);
     assert!(result.is_err(), "{result:?}");
+}
+
+fn implied_value(
+    field: &str,
+    value: sluice_core::recipe::Literal,
+    when: Option<(&str, sluice_core::recipe::Literal)>,
+) -> sluice_core::recipe::ImpliedValue {
+    sluice_core::recipe::ImpliedValue {
+        field: field.into(),
+        value,
+        when: when.map(|(on, v)| (on.into(), v)),
+    }
+}
+
+fn text(s: &str) -> sluice_core::recipe::Literal {
+    sluice_core::recipe::Literal::Text(s.into())
+}
+
+fn implied_template() -> Template {
+    template(
+        "windows:4624:i",
+        &[("EventID", "4624")],
+        &[&["EventID", "Keywords", "Level", "LogonType", "Mode"]],
+    )
+}
+
+/// Implied values of text only, which every engine compares as VRL does.
+fn implied_text(id: &str) -> EffectiveRecipe {
+    EffectiveRecipe {
+        drop_implied: vec![
+            implied_value("Keywords", text("0x80"), None),
+            implied_value("Mode", text("-"), Some(("LogonType", text("3")))),
+        ],
+        ..EffectiveRecipe::passthrough(id.into())
+    }
+}
+
+fn implied_events() -> Vec<Event> {
+    let base = json!({"EventID": 4624, "Keywords": "0x80", "Level": 0, "LogonType": "3",
+                      "Mode": "-"});
+    let with = |change: &dyn Fn(&mut Value)| {
+        let mut fields = base.clone();
+        change(&mut fields);
+        event(&fields)
+    };
+    vec![
+        with(&|_| {}),
+        with(&|f| f["Keywords"] = json!("0x10")),
+        with(&|f| f["Keywords"] = json!(128)),
+        with(&|f| f["LogonType"] = json!("10")),
+        with(&|f| f["LogonType"] = json!(3)),
+        with(&|f| f["Mode"] = json!("Yes")),
+    ]
+}
+
+#[test]
+fn an_implied_whole_number_is_left_to_vector() {
+    let t = implied_template();
+    let recipe = EffectiveRecipe {
+        drop_implied: vec![implied_value(
+            "Level",
+            sluice_core::recipe::Literal::Integer(0),
+            None,
+        )],
+        ..EffectiveRecipe::passthrough(t.id.clone())
+    };
+    let out = of(&[(&t, &recipe)]);
+    assert!(out.fields.is_empty(), "nothing is removed");
+    assert!(
+        out.left_out.iter().any(|l| l.contains("`Level`")),
+        "{:?}",
+        out.left_out
+    );
+}
+
+/// In a real Fluent Bit: implied values of text leave exactly as in Vector.
+#[test]
+fn c1_in_fluent_bit_implied_values_leave_exactly_as_in_vector() {
+    let Ok(command) = std::env::var(ENV) else {
+        return;
+    };
+    let t = implied_template();
+    let recipe = implied_text(t.id.as_str());
+    let plans = [(&t, &recipe)];
+    let events = implied_events();
+    let expected = vrl(&plans, &events);
+    let out = of(&plans);
+    let records: Vec<&Map<String, Value>> = events.iter().map(|e| &e.fields).collect();
+    let fluent_bit = FluentBit::new(command);
+    let baseline = fluent_bit.run(None, &records).expect("Fluent Bit runs");
+    let actual = fluent_bit
+        .run(out.script.as_deref(), &records)
+        .unwrap_or_else(|e| panic!("{e}\n{}", script(&out)));
+    for (((event, vector), before), after) in
+        events.iter().zip(&expected).zip(&baseline).zip(&actual)
+    {
+        let lost_in_vector: BTreeSet<String> = leaves(&event.fields)
+            .difference(&leaves(vector))
+            .cloned()
+            .collect();
+        let lost_here: BTreeSet<String> =
+            leaves(before).difference(&leaves(after)).cloned().collect();
+        assert_eq!(
+            lost_here,
+            lost_in_vector,
+            "event {}",
+            Value::Object(event.fields.clone())
+        );
+    }
+    assert_ne!(
+        expected[0], events[0].fields,
+        "the first event loses its implied values"
+    );
+}
+
+#[test]
+fn an_implied_text_is_tested_as_text() {
+    let t = implied_template();
+    let recipe = implied_text(t.id.as_str());
+    let out = of(&[(&t, &recipe)]);
+    let source = script(&out);
+    assert!(source.contains(r#"== "0x80""#), "{source}");
+    assert!(source.contains(r#"== "-""#), "{source}");
+    assert!(out.fields.contains(&FieldPath::from("Keywords")));
+}
+
+#[test]
+fn two_templates_overlap_only_with_a_key_set_in_common_and_no_value_apart() {
+    let a = template("a", &[("EventID", "4624")], &[&["EventID", "User"]]);
+    let same = template("b", &[("EventID", "4624")], &[&["EventID", "User"]]);
+    let other_value = template("c", &[("EventID", "4625")], &[&["EventID", "User"]]);
+    let other_field = template("d", &[("Channel", "Security")], &[&["EventID", "User"]]);
+    let other_keys = template("e", &[("EventID", "4624")], &[&["EventID", "Host"]]);
+    assert!(overlap(&a, &same));
+    assert!(!overlap(&a, &other_value), "4624 and 4625 are apart");
+    assert!(
+        overlap(&a, &other_field),
+        "different fields ask nothing of each other"
+    );
+    assert!(!overlap(&a, &other_keys));
+}
+
+#[test]
+fn an_exception_that_holds_or_lies_in_a_field_keeps_it_when_empty() {
+    let t = template(
+        "windows:4624:e",
+        &[("EventID", "4624")],
+        &[&["EventID", "Host.name", "Host.ip", "Note", "Other"]],
+    );
+    let recipe = EffectiveRecipe {
+        drop_empty_except: Some(paths(&["EventID", "Host", "Note.text"])),
+        ..EffectiveRecipe::passthrough(t.id.clone())
+    };
+    let out = of(&[(&t, &recipe)]);
+    let line = script(&out)
+        .lines()
+        .find(|l| l.contains("if sluice_remove_empty_except(r, keys,"))
+        .expect("empty fields are removed")
+        .to_owned();
+    for kept in [r#""EventID""#, r#""Host""#, r#""Note.text""#] {
+        assert!(line.contains(kept), "{kept}: {line}");
+    }
+    let kept = template(
+        "windows:4624:k",
+        &[("EventID", "4624")],
+        &[&["EventID", "Host.name", "Note"]],
+    );
+    let recipe = EffectiveRecipe {
+        drop_empty_except: Some(paths(&["EventID", "Host", "Note.text"])),
+        ..EffectiveRecipe::passthrough(kept.id.clone())
+    };
+    let out = of(&[(&kept, &recipe)]);
+    assert!(!out.empty_fields, "every field is kept by an exception");
 }

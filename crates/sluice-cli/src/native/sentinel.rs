@@ -16,7 +16,7 @@ use sluice_core::event::Event;
 use sluice_core::reduce::{Outcome, Reducer};
 use sluice_kql::{
     MAX_TRANSFORM_KQL, Table, Transformation, disallowed_functions, run_transformations,
-    transformation, transformation_on,
+    transformation_on_within, transformation_within,
 };
 
 use self::dcr::{Flow, write};
@@ -97,10 +97,12 @@ fn prove(
     }
     let plans = super::plans_for(analysis, source);
     let stream: Vec<&str> = flow.stream.iter().map(|(name, _)| name.as_str()).collect();
+    // The data flow's own transformation takes part of what a rule allows.
+    let budget = MAX_TRANSFORM_KQL.saturating_sub(flow.before.len() + 1);
     let generated = if flow.first {
-        transformation_on(table.name(), &flow.declared(), &stream, &plans)
+        transformation_on_within(table.name(), &flow.declared(), &stream, &plans, budget)
     } else {
-        transformation(&table, &stream, &plans)
+        transformation_within(&table, &stream, &plans, budget)
     };
     let unsupported = disallowed_functions(&generated.kql);
     if !unsupported.is_empty() {

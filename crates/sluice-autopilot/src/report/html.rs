@@ -1,6 +1,8 @@
 //! The report as one self-contained HTML page: no scripts, no external resources. It reads as
 //! advice: what can be saved first, largest saving first, and the detail folded away.
 
+mod examples;
+mod implied;
 mod savings;
 
 use std::collections::BTreeMap;
@@ -10,17 +12,20 @@ use sluice_core::ids::{Engine, RuleId};
 use sluice_core::problem::{Problem, ProblemKind};
 
 use super::{Report, RuleRow, rules::label};
+use crate::mode::Mode;
 
 const STYLE: &str = r#"
 :root { --bg:#ffffff; --fg:#1b1f24; --muted:#5b6470; --line:#e3e6ea; --card:#f6f8fa;
         --good:#1a7f37; --bad:#cf222e; --accent:#0969da;
         --s0:#8c959f; --s1:#d4a72c; --s2:#a2c03a; --s3:#2da44e; --s4:#1a7f37; --on:#ffffff;
-        --on-light:#1b1f24; }
+        --on-light:#1b1f24; --i-bg:#ddf4ff; --i-fg:#0550ae; --r-bg:#fff1d6; --r-fg:#7d4e00;
+        --e-bg:#eaeef2; --e-fg:#424a53; }
 @media (prefers-color-scheme: dark) {
   :root { --bg:#0d1117; --fg:#e6edf3; --muted:#9198a1; --line:#30363d; --card:#161b22;
           --good:#3fb950; --bad:#f85149; --accent:#4493f8;
           --s0:#6e7681; --s1:#d29922; --s2:#a5c63b; --s3:#3fb950; --s4:#56d364; --on:#0d1117;
-          --on-light:#0d1117; }
+          --on-light:#0d1117; --i-bg:#0c2d6b; --i-fg:#a5d6ff; --r-bg:#3d2c00; --r-fg:#f2cc60;
+          --e-bg:#30363d; --e-fg:#c9d1d9; }
 }
 * { box-sizing: border-box; }
 body { margin:0; padding:24px 16px; background:var(--bg); color:var(--fg);
@@ -31,11 +36,15 @@ h4 { font-size:13px; margin:16px 0 6px; }
 .sub { color:var(--muted); margin:0 0 16px; }
 .meaning { border-left:4px solid var(--accent); padding:2px 0 2px 14px; margin:0 0 20px; }
 .meaning h2 { font-size:15px; margin:0 0 4px; } .meaning p { margin:0; max-width:80ch; }
+.meaning p:not(:first-of-type), .meaning ul { margin-top:8px; max-width:80ch; }
 .hero { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px;
         margin:0 0 16px; }
 .hero .big { font-size:40px; font-weight:700; line-height:1.1; }
 .hero .big small { font-size:18px; font-weight:600; color:var(--muted); }
 .hero .bar { height:14px; margin-top:14px; }
+.modes { display:grid; gap:6px; margin-top:14px; }
+.mode { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+.mode code { min-width:64px; font-weight:700; }
 .t0 { color:var(--s0); } .t1 { color:var(--s1); } .t2 { color:var(--s2); }
 .t3 { color:var(--s3); } .t4 { color:var(--s4); }
 .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; }
@@ -43,6 +52,7 @@ h4 { font-size:13px; margin:16px 0 6px; }
 .card .k, .facts .k { display:block; color:var(--muted); font-size:12px; }
 .card .v { font-size:20px; font-weight:600; }
 .good { color:var(--good); } .bad { color:var(--bad); } .muted { color:var(--muted); }
+a { color:var(--accent); }
 .pill { display:inline-block; min-width:56px; text-align:center; padding:2px 10px;
         border-radius:999px; font-weight:700; font-variant-numeric:tabular-nums; }
 .pill.s0, .pill.s1, .pill.s2 { color:var(--on-light); } .pill.s3, .pill.s4 { color:var(--on); }
@@ -72,6 +82,35 @@ details.section > summary h2 { display:inline; margin-right:8px; }
 .scroll { overflow-x:auto; border:1px solid var(--line); border-radius:8px; }
 table { border-collapse:collapse; width:100%; }
 table.rules { min-width:800px; }
+.legend { display:flex; flex-wrap:wrap; gap:6px 16px; align-items:center; font-size:13px;
+          margin:12px 0; } .legend > span { display:inline-flex; gap:6px; align-items:center; }
+div.events { overflow:auto; max-height:560px; border:1px solid var(--line); border-radius:8px; }
+table.events { border-collapse:separate; border-spacing:0; font-size:12px;
+               font-variant-numeric:tabular-nums; }
+table.events th { position:sticky; top:0; z-index:2; white-space:nowrap; color:var(--fg); }
+table.events th code { display:block; }
+table.events td { max-width:220px; }
+table.events .c1, table.events .c2, table.events .c3 { position:sticky; z-index:1;
+                                                       background:var(--bg); }
+table.events th.c1, table.events th.c2, table.events th.c3 { z-index:3; background:var(--card); }
+table.events .c1 { left:0; width:44px; min-width:44px; }
+table.events .c2 { left:44px; width:180px; min-width:180px; white-space:normal; }
+table.events .c3 { left:224px; min-width:120px; border-right:1px solid var(--line); }
+.note { display:block; font-size:11px; font-weight:400; color:var(--muted); }
+.v { display:block; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+     font:12px ui-monospace,SFMono-Regular,Menlo,monospace; }
+.legend .v.sent { display:inline; padding:1px 6px; border-radius:4px; background:var(--card);
+                  border:1px solid var(--line); }
+.gone { display:flex; gap:6px; align-items:center; max-width:220px; color:var(--muted);
+        white-space:nowrap; } .gone .v { text-decoration:line-through; }
+.mk { flex:none; display:inline-flex; width:16px; height:16px; border-radius:4px; font-size:10px;
+      font-weight:700; align-items:center; justify-content:center; }
+.mk.i { background:var(--i-bg); color:var(--i-fg); } .mk.r { background:var(--r-bg); color:var(--r-fg); }
+.mk.e { background:var(--e-bg); color:var(--e-fg); } .absent { color:var(--s0); }
+.bar.kept { width:88px; height:6px; margin:4px 0 0 auto; }
+details.raw { margin-top:12px; } details.raw > summary { cursor:pointer; font-weight:600; }
+.tag { display:inline-block; padding:0 6px; border-radius:4px; font-size:11px; font-weight:600;
+       background:var(--accent); color:var(--on); }
 th, td { text-align:left; vertical-align:top; padding:8px 10px; border-bottom:1px solid var(--line); }
 th { background:var(--card); font-size:12px; color:var(--muted); font-weight:600; }
 td.n { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -102,7 +141,9 @@ pub fn render_html(report: &Report) -> String {
         hero(report),
         summary(report),
         notes(report),
+        implied::explain(report),
         savings::advice(&report.templates),
+        examples::section(&report.examples),
         rules(report),
     ];
     if !report.problems.is_empty() {
@@ -129,12 +170,18 @@ fn meaning(report: &Report) -> String {
     } else {
         "On this sample, every alert was raised exactly as before."
     };
+    let implied = if report.modes.contains(&Mode::Implied) {
+        " values that follow from the kind of event (implied, explained below),"
+    } else {
+        ""
+    };
     format!(
         "<section class=\"meaning\"><h2>What this report means</h2><p>A SIEM charges for every \
          byte it receives, but its detection rules use only part of each event. Sluice compared \
          the rules this SIEM runs with a sample of its data, and lists what no rule uses: mostly \
-         text that repeats fields the event already has, empty fields, and frequent events no \
-         rule can match, which are counted instead of sent one by one. <b>This is not advice to \
+         text that repeats fields the event already has, empty fields,{implied} and frequent \
+         events no rule can match, which are counted instead of sent one by one. <b>This is not \
+         advice to \
          collect less security data or to throw logs away.</b> The savings assume a full copy of \
          every event is kept in a cheaper archive; the configurations Sluice writes for Vector \
          and Microsoft Sentinel keep one. {proof} Nothing changes until your team reviews the \
@@ -142,21 +189,59 @@ fn meaning(report: &Report) -> String {
     )
 }
 
-/// The saving at a glance: the share, the bytes, and a bar.
+/// The saving at a glance: the share, the bytes, and a bar; then what each mode saved.
 fn hero(report: &Report) -> String {
     let t = &report.total;
     let saved = report.saved_percent();
     format!(
         "<section class=\"hero\"><div class=\"big t{level}\">{saved:.1}% <small>less ingest\
          </small></div><div class=\"muted\">{bin} in, {bout} sent to the SIEM; {summarized} of \
-         {events} events counted into summaries instead of sent one by one</div>{bar}</section>",
+         {events} events counted into {summaries} summary records instead of sent one by one\
+         </div>{bar}{modes}</section>",
         level = savings::level(saved),
         bin = bytes(t.bytes_in),
         bout = bytes(t.bytes_out),
         summarized = thousands(t.summarized),
+        summaries = thousands(t.summaries),
         events = thousands(t.events),
         bar = savings::bar(saved),
+        modes = modes(report),
     )
+}
+
+/// Each mode with what it saved, side by side; a mode not asked for says how to ask for it.
+fn modes(report: &Report) -> String {
+    let rows: Vec<String> = Mode::ALL
+        .iter()
+        .map(|&mode| {
+            if report.modes.contains(&mode) {
+                let share = report.saved_percent_by(mode);
+                format!(
+                    "<div class=\"mode\"><code>{name}</code>{pill}<span>{bytes} saved</span>\
+                     <span class=\"muted\">{what}</span></div>",
+                    name = mode.name(),
+                    pill = savings::pill(share),
+                    bytes = bytes(report.saved_by(mode)),
+                    what = mode.describe(),
+                )
+            } else {
+                format!(
+                    "<div class=\"mode\"><code>{name}</code><span class=\"muted\">not run: add it \
+                     with <code>--mode</code> to also remove {what}</span></div>",
+                    name = mode.name(),
+                    what = mode.describe(),
+                )
+            }
+        })
+        .collect();
+    let overlap = if report.modes.len() > 1 {
+        "<p class=\"muted\">Implied values count what they save after the recipes' removals. On \
+         their own (<code>--mode implied</code>) they save more, since the recipes then leave \
+         more fields in place.</p>"
+    } else {
+        ""
+    };
+    format!("<div class=\"modes\">{}</div>{overlap}", rows.concat())
 }
 
 /// `n` with a comma between thousands, as the command line prints counts.

@@ -65,6 +65,15 @@ pub(crate) enum ConnectTarget {
     Sentinel,
 }
 
+/// A kind of saving (`sluice_autopilot::Mode`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum ModeArg {
+    /// What the recipes propose, held to what every rule reads.
+    Rules,
+    /// Values the kind of event or another field implies.
+    Implied,
+}
+
 #[derive(Debug, Args)]
 pub(crate) struct RulesArgs {
     #[command(subcommand)]
@@ -226,6 +235,10 @@ pub(crate) enum RecipesCommand {
 }
 
 #[derive(Debug, Args)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a command-line switch of its own"
+)]
 pub(crate) struct DemoArgs {
     /// Directory for the sample, `vector.yaml` and `report.html`.
     #[arg(long, default_value = "out")]
@@ -255,6 +268,9 @@ pub(crate) struct DemoArgs {
     /// --otel-native`.
     #[arg(long, requires = "otel_collector")]
     pub(crate) otel_native: bool,
+    /// The kinds of saving to make, as for `sluice analyze --mode`.
+    #[arg(long, value_enum, value_delimiter = ',', default_values = ["rules", "implied"])]
+    pub(crate) mode: Vec<ModeArg>,
     #[command(flatten)]
     pub(crate) ai: AiArgs,
 }
@@ -345,6 +361,18 @@ pub(crate) struct AnalyzeArgs {
     /// fetch` count as complete without it (ADR 0021).
     #[arg(long)]
     pub(crate) rules_complete: bool,
+    /// The kinds of saving to make, separated by commas; both by default. `rules`: what the
+    /// recipes propose (rendered text, empty fields, counting events no rule could match),
+    /// held to what every rule reads. `implied`: values the kind of event or another field
+    /// implies, learned from the sample, removed only while a field holds one and put back
+    /// from `plan.json` (`remove_implied`); `--sentinel-native` also writes a function that
+    /// puts them back. The report shows what each saved.
+    #[arg(long, value_enum, value_delimiter = ',', default_values = ["rules", "implied"])]
+    pub(crate) mode: Vec<ModeArg>,
+    /// Leave the example events (a few per source, as the SIEM receives them, with their real
+    /// values) out of the report, so it can be shared without the sample's data.
+    #[arg(long)]
+    pub(crate) no_examples: bool,
     /// Directory for `vector.yaml` and `report.html`.
     #[arg(long, default_value = "out")]
     pub(crate) out: PathBuf,

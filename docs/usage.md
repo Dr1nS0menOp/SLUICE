@@ -27,7 +27,8 @@ survived:
 
 ```
 80,536 events from 6 sources, 76 templates
-  ingest  121.0 MB → 31.5 MB  (74.0% saved, 41,562 events summarized)
+  ingest  121.0 MB → 25.6 MB  (78.8% saved, 41,562 events summarized into 17,161 records)
+  modes   rules 67.5%, implied 11.3%
   proof   41 alerts on full data, 41 on forwarded data  ✓ no detection changed
 ```
 
@@ -103,14 +104,24 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
    every Sigma rule your SIEM runs. Without either, Sluice makes only savings that keep every
    event, and says so (ADR 0021).
 
-4. **Read the report.** `report.html` is the advice. It starts with a paragraph on what it means,
-   for readers without context such as a manager, then lists the largest savings first: per kind
-   of event what to change, the fields removed on the sample with their bytes, where it can run,
-   and why it is safe. Savings by source follow, and the smaller savings, the kinds of event sent
-   unchanged (each with its reason: a rule reads that field, the kind of event is rare, no recipe
-   matches), the rules and the problems are folded away. `sluice analyze` also prints hints
-   when a vague source description keeps rules in scope. The same decisions are in `plan.json`, for tools: per kind of event what may be
-   removed or counted, which events keep every field, and whether the saving can run in the
+4. **Read the report.** `report.html` is the advice ([an example](example-report.html), the
+   demo's). It starts with a paragraph on what it means, for readers without context such as a
+   manager, and the saving at a glance, per mode. *What "implied" means* explains implied values
+   with the sample's largest one, and names per source the values that are the same on every
+   kind of event, which may be one machine's rather than the kind of event's. Then the largest
+   savings first: per kind of event what to change, the fields removed on the sample with their
+   bytes, why each may go and where it can run, and, where events are counted, how many summary
+   records they become. Savings by source follow, and the smaller savings, the kinds of event
+   sent unchanged (each with its reason: a rule reads that field, the kind of event is rare, no
+   recipe matches), the rules and the problems are folded away. *What the SIEM still receives*
+   shows per source up to 10 events as they are sent, as a table that scrolls sideways: one
+   column per field, each cell the value sent, the value left out with its reason, or a dot, and
+   each event's JSON folded below. Those are your sample's real values: `--no-examples` leaves
+   them out before you share the report. `--mode rules` or `--mode implied` makes only one kind
+   of saving; the report gives the saving of each. `sluice analyze` also prints hints when a
+   vague source description keeps rules in scope. The same decisions are in `plan.json`, for
+   tools: per kind of event what may be removed or counted, the implied values
+   (`remove_implied`), which events keep every field, and whether the saving can run in the
    SIEM's own ingestion or an agent, or needs a pipeline tool (ADR 0023).
 
 If you run Wazuh, `--wazuh-api https://manager:55000` additionally checks single events with the
@@ -149,7 +160,9 @@ sluice analyze … --otel-collector otelcol-contrib --otel-native          # out
 
 - **Elasticsearch** ([ADR 0024](adr/0024-elastic-ingest-pipelines.md)): one ingest pipeline per
   source. The sample must be documents as the index stores them (`_source`), the way a
-  `@custom` pipeline at the end of an integration's pipeline sees them.
+  `@custom` pipeline at the end of an integration's pipeline sees them. Where the pipeline
+  removes implied values, `out/elastic/SOURCE.runtime.json` holds runtime fields that put them
+  back in a search (`runtime_mappings`) or a Kibana data view (ADR 0032).
   `scripts/elastic-check.sh` starts an Elasticsearch in Docker.
 - **Fluent Bit** ([ADR 0027](adr/0027-fluent-bit-lua-filters.md)): a Lua filter per source,
   for records as the agent reads them. Add each section of `filters.conf` to the agent's
@@ -223,7 +236,10 @@ same there). `--sentinel-dcr` is the rule as Azure gives it, or as `sluice conne
 wrote it. `out/sentinel/dcr.json` is that rule with the proven transformation and an
 untransformed flow into an Auxiliary archive table, defined in
 `out/sentinel/SluiceNginxArchive_CL.table.json`: create that table first, then update the rule.
-Without `--sentinel-dcr`, Sluice proves the transformation but writes nothing.
+Without `--sentinel-dcr`, Sluice proves the transformation but writes nothing. Where the rule
+empties implied values, `out/sentinel/<Table>Full.kql` is a workspace function that puts them
+back: save it in the workspace, and query `<Table>Full` instead of the table to read every
+value as before (ADR 0032).
 
 ### Tables and rules for your own data
 

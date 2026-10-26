@@ -38,6 +38,7 @@ fn proven(flow: &Flow) -> Proven {
             templates: BTreeSet::new(),
             columns: BTreeSet::from(["EventData".to_owned()]),
             left_out: Vec::new(),
+            implied: Vec::new(),
         },
         kql: flow.then(GENERATED),
     }

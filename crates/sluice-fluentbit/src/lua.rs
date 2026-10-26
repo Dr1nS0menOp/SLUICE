@@ -9,6 +9,7 @@
 use std::fmt::Write as _;
 
 use sluice_core::field::FieldPath;
+use sluice_core::recipe::Literal;
 
 /// A Lua string literal. Every byte outside printable ASCII, and `"` and `\`, is a decimal
 /// escape, so the literal is the exact bytes of `text` whatever they are.
@@ -29,6 +30,16 @@ pub(crate) fn string(text: &str) -> String {
     }
     out.push('"');
     out
+}
+
+/// A Lua literal equal to exactly the values VRL's `==` takes as `value`, or `None` for a whole
+/// number: Lua 5.1 holds `3` and `3.0` alike, which VRL tells apart.
+pub(crate) fn literal(value: &Literal) -> Option<String> {
+    match value {
+        Literal::Text(text) => Some(string(text)),
+        Literal::Bool(b) => Some(b.to_string()),
+        Literal::Integer(_) => None,
+    }
 }
 
 /// A list literal of the path's segments, as `sluice_get` and `sluice_remove` take them.
@@ -78,6 +89,8 @@ pub(crate) fn set<'a>(items: impl IntoIterator<Item = &'a str>) -> String {
 ///   or empty-string value; each says whether it removed something.
 /// - `sluice_remove_empty_except(r, keys, keep, drop)`: `sluice_remove_empty` on each of `keys`
 ///   that is not in `drop` and neither covers nor is covered by a path in `keep`.
+/// - `sluice_filled(r, path)`: whether the value at a path is an object with a field;
+///   `sluice_remove_emptied(r, path, was)`: removes it when it `was` and holds none now.
 pub(crate) const FUNCTIONS: &str = r#"local sluice_flb_null = flb_null
 local function sluice_null(v)
   return v == nil or (sluice_flb_null ~= nil and v == sluice_flb_null)
@@ -265,6 +278,16 @@ local function sluice_remove_empty_except(r, keys, keep, drop)
     if not kept and sluice_remove_empty(r, sluice_split(p)) then changed = true end
   end
   return changed
+end
+local function sluice_filled(r, path)
+  local v = sluice_get(r, path)
+  return type(v) == "table" and sluice_kind(v) == "map"
+end
+local function sluice_remove_emptied(r, path, was)
+  if not was then return false end
+  local v = sluice_get(r, path)
+  if type(v) == "table" and next(v) == nil then return sluice_remove(r, path) end
+  return false
 end
 "#;
 

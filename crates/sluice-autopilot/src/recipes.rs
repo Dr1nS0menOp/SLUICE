@@ -42,7 +42,7 @@ struct RecipeFile {
     #[serde(rename = "match")]
     matcher: Matcher,
     /// The proposed reductions. Without `discriminators` or `pattern`, only lossless ones
-    /// (`drop_fields`, `drop_empty_fields`) are allowed.
+    /// (`drop_fields`, `drop_empty_fields`, `drop_implied`) are allowed.
     reductions: Vec<Reduction>,
     /// Why the reductions are safe and worthwhile, stating only facts that hold for every
     /// deployment of the source.

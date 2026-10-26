@@ -132,18 +132,20 @@ fn headline(row: &TemplateRow) -> String {
     let v = &row.volume;
     let mut parts = Vec::new();
     if v.summarized > 0 {
-        parts.push(if v.forwarded == 0 {
-            format!(
-                "count all {} events instead of sending them",
-                thousands(v.events)
-            )
+        let counted = if v.forwarded == 0 {
+            format!("all {}", thousands(v.events))
         } else {
-            format!(
-                "count {} of {} events instead of sending them",
-                thousands(v.summarized),
-                thousands(v.events)
-            )
-        });
+            format!("{} of {}", thousands(v.summarized), thousands(v.events))
+        };
+        parts.push(format!(
+            "send {counted} events as {} summary {}",
+            thousands(v.summaries),
+            if v.summaries == 1 {
+                "record"
+            } else {
+                "records"
+            }
+        ));
     }
     if v.forwarded > 0
         && let Some(removal) = row.actions.iter().find(|a| a.starts_with("drop "))
@@ -160,10 +162,18 @@ fn headline(row: &TemplateRow) -> String {
 /// What an opened item shows: the numbers, what to change, the fields, and why.
 fn body(row: &TemplateRow) -> String {
     let v = &row.volume;
+    let records = if v.summarized == 0 {
+        String::new()
+    } else {
+        format!(
+            "<div><span class=\"k\">Summary records sent</span>{}</div>",
+            thousands(v.summaries)
+        )
+    };
     let mut out = format!(
         "<div class=\"facts\"><div><span class=\"k\">Events</span>{events}</div>\
          <div><span class=\"k\">Sent, in full or reduced</span>{forwarded}</div>\
-         <div><span class=\"k\">Counted into summaries</span>{summarized}</div>\
+         <div><span class=\"k\">Counted into summaries</span>{summarized}</div>{records}\
          <div><span class=\"k\">Bytes in → out</span>{bin} → {bout}</div></div>",
         events = thousands(v.events),
         forwarded = thousands(v.forwarded),
@@ -176,6 +186,9 @@ fn body(row: &TemplateRow) -> String {
         out.push_str("<p class=\"muted\">Nothing: it is sent as it is.</p>");
     } else {
         out.push_str(&list(&row.actions));
+    }
+    if v.summarized > 0 {
+        out.push_str(&counting(v));
     }
     if let Some(runs_in) = &row.runs_in {
         let _ = write!(out, "<p class=\"muted\">Runs in: {}</p>", escape(runs_in));
@@ -199,7 +212,24 @@ fn body(row: &TemplateRow) -> String {
     out
 }
 
-/// The fields removed from the sample's events, with what each saved.
+/// What counting events means, with this kind of event's numbers: a reader seeing a large
+/// saving should know at once that nothing a rule could match is among the counted events.
+fn counting(v: &Volume) -> String {
+    format!(
+        "<p class=\"muted\">How counting works: an event that no detection rule could match is \
+         not sent on its own. Instead, every minute the SIEM gets one summary record per \
+         combination of the summary fields above, with <code>sluice_count</code>, how many \
+         events it stands for. Here {summarized} events became {summaries} summary records; \
+         those records are in the {bout} that is still sent. Every event a rule could match is \
+         sent in full, and the archive keeps every original.</p>",
+        summarized = thousands(v.summarized),
+        summaries = thousands(v.summaries),
+        bout = bytes(v.bytes_out),
+    )
+}
+
+/// The fields removed from the sample's events: what each saved, why it may go, and where its
+/// removal can run; then the recipe's own reasoning.
 fn removed(row: &TemplateRow) -> String {
     let lines: Vec<String> = row
         .removed
@@ -207,19 +237,43 @@ fn removed(row: &TemplateRow) -> String {
         .map(|field| {
             format!(
                 "<tr><td><code>{}</code></td><td class=\"n\">{} of {}</td><td class=\"n\">{}</td>\
-                 </tr>",
+                 <td>{}</td><td>{}</td></tr>",
                 escape(&field.path),
                 thousands(field.events),
                 thousands(row.volume.forwarded),
-                bytes(field.bytes)
+                bytes(field.bytes),
+                escape(&field.why),
+                escape(&field.runs_in),
             )
         })
         .collect();
-    format!(
+    let mut out = format!(
         "<h4>Fields removed on the sample</h4><div class=\"scroll\"><table class=\"fields\"><tr>\
-         <th>Field</th><th>Events that lost it</th><th>Bytes</th></tr>{}</table></div>",
+         <th>Field</th><th>Events that lost it</th><th>Bytes</th><th>Why it may go</th>\
+         <th>Where</th></tr>{}</table></div>",
         lines.concat()
-    )
+    );
+    if let Some(rationale) = &row.rationale {
+        let _ = write!(
+            out,
+            "<p class=\"muted\">The recipe's reasoning: {}</p>",
+            escape(rationale)
+        );
+    }
+    if row
+        .removed
+        .iter()
+        .any(|f| f.mode == crate::mode::Mode::Implied)
+    {
+        out.push_str(
+            "<p class=\"muted\">An implied value is not lost: <code>plan.json</code> lists it \
+             under <code>remove_implied</code>, so it can be put back. For Microsoft Sentinel \
+             the function <code>&lt;Table&gt;Full</code> that <code>--sentinel-native</code> \
+             writes puts it back at query time, and for Elasticsearch the runtime fields that \
+             <code>--elastic-native</code> writes. The archive keeps every event whole.</p>",
+        );
+    }
+    out
 }
 
 /// Each source with what it saves, largest first; opened, its kinds of event.
@@ -228,8 +282,6 @@ fn sources(rows: &[TemplateRow]) -> String {
     for row in rows {
         let (volume, members) = by_source.entry(&row.source).or_default();
         volume.events += row.volume.events;
-        volume.forwarded += row.volume.forwarded;
-        volume.summarized += row.volume.summarized;
         volume.bytes_in += row.volume.bytes_in;
         volume.bytes_out += row.volume.bytes_out;
         members.push(row);
@@ -259,13 +311,18 @@ fn sources(rows: &[TemplateRow]) -> String {
                 .collect();
             format!(
                 "<details class=\"item\"><summary><span class=\"what\"><b>{source}</b>\
-                 <span class=\"muted\">{events} events, {kinds}</span></span><span \
+                 <span class=\"muted\">{events} {noun}, {kinds}</span></span><span \
                  class=\"amount\">{pill}<span class=\"muted\">{bin} → {bout}</span>{bar}</span>\
                  </summary><div class=\"body\"><div class=\"scroll\"><table class=\"fields\"><tr>\
                  <th>Kind of event</th><th>Events</th><th>Bytes in → out</th><th>Saved</th></tr>\
                  {rows}</table></div></div></details>",
                 source = escape(source),
                 events = thousands(volume.events),
+                noun = if volume.events == 1 {
+                    "event"
+                } else {
+                    "events"
+                },
                 kinds = kinds(members.len()),
                 pill = pill(saved),
                 bin = bytes(volume.bytes_in),
@@ -328,6 +385,7 @@ mod tests {
                 events: 1,
                 forwarded: 1,
                 summarized: 0,
+                summaries: 0,
                 bytes_in,
                 bytes_out,
             },
@@ -336,6 +394,7 @@ mod tests {
             provenance: None,
             runs_in: None,
             removed: Vec::new(),
+            rationale: None,
         }
     }
 
@@ -377,23 +436,154 @@ mod tests {
         counted.volume.events = 15_000;
         counted.volume.forwarded = 0;
         counted.volume.summarized = 15_000;
+        counted.volume.summaries = 1_200;
         counted.actions = vec!["drop Message".into(), "forward events …".into()];
         assert_eq!(
             headline(&counted),
-            "count all 15,000 events instead of sending them"
+            "send all 15,000 events as 1,200 summary records"
         );
 
         counted.volume.forwarded = 470;
         counted.volume.summarized = 14_530;
+        counted.volume.summaries = 1;
         assert_eq!(
             headline(&counted),
-            "count 14,530 of 15,000 events instead of sending them; drop Message"
+            "send 14,530 of 15,000 events as 1 summary record; drop Message"
         );
 
         let mut reduced = row("b", 100, 40);
         reduced.actions = vec!["drop Message".into()];
         assert_eq!(headline(&reduced), "drop Message");
         assert_eq!(headline(&row("c", 100, 100)), "sent unchanged");
+    }
+
+    #[test]
+    fn a_counted_kind_of_event_says_how_counting_works_with_its_numbers() {
+        let mut counted = row("a", 1_400_000, 600_000);
+        counted.volume.events = 2_031;
+        counted.volume.forwarded = 0;
+        counted.volume.summarized = 2_031;
+        counted.volume.summaries = 1_766;
+        let html = body(&counted);
+        assert!(html.contains("Summary records sent</span>1,766"), "{html}");
+        assert!(
+            html.contains("Here 2,031 events became 1,766 summary records"),
+            "{html}"
+        );
+        assert!(html.contains("in the 600 KB that is still sent"), "{html}");
+
+        let sent = body(&row("b", 100, 100));
+        assert!(!sent.contains("How counting works"), "{sent}");
+        assert!(!sent.contains("Summary records sent"), "{sent}");
+    }
+
+    #[test]
+    fn the_biggest_savings_take_a_row_only_while_short_of_the_share_and_never_a_zero_one() {
+        // Saved: 80, 0, 10 and 10 of 100. After 80 + 10 the list holds exactly 90 %: no more.
+        let rows = [
+            row("a", 100, 20),
+            row("z", 100, 100),
+            row("b", 100, 90),
+            row("c", 100, 90),
+        ];
+        let (main, rest) = split(&rows, 100);
+        let ids = |rows: &[&TemplateRow]| rows.iter().map(|r| r.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&main), ["a", "b"]);
+        assert_eq!(ids(&rest), ["z", "c"]);
+    }
+
+    #[test]
+    fn the_advice_ranks_the_biggest_and_folds_the_smaller_and_the_unchanged() {
+        let mut rows: Vec<TemplateRow> = (0..13)
+            .map(|i| row(&format!("k{i:02}"), 1_000, 900))
+            .collect();
+        rows.push(row("same", 500, 500));
+        let html = advice(&rows);
+        assert!(
+            html.contains("12 kinds of event make 92% of what can be saved"),
+            "12 of 13 equal savings: {html}"
+        );
+        assert!(html.contains("<span class=\"rank\">1</span>"));
+        assert!(html.contains("<span class=\"rank\">12</span>"));
+        assert!(!html.contains("<span class=\"rank\">0</span>"));
+        let smaller = html.find("<h2>Smaller savings</h2>").expect("folded");
+        let unchanged = html.find("<h2>Sent unchanged</h2>").expect("folded");
+        assert!(html[smaller..unchanged].contains("title=\"k12\""));
+        assert!(html[smaller..unchanged].contains("1 kind of event, 1 KB in, 100 B saved"));
+        assert!(html[unchanged..].contains("title=\"same\""));
+        assert!(html[unchanged..].contains("1 kind of event, 500 B in, 0 B saved"));
+
+        let one = advice(&[row("only", 1_000, 100)]);
+        assert!(one.contains("1 kind of event makes 100% of what can be saved"));
+        assert!(one.contains(" open><summary>"), "the first is open");
+        assert!(!one.contains("Smaller savings") && !one.contains("Sent unchanged"));
+        assert!(advice(&[row("same", 1, 1)]).contains("Nothing can be saved on this sample"));
+    }
+
+    #[test]
+    fn an_opened_kind_of_event_lists_its_removed_fields_and_holdbacks_only_when_it_has_them() {
+        let plain = body(&row("a", 100, 100));
+        assert!(!plain.contains("Fields removed on the sample"));
+        assert!(!plain.contains("Why, and what was held back"));
+        assert!(plain.contains("Kind of event <code>a</code>"));
+
+        let mut reduced = row("b", 1_000, 400);
+        reduced.volume.forwarded = 5;
+        reduced.removed = vec![crate::report::RemovedField {
+            path: "Message".into(),
+            events: 4,
+            bytes: 600,
+            mode: crate::mode::Mode::Rules,
+            constant: None,
+            why: "it repeats".into(),
+            runs_in: "Vector".into(),
+        }];
+        reduced.rationale = Some("Message repeats the fields.".into());
+        reduced.adjustments = vec!["CommandLine kept".into()];
+        reduced.provenance = Some("community recipe r".into());
+        let html = body(&reduced);
+        assert!(html.contains(
+            "<tr><td><code>Message</code></td><td class=\"n\">4 of 5</td><td class=\"n\">600 B\
+             </td><td>it repeats</td><td>Vector</td></tr>"
+        ));
+        assert!(html.contains("The recipe's reasoning: Message repeats the fields."));
+        assert!(html.contains("<h4>Why, and what was held back</h4><ul><li>CommandLine kept"));
+        assert!(html.contains("community recipe r. Kind of event <code>b</code>"));
+        assert!(
+            !html.contains("An implied value is not lost"),
+            "none is implied"
+        );
+
+        reduced.removed[0].mode = crate::mode::Mode::Implied;
+        assert!(body(&reduced).contains("An implied value is not lost"));
+    }
+
+    #[test]
+    fn each_source_adds_up_its_kinds_of_event_and_the_largest_saving_comes_first() {
+        let mut small = row("s1", 1_000, 900);
+        small.source = "dns".into();
+        let mut big = row("w1", 3_000, 1_000);
+        big.source = "windows".into();
+        big.volume.events = 7;
+        let mut big2 = row("w2", 2_000, 1_000);
+        big2.source = "windows".into();
+        big2.volume.events = 3;
+        let html = sources(&[small, big, big2]);
+        let windows = html.find("<b>windows</b>").expect("windows");
+        let dns = html.find("<b>dns</b>").expect("dns");
+        assert!(windows < dns, "3 KB saved before 100 B");
+        assert!(html[windows..dns].contains("10 events, 2 kinds of event"));
+        assert!(html[windows..dns].contains("−60%</span><span class=\"muted\">5 KB → 2 KB"));
+        assert!(html[dns..].contains("1 event, 1 kind of event"));
+        assert!(html[dns..].contains("−10%"));
+    }
+
+    #[test]
+    fn the_colour_steps_start_at_one_ten_thirty_and_sixty_percent() {
+        assert_eq!(level(1.0), 1);
+        assert_eq!(level(10.0), 2);
+        assert_eq!(level(30.0), 3);
+        assert_eq!(level(60.0), 4);
     }
 
     #[test]

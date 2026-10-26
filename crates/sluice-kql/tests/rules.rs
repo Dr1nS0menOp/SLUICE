@@ -137,7 +137,7 @@ impl Reducer for Plane {
                 Outcome::Forwarded(body)
             }
             Self::SummarizeOne(target) if id == Some(target) && event.id == EventId(0) => {
-                Outcome::Summarized
+                Outcome::Summarized(Map::new())
             }
             _ => Outcome::Forwarded(body),
         };

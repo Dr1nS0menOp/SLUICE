@@ -306,6 +306,30 @@ fn a_script_too_large_to_compile_removes_nothing() {
     );
 }
 
+#[test]
+fn an_object_is_noted_before_the_removals_and_removed_after_them_if_they_emptied_it() {
+    let t = template(
+        "nested",
+        &[("EventID", "1")],
+        &[&["EventID", "agent.id", "host.os.name"]],
+    );
+    let recipe = removing("nested", &["agent.id", "host.os.name"], None);
+    let out = of(&[(&t, &recipe)]);
+    let script = script(&out);
+    let at = |line: &str| {
+        script
+            .find(line)
+            .unwrap_or_else(|| panic!("{line} in {script}"))
+    };
+    let noted = at("boolean sluiceO0 = sluiceFilled(ctx, ['host', 'os']);");
+    assert!(noted < at("boolean sluiceO1 = sluiceFilled(ctx, ['agent']);"));
+    let removed = at("sluiceRemove(ctx, ['host', 'os', 'name']);");
+    let os = at("if (sluiceO0) { sluiceRemoveEmptied(ctx, ['host', 'os']); }");
+    let host = at("if (sluiceO2) { sluiceRemoveEmptied(ctx, ['host']); }");
+    assert!(noted < removed && removed < os && os < host, "{script}");
+    assert!(script.contains("if (sluiceO1) { sluiceRemoveEmptied(ctx, ['agent']); }"));
+}
+
 fn event(fields: &Value) -> Event {
     Event {
         id: EventId(0),
@@ -327,7 +351,7 @@ fn vrl(plans: &[(&Template, &EffectiveRecipe)], events: &[Event]) -> Vec<Map<Str
         .iter()
         .map(|e| match reducer.reduce(e).expect("VRL runs").outcome {
             Outcome::Forwarded(body) => body,
-            Outcome::Summarized => panic!("nothing is counted here"),
+            Outcome::Summarized(_) => panic!("nothing is counted here"),
         })
         .collect()
 }
@@ -525,4 +549,168 @@ fn a_script_that_does_not_compile_is_refused() {
         crate::simulate(&url, &broken, &[&doc]),
         Err(crate::ElasticError::Rejected { .. } | crate::ElasticError::Failed { .. })
     ));
+}
+
+fn implied_recipe(id: &str) -> EffectiveRecipe {
+    use sluice_core::recipe::{ImpliedValue, Literal};
+    let text = |s: &str| Literal::Text(s.into());
+    EffectiveRecipe {
+        drop_implied: vec![
+            ImpliedValue {
+                field: "Keywords".into(),
+                value: text("0x80"),
+                when: None,
+            },
+            ImpliedValue {
+                field: "Level".into(),
+                value: Literal::Integer(0),
+                when: None,
+            },
+            ImpliedValue {
+                field: "Mode".into(),
+                value: text("-"),
+                when: Some(("LogonType".into(), Literal::Integer(3))),
+            },
+        ],
+        ..EffectiveRecipe::passthrough(id.into())
+    }
+}
+
+fn implied_template() -> Template {
+    template(
+        "windows:4624:i",
+        &[("EventID", "4624")],
+        &[&["EventID", "Keywords", "Level", "LogonType", "Mode"]],
+    )
+}
+
+#[test]
+fn an_implied_value_is_removed_only_while_it_holds_and_its_type_matches() {
+    let t = implied_template();
+    let recipe = implied_recipe(t.id.as_str());
+    let out = of(&[(&t, &recipe)]);
+    let source = script(&out);
+    assert!(source.contains("sluiceGet(ctx, ['Keywords']) instanceof String"));
+    assert!(source.contains("sluiceIsInt(sluiceGet(ctx, ['Level']), 0L)"));
+    assert!(source.contains("sluiceIsInt(sluiceGet(ctx, ['LogonType']), 3L)"));
+    assert_eq!(out.fields, paths(&["Keywords", "Level", "Mode"]));
+}
+
+/// In a real Elasticsearch: implied values leave exactly as in Vector, whatever their type.
+#[test]
+fn c1_in_elasticsearch_implied_values_leave_exactly_as_in_vector() {
+    let Ok(url) = std::env::var(ENV) else {
+        return;
+    };
+    let t = implied_template();
+    let recipe = implied_recipe(t.id.as_str());
+    let plans = [(&t, &recipe)];
+    let base = json!({"EventID": 4624, "Keywords": "0x80", "Level": 0, "LogonType": 3,
+                      "Mode": "-"});
+    let with = |change: &dyn Fn(&mut Value)| {
+        let mut fields = base.clone();
+        change(&mut fields);
+        event(&fields)
+    };
+    let events = [
+        with(&|_| {}),
+        with(&|f| f["Keywords"] = json!("0x10")),
+        with(&|f| f["Level"] = json!(0.0)),
+        with(&|f| f["Level"] = json!("0")),
+        with(&|f| f["LogonType"] = json!(10)),
+        with(&|f| f["LogonType"] = json!("3")),
+        with(&|f| f["Mode"] = json!("Yes")),
+    ];
+    let expected = vrl(&plans, &events);
+    let out = of(&plans);
+    let documents: Vec<&Map<String, Value>> = events.iter().map(|e| &e.fields).collect();
+    let actual = crate::simulate(&url, &out.body, &documents)
+        .unwrap_or_else(|e| panic!("{e}\n{}", script(&out)));
+    for ((event, vector), elastic) in events.iter().zip(&expected).zip(&actual) {
+        assert_eq!(
+            elastic,
+            vector,
+            "event {}",
+            Value::Object(event.fields.clone())
+        );
+    }
+    assert_ne!(
+        expected[0], events[0].fields,
+        "the first event loses its implied values"
+    );
+}
+
+#[test]
+fn a_script_of_exactly_the_longest_length_compiles_and_one_byte_more_removes_nothing() {
+    let t = logon();
+    let recipe = removing(t.id.as_str(), &["Message"], None);
+    let plans = [Plan {
+        template: &t,
+        recipe: &recipe,
+    }];
+    let full = pipeline_within("test", &plans, usize::MAX);
+    let length = script(&full).len();
+    let exact = pipeline_within("test", &plans, length);
+    assert_eq!(exact.body, full.body);
+    let short = pipeline_within("test", &plans, length - 1);
+    assert_eq!(short.body["processors"], json!([]));
+    assert!(short.templates.is_empty() && short.fields.is_empty());
+    assert!(
+        short.left_out.iter().any(|l| l.contains(&format!(
+            "the script would be {length} bytes, more than the {}",
+            length - 1
+        ))),
+        "{:?}",
+        short.left_out
+    );
+}
+
+#[test]
+fn two_templates_overlap_only_with_a_key_set_in_common_and_no_value_apart() {
+    let a = template("a", &[("EventID", "4624")], &[&["EventID", "User"]]);
+    let same = template("b", &[("EventID", "4624")], &[&["EventID", "User"]]);
+    let other_value = template("c", &[("EventID", "4625")], &[&["EventID", "User"]]);
+    let other_field = template("d", &[("Channel", "Security")], &[&["EventID", "User"]]);
+    let other_keys = template("e", &[("EventID", "4624")], &[&["EventID", "Host"]]);
+    assert!(overlap(&a, &same));
+    assert!(!overlap(&a, &other_value), "4624 and 4625 are apart");
+    assert!(
+        overlap(&a, &other_field),
+        "different fields ask nothing of each other"
+    );
+    assert!(!overlap(&a, &other_keys));
+}
+
+#[test]
+fn an_exception_that_holds_or_lies_in_a_field_keeps_it_when_empty() {
+    // `Host` keeps `Host.name` and `Host.ip`; `Note.text` keeps `Note`.
+    let t = template(
+        "windows:4624:e",
+        &[("EventID", "4624")],
+        &[&["EventID", "Host.name", "Host.ip", "Note", "Other"]],
+    );
+    let recipe = EffectiveRecipe {
+        drop_empty_except: Some(paths(&["EventID", "Host", "Note.text"])),
+        ..EffectiveRecipe::passthrough(t.id.clone())
+    };
+    let out = of(&[(&t, &recipe)]);
+    assert!(
+        script(&out)
+            .contains("sluiceRemoveEmptyExcept(ctx, keys, ['EventID', 'Host', 'Note.text'], []);"),
+        "{}",
+        script(&out)
+    );
+    // With every field kept by an exception, there is nothing to remove.
+    let kept = template(
+        "windows:4624:k",
+        &[("EventID", "4624")],
+        &[&["EventID", "Host.name", "Note"]],
+    );
+    let recipe = EffectiveRecipe {
+        drop_empty_except: Some(paths(&["EventID", "Host", "Note.text"])),
+        ..EffectiveRecipe::passthrough(kept.id.clone())
+    };
+    let out = of(&[(&kept, &recipe)]);
+    assert!(!out.empty_fields);
+    assert_eq!(out.body["processors"], json!([]));
 }

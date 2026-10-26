@@ -186,3 +186,168 @@ impl<'c> Aliases<'c> {
         out
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+    use sluice_core::event::{Event, Timestamp};
+    use sluice_core::ids::{EventId, SourceId};
+
+    use super::*;
+
+    #[test]
+    fn a_column_the_emulator_cannot_name_goes_by_an_alias_both_ways() {
+        let aliases = Aliases::new(&[("@timestamp", "string"), ("Message", "string")]);
+        assert_eq!(aliases.emulator_name("@timestamp"), "sluice_alias_0");
+        assert_eq!(aliases.emulator_name("Message"), "Message");
+        assert_eq!(aliases.stream_name("sluice_alias_0"), "@timestamp");
+        assert_eq!(aliases.stream_name("Message"), "Message");
+        assert_eq!(
+            aliases.rewrite(
+                r#"source | extend T = ['@timestamp'], U = columnifexists("@timestamp", "")"#
+            ),
+            r#"source | extend T = ['sluice_alias_0'], U = columnifexists("sluice_alias_0", "")"#
+        );
+    }
+
+    #[test]
+    fn a_result_row_gives_its_numbers_and_its_non_empty_columns() {
+        let aliases = Aliases::new(&[("@timestamp", "string")]);
+        let row = json!([
+            [
+                "__sluice_n",
+                "__sluice_run",
+                "A",
+                "B",
+                "C",
+                "sluice_alias_0"
+            ],
+            [3, 1, "x", "", null, "t"]
+        ]);
+        assert_eq!(number(&row, "__sluice_n"), Some(3));
+        assert_eq!(number(&row, "A"), None, "not a number");
+        assert_eq!(number(&row, "Missing"), None);
+        let record = record(&row, &aliases, &["__sluice_n", "__sluice_run"]).expect("a record");
+        assert_eq!(Value::Object(record), json!({"A": "x", "@timestamp": "t"}));
+        assert!(record_of_nothing().is_err());
+    }
+
+    fn record_of_nothing() -> Result<serde_json::Map<String, Value>, crate::KustoError> {
+        record(&json!({}), &Aliases::new(&[]), &[])
+    }
+
+    fn event(n: u64, fields: Value) -> Event {
+        let Value::Object(fields) = fields else {
+            unreachable!("an object")
+        };
+        Event {
+            id: EventId(n),
+            timestamp: Timestamp(0),
+            source: SourceId::new("s"),
+            fields,
+        }
+    }
+
+    /// In the Kusto emulator (`SLUICE_KUSTO_URL`): each transformation's records come back at
+    /// their events' places, emptied columns left out, dropped rows as `None`, and an aliased
+    /// column under its own name.
+    #[test]
+    fn c1_in_the_kql_engine_records_come_back_at_their_events_places() {
+        let Ok(url) = std::env::var("SLUICE_KUSTO_URL") else {
+            return;
+        };
+        let columns = [
+            ("EventID", "int"),
+            ("Message", "string"),
+            ("@timestamp", "string"),
+            ("Ok", "boolean"),
+        ];
+        let events = [
+            event(
+                0,
+                json!({"EventID": 4624, "Message": "m0", "@timestamp": "t0", "Ok": true}),
+            ),
+            event(
+                1,
+                json!({"EventID": 4625, "Message": "m1", "@timestamp": "t1", "Ok": false}),
+            ),
+            event(
+                2,
+                json!({"EventID": 4624, "Message": "m2", "@timestamp": "t2"}),
+            ),
+        ];
+        let refs: Vec<&Event> = events.iter().collect();
+        let kqls = [
+            "source",
+            r#"source | extend Message = iff(EventID == 4624, "", Message)"#,
+            "source | where EventID != 4625",
+            "source | extend T = ['@timestamp']",
+        ];
+        let runs = run_transformations(&url, &columns, &kqls, &refs).expect("the emulator runs");
+        assert_eq!(runs.len(), 4);
+        let at = |run: usize, n: usize| runs[run][n].clone().map(Value::Object);
+        assert_eq!(
+            at(0, 1),
+            Some(json!({"EventID": 4625, "Message": "m1", "@timestamp": "t1", "Ok": false}))
+        );
+        assert_eq!(
+            at(1, 0),
+            Some(json!({"EventID": 4624, "@timestamp": "t0", "Ok": true})),
+            "the emptied message is left out"
+        );
+        assert_eq!(
+            at(1, 1).and_then(|r| r.get("Message").cloned()),
+            Some(json!("m1"))
+        );
+        assert_eq!(at(2, 1), None, "the transformation dropped it");
+        assert!(at(2, 2).is_some());
+        assert_eq!(
+            at(3, 2).and_then(|r| r.get("T").cloned()),
+            Some(json!("t2"))
+        );
+        assert_eq!(
+            at(3, 2).and_then(|r| r.get("Ok").cloned()),
+            None,
+            "not given"
+        );
+    }
+
+    /// In the Kusto emulator: a transformation that loses the row number, or makes rows of its
+    /// own, cannot be matched to the sample, and says so.
+    #[test]
+    fn c1_in_the_kql_engine_records_that_cannot_be_matched_are_an_error() {
+        let Ok(url) = std::env::var("SLUICE_KUSTO_URL") else {
+            return;
+        };
+        let columns = [("EventID", "int")];
+        let events = [
+            event(0, json!({"EventID": 1})),
+            event(1, json!({"EventID": 2})),
+        ];
+        let refs: Vec<&Event> = events.iter().collect();
+        // Alone, the emulator refuses to order by a column that is gone; beside one that keeps
+        // it, the rows come back without it.
+        let alone = run_transformations(&url, &columns, &["source | project EventID"], &refs);
+        assert!(alone.is_err(), "{alone:?}");
+        let lost = run_transformations(
+            &url,
+            &columns,
+            &["source", "source | project EventID"],
+            &refs,
+        );
+        assert!(
+            matches!(&lost, Err(crate::KustoError::Response(m)) if m.contains("without its record number")),
+            "{lost:?}"
+        );
+        let twice = run_transformations(
+            &url,
+            &columns,
+            &["source | mv-expand x = dynamic([1, 2])"],
+            &refs,
+        );
+        assert!(
+            matches!(&twice, Err(crate::KustoError::Response(m)) if m.contains("came out twice")),
+            "{twice:?}"
+        );
+    }
+}

@@ -96,7 +96,8 @@ fn beyond_vector<'a>(
         for (path, value) in &now {
             match was.get(path) {
                 Some(old) if same(old, value) => {}
-                // An object whose last field went is a leaf of its own, as in Vector.
+                // An object whose last field went: the generators remove it, as Vector does,
+                // and one kept as `{}` holds nothing either.
                 None if *value == Value::Object(Map::new()) => {}
                 _ => violations.push(format!("{path} changed on event {}", event.id)),
             }

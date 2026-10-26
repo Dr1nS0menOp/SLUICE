@@ -56,8 +56,9 @@ generation.
 5. **sluice-cli**, **sluice-archive**, **sluice-mcp**, **sluice-ai**, **sluice-synth**.
    Target: ≥ 70 %, the rest stays covered end to end.
 
-Coverage is measured with `cargo llvm-cov` (to be added to the gates once the targets hold);
-the numbers are a floor, not the goal. The goal is that a wrong change fails a test.
+Coverage is measured with `cargo llvm-cov` (not part of the gates; the latest figures, with
+every engine attached, are in the coverage table below); the numbers are a floor, not the goal.
+The goal is that a wrong change fails a test.
 
 ## What to test, with example cases
 
@@ -120,6 +121,12 @@ secrets never in errors or `Debug` output (done for Azure credentials), timeouts
 4. `running.rs` (new) has two integration tests; its edge cases are untested.
 5. No mutation testing and no coverage measurement yet.
 
+Where these stand on 2026-10-26 (the table above is the count of 2026-10-14, kept as a record):
+1 is closed, `guard/protection/tests.rs` tests the conditional protection on its own; 2 has
+`sentinel/extract/tests.rs` next to the module tests; 3 is closed, `program/tests.rs` and the
+tests in `runtime.rs` run the generated VRL directly; 4 went with `sluice-server` (ADR 0030);
+5 is closed, mutation results and line coverage per crate follow below.
+
 ## Bugs found
 
 Each was fixed with a regression test named after what it broke.
@@ -177,29 +184,68 @@ a result:
   empty; they stay as a fail-closed guard.
 - `wazuh/xml.rs` `lenient`: taking `&;` as an entity; quick_xml gives it back as the same text.
 
-Line coverage (`cargo llvm-cov` 0.9.1, MIT/Apache-2.0, 2026-10-16), first measurement and after
-the tests it led to:
+On the field-value branch (implied values, modes, the report's examples, the put-back steps),
+2026-10-24, file by file, with Elasticsearch running for `sluice-elastic`: the first runs missed
+18 of 53 in the learner (`implied.rs`), 20 of 43 in the example selection, 28 of 83 in the
+Elasticsearch runtime fields, 20 of 80 in the Sentinel transformation (most in `fitting`, the
+budget search), and fewer elsewhere. After the new tests, every viable mutant is caught in:
+`implied.rs`, `report/{mod,text,examples}.rs`, `report/html/{implied,examples}.rs`, `mode.rs`,
+`plan.rs`, `sluice-kql` `transform.rs` and `transform/rebuild.rs`, `sluice-elastic`
+`rebuild.rs`, `pipeline.rs` and `painless.rs`, `sluice-vector` `syntax.rs` and `program.rs`,
+`sluice-fluentbit` `filter.rs` and `lua.rs`, `sluice-otel` `transform.rs`, and `sluice-core`
+`recipe.rs`, `proof.rs`, `guard.rs` and `guard/model.rs`. Code that only saved work or could not
+run went instead of being tested: an unreachable `guid` arm, a fallback for a JSON string that
+cannot fail, an equal-objects shortcut, and three `recognised[n + 1..]` that now read
+`[n..].iter().skip(1)`.
 
-| Crate | First | Now | Target |
-|---|---:|---:|---:|
-| sluice-core | 99.6 % | 99.6 % | 95 % |
-| sluice-rules | 96.8 % | 96.8 % | 90 % |
-| sluice-vector | 96.2 % | 97.3 % | 90 % |
-| sluice-discover | 98.2 % | 98.2 % | 85 % |
-| sluice-autopilot | 97.5 % | 97.5 % | 85 % |
-| sluice-server | 83.7 % | 87.3 % | 85 % |
-| sluice-kql | 53.9 % | 97.1 % | 85 % |
-| sluice-sentinel | 89.4 % | 89.4 % | 85 % |
-| sluice-wazuh | 81.6 % | 93.2 % | 85 % |
-| sluice-archive | 92.0 % | 99.1 % | 70 % |
-| sluice-mcp | 67.4 % | 85.4 % | 70 % |
-| sluice-ai | 78.6 % | 93.3 % | 70 % |
-| sluice-cli | 55.1 % | 72.2 % | 70 % |
-| sluice-synth | 100 % | 100 % | 70 % |
-| sluice-elastic (2026-10-17) | 88.4 % | 88.4 % | 85 % |
-| sluice-splunk (2026-10-17) | 63.7 % | 96.8 % | 85 % |
-| sluice-fluentbit (2026-10-17) | 93.0 % | 95.2 % | 85 % |
-| sluice-otel (2026-10-17) | 95.9 % | 95.9 % | 85 % |
+On 2026-10-26, after the summary records were counted and the examples became a field table:
+`report/html/examples.rs` 33 of 33 caught; `proof.rs` missed one (`+=` to `*=` on a group's
+count, which a test with counts of one digit cannot see) until a group of ten events was added;
+`report/html/savings.rs`, never run before, missed 43 of 96 (the ranking's boundaries, the folded
+sections, the removed-fields table, the per-source sums, the colour steps). After the new tests
+every viable mutant is caught there too; three per-source sums no line showed went instead.
+After the emptied objects (the same day): every viable mutant caught in `guard/emptied.rs`,
+`proof.rs`, `report/mod.rs`, `report/examples.rs` (with `--test demo`, which runs `pick`, and
+a source volume whose summary records are not zero) and `sluice-vector` `program.rs`. The Lua,
+Painless and OTTL lines are tested against the real engines, and each generator also has a
+unit test of the statements and their order, since cargo-mutants runs without the engines.
+
+**Give cargo-mutants a target directory of its own.** `scripts/wsl.ps1` sets
+`CARGO_TARGET_DIR`, and mutants built its copy of the tree into the shared one: the build script
+of `sluice-autopilot` then pointed the embedded recipes at the deleted copy, and the real tree's
+tests saw none (`cargo clean -p sluice-autopilot` fixes it). Run
+`CARGO_TARGET_DIR=~/.cache/sluice-mutants-target cargo mutants -j 1 …` and delete that directory
+afterwards.
+
+Line coverage (`cargo llvm-cov` 0.9.1, MIT/Apache-2.0, 2026-10-16), first measurement and after
+the tests it led to. The crates the field-value branch changed were measured again on 2026-10-24,
+with every engine attached (column *2026-10-24*): `sluice-kql` had fallen to 86.9 %, because the
+emulator runner of the Sentinel proof (`transform/run.rs`, added 2026-10-18) was tested only
+through the CLI; it has tests of its own now. Again on 2026-10-26, after the summary records and
+the emptied objects (column *2026-10-26*): `sluice-vector` had fallen to 95.1 %, because
+`runtime.rs` (71 %) built the summary records and failed on a bad route only in other crates'
+tests; it has tests of its own now (89 %, the rest branches VRL's types rule out).
+
+| Crate | First | Now | 2026-10-24 | 2026-10-26 | Target |
+|---|---:|---:|---:|---:|---:|
+| sluice-core | 99.6 % | 99.6 % | 98.6 % | 98.7 % | 95 % |
+| sluice-rules | 96.8 % | 96.8 % |  |  | 90 % |
+| sluice-vector | 96.2 % | 97.3 % | 96.1 % | 96.4 % | 90 % |
+| sluice-discover | 98.2 % | 98.2 % |  |  | 85 % |
+| sluice-autopilot | 97.5 % | 97.5 % | 97.1 % | 97.7 % | 85 % |
+| sluice-server | 83.7 % | 87.3 % |  |  | 85 % |
+| sluice-kql | 53.9 % | 97.1 % | 98.2 % | 98.2 % | 85 % |
+| sluice-sentinel | 89.4 % | 89.4 % |  |  | 85 % |
+| sluice-wazuh | 81.6 % | 93.2 % |  |  | 85 % |
+| sluice-archive | 92.0 % | 99.1 % |  |  | 70 % |
+| sluice-mcp | 67.4 % | 85.4 % |  |  | 70 % |
+| sluice-ai | 78.6 % | 93.3 % |  |  | 70 % |
+| sluice-cli | 55.1 % | 72.2 % |  |  | 70 % |
+| sluice-synth | 100 % | 100 % |  |  | 70 % |
+| sluice-elastic (2026-10-17) | 88.4 % | 88.4 % | 91.2 % | 91.3 % | 85 % |
+| sluice-splunk (2026-10-17) | 63.7 % | 96.8 % |  |  | 85 % |
+| sluice-fluentbit (2026-10-17) | 93.0 % | 95.2 % | 96.7 % | 96.8 % | 85 % |
+| sluice-otel (2026-10-17) | 95.9 % | 95.9 % | 96.6 % | 96.7 % | 85 % |
 
 sluice-rules with its Elastic and Splunk extractors: 95.6 % (2026-10-17). The engine-backed
 tests count only with their engines set (`SLUICE_ELASTIC_URL`, `SLUICE_KUSTO_URL`,

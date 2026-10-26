@@ -89,8 +89,9 @@ pub fn lua_filter(description: &str, plans: &[Plan<'_>]) -> LuaFilter {
         // A template that changes nothing only needs recognising where Vector would give it a
         // record before a template that does change it.
         let claims = action.is_some()
-            || recognised[n + 1..]
+            || recognised[n..]
                 .iter()
+                .skip(1)
                 .any(|(later, _, _, a)| a.is_some() && overlap(plan.template, later.template));
         if !claims {
             continue;
@@ -320,13 +321,59 @@ fn action(
             empty_fields = true;
         }
     }
+    // Last, as in Vector: a field that implies another is tested as it is sent.
+    let mut implied_fields = Vec::new();
+    for implied in &recipe.drop_implied {
+        let when = implied.when.as_ref().map(|(on, value)| (on, value));
+        let tests: Option<Vec<String>> = std::iter::once((&implied.field, &implied.value))
+            .chain(when)
+            .map(|(path, value)| {
+                lua::literal(value)
+                    .map(|v| format!("sluice_get(r, {}) == {v}", lua::segments(path)))
+            })
+            .collect();
+        let Some(tests) = tests else {
+            left_out.push(format!(
+                "{id}: the implied `{}` is tested against a whole number, which Lua cannot tell \
+                 from a float",
+                implied.field
+            ));
+            continue;
+        };
+        lines.push(format!(
+            "    if {} then if sluice_remove(r, {}) then changed = true end end",
+            tests.join(" and "),
+            lua::segments(&implied.field)
+        ));
+        implied_fields.push(implied.field.clone());
+    }
     if lines.is_empty() {
         return None;
     }
+    // As in Vector: an object the removals emptied goes, one that came empty stays.
+    let objects = plan.emptiable_objects();
+    let before = objects.iter().enumerate().map(|(n, object)| {
+        format!(
+            "    local sluice_o{n} = sluice_filled(r, {})",
+            lua::segments(object)
+        )
+    });
+    let after = objects.iter().enumerate().map(|(n, object)| {
+        format!(
+            "    if sluice_remove_emptied(r, {}, sluice_o{n}) then changed = true end",
+            lua::segments(object)
+        )
+    });
+    let lines: Vec<String> = before.chain(lines).chain(after).collect();
     Some(Action {
         code: lines.join("\n"),
         keep: recipe.keep_whole_when.as_ref().map(|k| conditions.call(k)),
-        fields: recipe.drop_fields.iter().cloned().collect(),
+        fields: recipe
+            .drop_fields
+            .iter()
+            .cloned()
+            .chain(implied_fields)
+            .collect(),
         empty_fields,
     })
 }

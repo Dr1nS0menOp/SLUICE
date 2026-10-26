@@ -17,8 +17,4 @@ chmod +x "$wrapper"
 
 SLUICE_FLUENT_BIT="$wrapper" cargo test --locked -p sluice-fluentbit -- --nocapture
 # The plan's filters for the synthetic sources, proven end to end.
-out=$(mktemp -d)
-cargo run --locked -q -p sluice-cli -- demo --scale 5 --out "$out" --fluent-bit "$wrapper" \
-    --fluent-bit-native | grep -E '^  (proof|fluent-bit)'
-ls "$out/fluent-bit"/*.lua >/dev/null
-rm -rf "$out"
+SLUICE_FLUENT_BIT="$wrapper" cargo test --locked -p sluice-cli --test natives fluent_bit -- --nocapture

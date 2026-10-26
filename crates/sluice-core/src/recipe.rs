@@ -46,6 +46,13 @@ pub enum Reduction {
     },
     /// L1: drop fields whose value is `null` or an empty string.
     DropEmptyFields,
+    /// L1: drop a field while it holds the value the kind of event, or another field of the
+    /// event, implies. A removed value can be put back exactly from `values`, so nothing is
+    /// lost; any other value is kept.
+    DropImplied {
+        /// The implied values.
+        values: Vec<ImpliedValue>,
+    },
     /// L2: forward events a rule could match. The rest go to summaries keyed by `summary_keys`.
     ForwardMatching {
         /// Fields that key the summaries of events that are not forwarded.
@@ -63,7 +70,9 @@ impl Reduction {
     #[must_use]
     pub fn level(&self) -> Level {
         match self {
-            Self::DropFields { .. } | Self::DropEmptyFields => Level::Lossless,
+            Self::DropFields { .. } | Self::DropEmptyFields | Self::DropImplied { .. } => {
+                Level::Lossless
+            }
             Self::ForwardMatching { .. } => Level::RuleGuided,
             Self::Summarize { .. } => Level::Semantic,
         }
@@ -74,6 +83,58 @@ impl Reduction {
     pub fn is_routing(&self) -> bool {
         matches!(self, Self::ForwardMatching { .. } | Self::Summarize { .. })
     }
+}
+
+/// A scalar value as an event carries it. Integers and strings compare exactly, so a value
+/// guard never mistakes `0` for `"0"`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+pub enum Literal {
+    /// `true` or `false`.
+    Bool(bool),
+    /// A whole number that fits in 64 bits.
+    Integer(i64),
+    /// A string.
+    Text(String),
+}
+
+impl Literal {
+    /// The literal a JSON value is, if it is a boolean, a 64-bit integer or a string.
+    #[must_use]
+    pub fn of(value: &serde_json::Value) -> Option<Self> {
+        match value {
+            serde_json::Value::Bool(b) => Some(Self::Bool(*b)),
+            serde_json::Value::Number(n) => n.as_i64().map(Self::Integer),
+            serde_json::Value::String(s) => Some(Self::Text(s.clone())),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for Literal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Bool(b) => write!(f, "{b}"),
+            Self::Integer(i) => write!(f, "{i}"),
+            Self::Text(s) => write!(f, "{s:?}"),
+        }
+    }
+}
+
+/// A field's value that is implied: by the kind of event alone, or by another field's value.
+/// Removing the field only while it holds `value` (and `when` holds) loses nothing: the absent
+/// field means `value`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ImpliedValue {
+    /// The field.
+    pub field: FieldPath,
+    /// The value it holds when implied.
+    pub value: Literal,
+    /// The field and value that imply it; `None` when the kind of event alone does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<(FieldPath, Literal)>,
 }
 
 /// Where a recipe came from. Provenance is reported but never grants extra trust.
@@ -92,6 +153,8 @@ pub enum Provenance {
     },
     /// A recipe written by hand by the operator.
     Operator,
+    /// Values Sluice learned from the sample to be implied (see [`Reduction::DropImplied`]).
+    Learned,
 }
 
 /// A proposal of reductions for one template.
@@ -189,6 +252,41 @@ impl Recipe {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_json_scalar_is_a_literal_of_its_own_kind_and_nothing_else_is() {
+        use serde_json::json;
+        assert_eq!(Literal::of(&json!(true)), Some(Literal::Bool(true)));
+        assert_eq!(Literal::of(&json!(-4624)), Some(Literal::Integer(-4624)));
+        assert_eq!(
+            Literal::of(&json!("4624")),
+            Some(Literal::Text("4624".into()))
+        );
+        for other in [
+            json!(0.5),
+            json!(null),
+            json!([1]),
+            json!({"a": 1}),
+            json!(u64::MAX),
+        ] {
+            assert_eq!(Literal::of(&other), None, "{other}");
+        }
+    }
+
+    #[test]
+    fn a_literal_is_written_so_text_and_numbers_cannot_be_confused() {
+        assert_eq!(Literal::Bool(false).to_string(), "false");
+        assert_eq!(Literal::Integer(3).to_string(), "3");
+        assert_eq!(Literal::Text("3".into()).to_string(), "\"3\"");
+        assert_eq!(
+            serde_json::to_string(&Literal::Text("3".into())).expect("serializes"),
+            "\"3\""
+        );
+        assert_eq!(
+            serde_json::from_str::<Literal>("3").expect("parses"),
+            Literal::Integer(3)
+        );
+    }
 
     fn keys() -> Vec<FieldPath> {
         vec!["SourceImage".into()]

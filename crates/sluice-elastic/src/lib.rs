@@ -20,9 +20,11 @@ pub mod inventory;
 mod painless;
 mod pipeline;
 mod predicate;
+mod rebuild;
 mod simulate;
 
 pub use crate::engine::{ElasticEngine, RuleQuery};
 pub use crate::pipeline::{IngestPipeline, MAX_SCRIPT, METADATA_FIELDS, ingest_pipeline};
 pub use crate::predicate::compile;
+pub use crate::rebuild::{Rebuild, rebuild, rebuilt};
 pub use crate::simulate::{ElasticError, simulate};

@@ -26,6 +26,7 @@ use sluice_core::field::FieldPath;
 use sluice_core::guard::{Plan, Route};
 use sluice_core::ids::TemplateId;
 use sluice_core::predicate::Predicate;
+use sluice_core::recipe::Literal;
 use sluice_core::template::{Template, TemplateShape};
 
 use crate::ottl;
@@ -81,8 +82,9 @@ pub fn transform(plans: &[Plan<'_>]) -> Statements {
     let mut branches = 0usize;
     for (n, (plan, condition, removal)) in recognised.iter().enumerate() {
         let claims = removal.is_some()
-            || recognised[n + 1..]
+            || recognised[n..]
                 .iter()
+                .skip(1)
                 .any(|(later, _, r)| r.is_some() && overlap(plan.template, later.template));
         if !claims {
             continue;
@@ -205,11 +207,57 @@ fn removal(plan: &Plan<'_>, left_out: &mut Vec<String>) -> Option<Removal> {
             empty_fields = true;
         }
     }
-    (!statements.is_empty()).then(|| Removal {
+    // Last, as in Vector: a field that implies another is tested as it is sent.
+    let mut fields: BTreeSet<FieldPath> = recipe.drop_fields.iter().cloned().collect();
+    for implied in &recipe.drop_implied {
+        let when = implied.when.as_ref().map(|(on, value)| (on, value));
+        let tests: Option<Vec<String>> = std::iter::once((&implied.field, &implied.value))
+            .chain(when)
+            .map(|(path, value)| {
+                literal(value).map(|v| format!("{} == {v}", ottl::path(ROOT, path)))
+            })
+            .collect();
+        let Some(tests) = tests else {
+            left_out.push(format!(
+                "{id}: the implied `{}` is tested against a whole number, which the collector \
+                 cannot test: its JSON parser reads every number as a float",
+                implied.field
+            ));
+            continue;
+        };
+        statements.push(delete(
+            &implied.field,
+            Some(&format!("({})", tests.join(" and "))),
+        ));
+        fields.insert(implied.field.clone());
+    }
+    // As in Vector: an object the removals emptied goes. Recognition is exact, map by map, so
+    // an object that came empty is a key no template expects, and its record stays whole.
+    if !statements.is_empty() {
+        for object in plan.emptiable_objects() {
+            let value = ottl::path(ROOT, &object);
+            statements.push(delete(
+                &object,
+                Some(&format!("(IsMap({value}) and Len({value}) == 0)")),
+            ));
+        }
+    }
+    (!statements.is_empty()).then_some(Removal {
         statements,
-        fields: recipe.drop_fields.iter().cloned().collect(),
+        fields,
         empty_fields,
     })
+}
+
+/// An OTTL literal equal to exactly the values VRL's `==` takes as `value`, or `None` for a
+/// whole number: the filelog receiver's JSON parser reads every number as a float, so neither
+/// `==` (which takes `3.0` for `3`) nor `IsInt` (never true then) tells them apart as VRL does.
+fn literal(value: &Literal) -> Option<String> {
+    match value {
+        Literal::Text(text) => Some(ottl::string(text)),
+        Literal::Bool(b) => Some(b.to_string()),
+        Literal::Integer(_) => None,
+    }
 }
 
 /// The keep-whole alternatives, each evaluated once into the cache where a record has a

@@ -4,6 +4,7 @@
 //! template ids) goes through here, so escaping lives in one place.
 
 use sluice_core::field::FieldPath;
+use sluice_core::recipe::Literal;
 
 /// A VRL string literal for `text`.
 ///
@@ -28,6 +29,17 @@ pub(crate) fn string(text: &str) -> String {
     }
     out.push('"');
     out
+}
+
+/// A VRL test that the value at `path` is `value`, of its type. VRL's `==` takes a string only
+/// for a string and a boolean only for a boolean, but an integer also for an equal float (`0`
+/// for `0.0`), so an integer is tested as one: put back, the value would otherwise change type.
+pub(crate) fn equals(path: &str, value: &Literal) -> String {
+    match value {
+        Literal::Bool(b) => format!("{path} == {b}"),
+        Literal::Integer(i) => format!("(is_integer({path}) && {path} == {i})"),
+        Literal::Text(s) => format!("{path} == {}", string(s)),
+    }
 }
 
 /// A VRL event path with every segment quoted: `a.b` → `."a"."b"`.

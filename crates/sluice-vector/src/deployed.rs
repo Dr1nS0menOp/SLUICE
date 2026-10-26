@@ -67,6 +67,7 @@ pub fn deployed(yaml: &str, sources: &[Source]) -> Result<Deployed, VectorError>
     let all_programs = check_transforms(&transforms, sources)?;
     let consumed = consumed_outputs(&config);
     let mut programs = BTreeMap::new();
+    let mut summaries = BTreeMap::new();
     let mut read = BTreeSet::new();
     let mut unreduced = Vec::new();
     for source in sources {
@@ -84,9 +85,19 @@ pub fn deployed(yaml: &str, sources: &[Source]) -> Result<Deployed, VectorError>
             CompiledProgram::compile(&c.program, text.to_owned())?,
         );
         read.insert(c.program.clone());
+        if let Some(text) = transforms
+            .get(&c.summarize)
+            .and_then(|summarize| summarize["source"].as_str())
+        {
+            summaries.insert(
+                source.id.clone(),
+                CompiledProgram::compile(&c.summarize, text.to_owned())?,
+            );
+            read.insert(c.summarize.clone());
+        }
     }
     Ok(Deployed {
-        reducer: VrlReducer::new(programs),
+        reducer: VrlReducer::new(programs).with_summaries(summaries),
         unreduced,
         programs: all_programs,
         read,

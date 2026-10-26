@@ -15,6 +15,7 @@ use crate::predicate::Predicate;
 use crate::recipe::{Level, Recipe, Reduction};
 use crate::rules::RuleRequirements;
 
+mod emptied;
 mod model;
 mod protection;
 
@@ -117,7 +118,7 @@ pub fn guard(
                 tests: keep.tests(),
             },
         });
-    } else if !shaped.drop_fields.is_empty() || shaped.drop_empty_except.is_some() {
+    } else if shaped.removes_fields() {
         shaped.keep_whole_when = (!keep.is_never()).then_some(keep);
     }
     // One adjustment for all of them: SigmaHQ alone can put hundreds on one template. A rule
@@ -195,6 +196,19 @@ fn shape(
             Reduction::DropEmptyFields => {
                 effective.drop_empty_except =
                     protection.drop_empty_exceptions(&mut effective.adjustments, &mut conditions);
+            }
+            Reduction::DropImplied { values } => {
+                // An implied value is a field removal like any other: a field a rule reads stays
+                // on every event the rule could match.
+                let fields: BTreeSet<FieldPath> = values.iter().map(|v| v.field.clone()).collect();
+                let allowed =
+                    protection.allowed_drops(&fields, &mut effective.adjustments, &mut conditions);
+                effective.drop_implied.extend(
+                    values
+                        .iter()
+                        .filter(|v| allowed.contains(&v.field))
+                        .cloned(),
+                );
             }
             Reduction::ForwardMatching { summary_keys } => {
                 effective.route = rule_guided_route(

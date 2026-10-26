@@ -1,10 +1,11 @@
 //! The subcommands.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use sluice_autopilot::{
-    Elastic, Helpers, Input, RecipeBook, Report, RulesBasis, SavingsPlan, Sentinel, Settings,
+    Elastic, Helpers, Input, Mode, RecipeBook, Report, RulesBasis, SavingsPlan, Sentinel, Settings,
     analyze as run_autopilot, render_html,
 };
 use sluice_core::advice::Advisor;
@@ -14,7 +15,7 @@ use sluice_synth::{SynthConfig, generate};
 use sluice_vector::{Paths, vector_config};
 use sluice_wazuh::{Http as WazuhHttp, Logtest, LogtestConfig};
 
-use crate::cli::{AnalyzeArgs, DemoArgs, RuleSets, RulesArgs, RulesCommand};
+use crate::cli::{AnalyzeArgs, DemoArgs, ModeArg, RuleSets, RulesArgs, RulesCommand};
 use crate::{ai, input, output};
 
 /// The example rules the demo runs with, built into the binary.
@@ -56,8 +57,12 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
         },
         &args.out,
         // The demo's rules are its own: complete by construction.
-        RulesBasis::SelfContained,
-        Vec::new(),
+        &Settings {
+            rules: RulesBasis::SelfContained,
+            modes: modes(&args.mode),
+            ..Settings::default()
+        },
+        ReportExtras::default(),
         Native {
             elastic: args
                 .elasticsearch
@@ -147,8 +152,15 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
             event_rules: logtest.as_ref().map(|l| l as &dyn EventRules),
         },
         &args.out,
-        basis,
-        inventory_notes,
+        &Settings {
+            rules: basis,
+            modes: modes(&args.mode),
+            ..Settings::default()
+        },
+        ReportExtras {
+            inventory_notes,
+            no_examples: args.no_examples,
+        },
         Native {
             sentinel: args
                 .kusto
@@ -217,6 +229,16 @@ pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
     Ok(())
 }
 
+/// The kinds of saving `--mode` asks for.
+fn modes(args: &[ModeArg]) -> BTreeSet<Mode> {
+    args.iter()
+        .map(|mode| match mode {
+            ModeArg::Rules => Mode::Rules,
+            ModeArg::Implied => Mode::Implied,
+        })
+        .collect()
+}
+
 /// The SIEMs' own ingestion to generate and prove code for.
 #[derive(Default)]
 struct Native<'a> {
@@ -231,6 +253,15 @@ struct Native<'a> {
     otel: Option<&'a Path>,
 }
 
+/// What the report gets besides the analysis.
+#[derive(Default)]
+struct ReportExtras {
+    /// What the fetched inventories say about rules without a query to read.
+    inventory_notes: Vec<String>,
+    /// `--no-examples`: leave the example events out.
+    no_examples: bool,
+}
+
 /// What `--sentinel-native` asks for.
 struct SentinelNative<'a> {
     url: &'a str,
@@ -243,21 +274,20 @@ fn run(
     book: &RecipeBook,
     helpers: Helpers<'_>,
     out: &Path,
-    rules: RulesBasis,
-    inventory_notes: Vec<String>,
+    settings: &Settings,
+    extras: ReportExtras,
     native: Native<'_>,
 ) -> Result<()> {
     let Input {
         sources, events, ..
     } = input;
-    let settings = Settings {
-        rules,
-        ..Settings::default()
-    };
     let analysis =
-        run_autopilot(input, book, &settings, helpers).context("running the autopilot")?;
+        run_autopilot(input, book, settings, helpers).context("running the autopilot")?;
     let mut report = Report::new(&analysis, input);
-    report.inventory_notes = inventory_notes;
+    report.inventory_notes = extras.inventory_notes;
+    if extras.no_examples {
+        report.examples.clear();
+    }
 
     let paths = Paths {
         input_dir: out.join("samples").display().to_string(),

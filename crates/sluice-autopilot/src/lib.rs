@@ -11,6 +11,8 @@ mod analyze;
 mod basis;
 mod contribute;
 mod error;
+mod implied;
+mod mode;
 mod plan;
 mod recipes;
 mod report;
@@ -22,9 +24,13 @@ pub use crate::analyze::{
 pub use crate::basis::RulesBasis;
 pub use crate::contribute::{Contribution, ai_recipes};
 pub use crate::error::AutopilotError;
+pub use crate::mode::Mode;
 pub use crate::plan::{
     CountInstead, PLAN_FORMAT, Placement, PlanProof, SavingsPlan, SourcePlan, TemplatePlan,
 };
 pub use crate::recipes::{RecipeBook, Resolution};
-pub use crate::report::{EMPTY_PROOF, Report, RuleRow, RuleStatus, TemplateRow, render_html};
+pub use crate::report::{
+    EMPTY_PROOF, EXAMPLES_PER_SOURCE, Example, Omission, Omitted, Report, RuleRow, RuleStatus,
+    SentField, SourceExamples, TemplateRow, render_html,
+};
 pub use crate::spot::SpotCheck;

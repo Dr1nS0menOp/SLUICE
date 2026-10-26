@@ -13,13 +13,14 @@ use sluice_core::ids::TemplateId;
 use sluice_core::logsource::LogSource;
 use sluice_core::predicate::Predicate;
 use sluice_core::proof::{Selection, Volume};
-use sluice_core::recipe::Recipe;
+use sluice_core::recipe::{ImpliedValue, Recipe};
 use sluice_core::schema::Schema;
 use sluice_core::source::Source;
 use sluice_core::template::{Template, TemplateShape};
 
 use crate::analyze::Analysis;
 use crate::basis::RulesBasis;
+use crate::mode::Mode;
 use crate::report::{Report, text};
 
 /// The format of [`SavingsPlan`], changed whenever its meaning changes.
@@ -34,6 +35,8 @@ pub struct SavingsPlan {
     pub proof: PlanProof,
     /// Volume of the sample, in and as the plan forwards it.
     pub total: Volume,
+    /// Bytes each kind of saving the analysis made saved (`--mode`).
+    pub saved_by_mode: BTreeMap<Mode, u64>,
     /// Every source, with every kind of event found in it.
     pub sources: Vec<SourcePlan>,
 }
@@ -86,6 +89,12 @@ pub struct TemplatePlan {
     /// If set, null and empty fields may be removed, except these.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remove_empty_fields_except: Option<Vec<FieldPath>>,
+    /// Fields that may be removed while they hold the value given, after the removals above.
+    /// An absent field means that value, so every removed value can be put back. They run where
+    /// `runs_in` says, except that an agent (Fluent Bit, the collector) leaves a value tested
+    /// against a whole number in place: it cannot tell `3` from `3.0`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub remove_implied: Vec<ImpliedValue>,
     /// Events matching this keep every field: a rule could match them (contract rule 3).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keep_whole_when: Option<Predicate>,
@@ -182,6 +191,11 @@ impl SavingsPlan {
                 rules_basis: report.rules_basis,
             },
             total: report.total,
+            saved_by_mode: report
+                .modes
+                .iter()
+                .map(|&mode| (mode, report.saved_by(mode)))
+                .collect(),
             sources,
         }
     }
@@ -196,9 +210,9 @@ impl SavingsPlan {
     }
 }
 
-/// Where `recipe`'s saving on `template` can run; none when it changes nothing. Only a pipeline tool counts, and only it
-/// recognises a text template (by a regex over the line): every generator for a SIEM's
-/// ingestion or an agent recognises key sets only.
+/// Where `recipe`'s saving on `template` can run; none when it changes nothing. Only a pipeline
+/// tool counts, and only it recognises a text template (by a regex over the line): every
+/// generator for a SIEM's ingestion or an agent recognises key sets only.
 pub(crate) fn placements(template: &Template, recipe: &EffectiveRecipe) -> Vec<Placement> {
     let keyset = matches!(
         template.shape,
@@ -245,6 +259,7 @@ fn template_plan(
             .drop_empty_except
             .as_ref()
             .map(|kept| kept.iter().cloned().collect()),
+        remove_implied: recipe.drop_implied.clone(),
         keep_whole_when: recipe.keep_whole_when.clone(),
         count_instead,
         runs_in,

@@ -6,6 +6,71 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
+- **Implied values** (study branch, [ADR 0032](docs/adr/0032-implied-values.md)). `sluice analyze` and `sluice demo` learn from the sample
+  which values the kind of event, or another field of the event, implies, and remove a field
+  only while it holds that value: Windows' `Keywords`, `Channel` and `Task`, Sentinel's
+  `Activity` and the account columns it derives, 4624's placeholders. Every removed value can be
+  put back from `plan.json` (`remove_implied`). On the real
+  Windows sample with all of SigmaHQ: 25.0 % → 42.3 %, 236 = 236 alerts. The research and its
+  sources are in `docs/notes/field-value.md` and `docs/credits.md`.
+- **Implied values in Sentinel.** `--sentinel-native` empties them in the data collection rule
+  too, where they can be put back exactly, and writes `sentinel/<Table>Full.kql`, a workspace
+  function that puts them back so a query reads the table as before. A rule takes the most
+  worthwhile values that fit in its 15,360 characters (counting the rule's own
+  transformation); the rest is left to Vector. On the test workspace: 4.3 % → 30.8 %.
+- **The report says where and why per field.** Every removed field of a kind of event is listed
+  with its events and bytes, why it may go (the recipe's reasoning, empty, always this value,
+  or this value whenever that field holds that one) and where its removal can run.
+- **Modes.** `--mode rules,implied` picks the kinds of saving: `rules` is what Sluice did
+  before (recipes, empty fields, counting; everything a rule or query reads is kept), `implied`
+  the implied values. Both run by default and either runs alone. The report, the summary and
+  `plan.json` (`saved_by_mode`) give the saving of each side by side.
+- **One machine's sample, said.** The report names per source the implied values that are the
+  same on every kind of event that has them, such as `Computer` on a sample from one PC, and how
+  much of the saving they make: on other machines such a field is simply sent.
+- **Implied values in a real Sentinel workspace.** `scripts/real-data/try-dcr-implied.sh`
+  measures them in a data collection rule. On 100 real records Azure billed 30.7 % less (the
+  analysis predicted 30.8 %), and `SecurityEventFull` put back all 700 emptied values. That run
+  fixed a bug: a query reads `SecurityEvent`'s GUID columns as `string`, although the tables
+  API lists them as `guid`. The function wrote `toguid(…)` there, which `case` refused, so it
+  now reads such a column as text.
+- **Implied values back in Elasticsearch.** `--elastic-native` also writes
+  `elastic/SOURCE.runtime.json`: runtime fields (`keyword`, `long` or `boolean`) that put each implied value back when a
+  query runs, for a search's `runtime_mappings` or a Kibana data view. They are proven on the
+  sample in Elasticsearch through `_simulate`, without writing to the cluster: every forwarded
+  document reads as the full one, and a field that would not is left out. The pipeline now
+  keeps an empty field that may go as implied, so its absence has one meaning.
+- **Fixed: counted events were counted as 0 bytes.** The proof left the summary records out
+  of what is sent, so a kind of event counted in full showed as −100 %. It now builds them as
+  the pipeline does (one per minute per combination of summary keys) and counts their bytes:
+  the demo saves 79.2 %, not 84.8 %. The summary, the report and `plan.json` (`summaries`) give
+  the number of records, and the report says per kind of event how counting works. Samples
+  without counting (the real Windows, Sentinel and OTRF runs) are unchanged.
+- **An identifier is never implied by another field.** A field named as an identifier
+  (`ExecutionThreadID`, `agent.ephemeral_id`) was learned as implied per `Computer`: true for
+  the one thread or agent run each machine kept through the sample, false after its next
+  restart. It is now implied by the kind of event only (a `SubjectLogonId` that is always
+  `0x0`). Found on OTRF's APT3 data (four machines of a second network); the demo saves 78.8 %
+  instead of 79.6 %, savings that would not have lasted.
+- **An example report in the repository.** `docs/example-report.html` is the demo's report, so
+  the README shows what Sluice finds before anything is installed; `scripts/example-report.sh`
+  writes it again.
+- **Emptied objects go.** When the savings remove every field of a nested object, the object
+  itself is no longer sent as `{}` (Vector, the ingest pipeline, the Lua filter and the
+  collector). An object that came empty with the event is sent as it came. The report credits
+  an emptied object to the mode whose removals emptied it: the demo saves 79.6 % (was 79.2 %).
+- **What the SIEM still receives.** The report shows, per source, up to 10 events of the sample
+  as they are sent after the savings, one of each kind of event first, as a table that scrolls
+  sideways: one row per event, one column per field, each cell the value sent, the value left out
+  with its reason (repeats the event, empty, or implied and put back from the plan), or a dot
+  where the event has no such field. The event, its kind and its bytes stay in view, and each
+  event's JSON is folded away below.
+  `sluice analyze --no-examples` leaves them out, since they hold the sample's real values.
+- **Implied, explained.** The report says in plain words what an implied value is, why leaving
+  it out loses nothing, and how Sluice learns it, with the largest one of the sample as the
+  example. A field paired with another, such as an account's SID with its name, is described
+  by one pair instead of every value.
+
 ## [0.1.0] - 2026-10-23
 
 First public version, an alpha. Linux only (x86_64 and aarch64), including WSL2: one static

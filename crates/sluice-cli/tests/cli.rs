@@ -523,3 +523,88 @@ fn contributed_recipes_are_checked_and_never_replace_a_file() {
     assert!(!refused.status.success());
     assert!(!root.join("other").exists());
 }
+
+/// `--mode` picks the kinds of saving and the summary and plan say what each saved;
+/// `--no-examples` keeps the sample's events out of the report.
+#[test]
+fn modes_and_examples_are_chosen_on_the_command_line() {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli-modes");
+    let _ = std::fs::remove_dir_all(&root);
+    let demo = root.join("demo");
+    let both = sluice(&["demo", "--out", demo.to_str().unwrap(), "--scale", "5"]);
+    let modes = both
+        .lines()
+        .find(|l| l.starts_with("  modes "))
+        .expect("a modes line");
+    assert!(
+        modes.contains("rules ") && modes.contains("implied ") && !modes.contains("not run"),
+        "{modes}"
+    );
+    assert!(read(&demo.join("report.html")).contains("What the SIEM still receives"));
+    let plan: serde_json::Value =
+        serde_json::from_str(&read(&demo.join("plan.json"))).expect("the plan is JSON");
+    assert!(
+        plan["saved_by_mode"]["rules"]
+            .as_u64()
+            .is_some_and(|b| b > 0)
+    );
+    assert!(
+        plan["saved_by_mode"]["implied"]
+            .as_u64()
+            .is_some_and(|b| b > 0)
+    );
+
+    let rules = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/rules/sigma");
+    let implied = root.join("implied");
+    let summary = sluice(&[
+        "analyze",
+        "--input",
+        demo.join("samples").to_str().unwrap(),
+        "--sources",
+        demo.join("sluice.yaml").to_str().unwrap(),
+        "--rules",
+        rules.to_str().unwrap(),
+        "--rules-complete",
+        "--mode",
+        "implied",
+        "--no-examples",
+        "--out",
+        implied.to_str().unwrap(),
+    ]);
+    assert!(
+        summary.contains("  modes   rules not run, implied "),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("0 events summarized"),
+        "only removals: {summary}"
+    );
+    let report = read(&implied.join("report.html"));
+    assert!(
+        !report.contains("What the SIEM still receives"),
+        "no examples"
+    );
+    assert!(report.contains("What “implied” means"));
+    let plan: serde_json::Value =
+        serde_json::from_str(&read(&implied.join("plan.json"))).expect("the plan is JSON");
+    assert_eq!(plan["saved_by_mode"]["rules"], serde_json::Value::Null);
+    assert!(
+        plan["saved_by_mode"]["implied"]
+            .as_u64()
+            .is_some_and(|b| b > 0)
+    );
+
+    let rules_only = root.join("rules");
+    let summary = sluice(&[
+        "demo",
+        "--out",
+        rules_only.to_str().unwrap(),
+        "--scale",
+        "5",
+        "--mode",
+        "rules",
+    ]);
+    assert!(summary.contains(", implied not run"), "{summary}");
+    let report = read(&rules_only.join("report.html"));
+    assert!(!report.contains("What “implied” means"));
+}
