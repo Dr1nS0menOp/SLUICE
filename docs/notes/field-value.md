@@ -209,7 +209,19 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
   implied columns, Azure bills 30.7 % less on 100 real records (the analysis predicted 30.8 %),
   and `SecurityEventFull` puts every value back. On the Azure Monitor Agent's stream (measured
   2026-10-25) a rule sees `Activity`, `EventLevelName`, `Channel` and `Keywords` too, may empty
-  them, and Azure bills exactly the bytes left. Still open: the other SIEMs' billing.
+  them, and Azure bills exactly the bytes left. What the others document (read 2026-10-26, not
+  measured):
+  - *Elastic Security Serverless* meters ingest as "the fully enriched normalized data size at
+    the end of the ingest pipeline", "before Elasticsearch compression is performed"
+    ([billing dimensions](https://www.elastic.co/docs/deploy-manage/cloud-organization/billing/security-billing-dimensions)).
+    So the fields `--elastic-native`'s pipeline removes, implied values and emptied objects
+    included, are not billed; a field the pipeline adds would be.
+  - *Splunk*: data that ingest actions filter or route "such that the data does not get added
+    to an index" is not licensed volume
+    ([license implications](https://help.splunk.com/en/data-management/perform-basic-data-processing/license-implications)).
+    The page says nothing on fields removed from an event that is indexed, so whether a
+    smaller event costs less stays to be measured (Splunk is parked).
+  - Wazuh is self-hosted: nothing is billed per byte, only disk and the indexer's load.
 - **Versions.** `Version`, `Task` and `Keywords` can change between Windows builds. A
   value-guarded removal stays exact; only the savings vary.
 - **The learning step needs a fleet.** One PC makes `Computer` look constant. That costs no
