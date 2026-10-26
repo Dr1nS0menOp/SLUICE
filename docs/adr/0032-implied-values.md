@@ -27,8 +27,10 @@ removal must lose nothing, and a reader of the forwarded data must be able to se
    fields every key set of it carries, never a field that names the kind of event or a column a
    Sentinel workspace adds itself. A value is learned when the kind of event alone implies it, or
    when another field implies it. That other field must be a category: 2 to 32 values, 20 events
-   each, no new value late in the sample, and no name that marks an identifier. A field that
-   implies another is never removed. A recipe file may carry implied values too, which is the
+   each, no new value late in the sample, and no name that marks an identifier. A field named as
+   an identifier is implied by the kind of event alone, never by another field (added
+   2026-10-26: a thread or an agent's run one machine kept through a sample changes at its next
+   restart). A field that implies another is never removed. A recipe file may carry implied values too, which is the
    route for documented ones.
 3. **Every engine, tested as VRL tests.** Vector removes them. So do the Sentinel data collection
    rule (within the characters a rule takes; the most worthwhile values go first), the
@@ -48,10 +50,12 @@ removal must lose nothing, and a reader of the forwarded data must be able to se
 ## Consequences
 
 - Measured savings with implied values:
-  - a Windows PC with all of SigmaHQ: 25.0 % → 42.4 %;
-  - four machines of OTRF's APT29 data with all of SigmaHQ: 58.8 % and 58.7 % saved, about 26 %
-    by implied values;
-  - every alert the same in each run.
+  - a Windows PC with all of SigmaHQ: 25.0 % → 42.3 %;
+  - four machines of OTRF's APT29 data with all of SigmaHQ: 58.3 % saved on day 1, 25.5 % by
+    implied values, and about as much on day 2;
+  - four machines of a second network (OTRF's APT3) with all of SigmaHQ: 24.7 %, all of it by
+    implied values;
+  - every alert the same in each run (measured again on 2026-10-26).
   - In a Sentinel workspace, Azure billed 30.7 % less on 100 records, as predicted. On the Azure
     Monitor Agent's stream too, a rule may empty `Activity` and `EventLevelName`, and Azure bills
     exactly the bytes left (`docs/notes/sentinel-dcr.md`).

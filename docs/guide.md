@@ -24,18 +24,22 @@ are.
    holds one value (Windows' `Channel`, `Keywords`), or holds one value whenever another field
    holds a given one (4624's `RestrictedAdminMode` is `-` unless `LogonType` is 10). Such a
    field is removed only while it holds that value, so every removed value can be put back from
-   `plan.json`. They are learned from the sample, only from fields that are categories.
-   Vector removes them, and so does the data collection rule of `--sentinel-native`, which
-   also writes `sentinel/<Table>Full.kql`: a workspace function that puts them back, so a query
-   reads the table as before. The report says per field why it may go and where.
-   ([field value study](notes/field-value.md)).
+   `plan.json`. They are learned from the sample, only from fields that are categories, and a
+   field named as an identifier (`ExecutionThreadID`, `agent.ephemeral_id`) is never implied by
+   another field: its value changes at the next restart. Vector removes them, and so does the
+   data collection rule of `--sentinel-native`, which also writes `sentinel/<Table>Full.kql`: a
+   workspace function that puts them back, so a query reads the table as before. The ingest
+   pipeline of `--elastic-native` removes them too, with runtime fields that put them back, and
+   so do the agents, except values tested against a whole number. The report says per field why
+   it may go and where ([field value study](notes/field-value.md)). An object whose every field
+   went is not sent as `{}`; one that came empty is (ADR 0033).
 
    The two kinds of saving are **modes**, and both run unless `--mode` names fewer:
    `--mode rules` uses the recipes only (remove what no rule or query reads, empty fields,
    counting), `--mode implied` the implied values only. The report and `plan.json`
    (`saved_by_mode`) give the saving of each side by side. With both, implied values are
    credited with what they save after the recipes: on the demo, `rules` 67.5 % and `implied`
-   12.1 % together, while `implied` alone saves 34.9 %.
+   11.3 % together, while `implied` alone saves 32.6 %.
 3. **Guardrails.** For each template, Sluice works out which of your rules could see it (by log
    source, and by the template's fixed values) and what each rule reads. A field a rule reads is
    never removed from an event that rule could match; such events are forwarded whole (ADR
@@ -44,7 +48,9 @@ are.
    reduced pipeline would forward: Sigma rules always, Microsoft Sentinel's analytics rules in
    the Kusto emulator when `--kusto` is given, and Elastic's detection rules in Elasticsearch
    when `--elasticsearch` is given. Only if both raise exactly the same alerts is a recipe kept;
-   otherwise it is rolled back, per template. The proof runs the same VRL code Vector will run.
+   otherwise it is rolled back, per template. The proof runs the same VRL code Vector will run,
+   and counts in bytes what would be sent: the forwarded events and the summary records that
+   counted events become (one per minute per summary group).
 5. **Advice.** Sluice writes down what it decided ([What Sluice writes](#what-sluice-writes)) and
    changes nothing itself. You review the configurations and deploy them
    ([ADR 0030](adr/0030-advice-only.md)).
@@ -152,7 +158,7 @@ line`); a keyword rule is matched against the line as it is.
 
 | File | What it is |
 |---|---|
-| `report.html` | The advice, as one page without scripts. A paragraph on what it means, for readers without context; the saving at a glance, per mode; what "implied" means, with this sample's largest implied value; the kinds of event that make 90 % of the saving, largest first, each with what to change, the fields removed on the sample with their bytes, where it can run and why it is safe; savings by source; what the SIEM still receives: per source up to 10 events as they are sent, one of each kind of event first, each with what was left out and why (real values from the sample, long text cut; `--no-examples` leaves them out before you share the report); and, folded away, the smaller savings, the kinds of event sent unchanged with their reasons, every rule next to what Sluice made of it, and the problems. |
+| `report.html` | The advice, as one page without scripts ([an example](example-report.html), from `sluice demo --scale 100`). A paragraph on what it means, for readers without context; the saving at a glance, per mode, with how many summary records counted events become; what "implied" means, with this sample's largest implied value and, per source, the values that are the same on every kind of event (to check on a one-machine sample); the kinds of event that make 90 % of the saving, largest first, each with what to change, the fields removed on the sample with their bytes, why each may go and where it can run, and how counting works where events are counted; savings by source; what the SIEM still receives: per source up to 10 events as they are sent, one of each kind of event first, as a table that scrolls sideways with one column per field, each cell the value sent, the value left out with its reason (implied, repeats the event, empty) or a dot, and each event's JSON folded below (from your own logs these are your real values, long text cut; `--no-examples` leaves them out before you share the report); and, folded away, the smaller savings, the kinds of event sent unchanged with their reasons, every rule next to what Sluice made of it, and the problems. |
 | `rules.json` | That list of rules, for tools. |
 | `plan.json` | The savings plan (`sluice.plan/1`): per source and kind of event what may be removed or counted, the implied values (`remove_implied`: a field absent from a forwarded event holds the value given), which events keep every field, where the saving can run (`runs_in`), and the proof (ADR 0023). |
 | `vector.yaml` | A Vector configuration that carries out the whole plan, with Vector unit tests drawn from the sample. Per source it reads a file and has three sinks: the archive, what is forwarded, and the summaries. |

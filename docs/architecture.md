@@ -63,8 +63,11 @@ synthetic data.
   covers (L3). A proposal is never trusted. Sluice also learns *implied values* from the sample
   itself: a field that always holds one value on a kind of event, or one value whenever another
   field holds a given one. Such a field may be removed (L1) only while it holds exactly that value,
-  so it can be put back (ADR 0032). `--mode` picks the recipes' savings, the implied values or
-  both. An object whose every field went is removed too; one that came empty stays (ADR 0033).
+  so it can be put back (ADR 0032). A field that implies another must be a category (2 to 32
+  values, 20 events each, no new value late in the sample), and a field named as an identifier
+  (a thread, a process, an agent's run) is never implied by another, since its value changes at
+  the next restart. `--mode` picks the recipes' savings, the implied values or both. An object
+  whose every field went is removed too; one that came empty stays (ADR 0033).
 - **C. Rules into requirements.** Every loaded rule is read into the same engine-neutral
   *requirements*: the log source it applies to, the fields it reads (including those in
   exclusions), whether it matches raw text, whether it counts or correlates events, and a
@@ -83,15 +86,24 @@ synthetic data.
 - **E. Proof.** The rules run twice on the sample, on the full events and on the events as the
   reductions would forward them, computed with the same VRL Vector runs (the `vrl` crate). Only
   the same alerts in both directions count as proof; a recipe implicated in a difference is
-  rolled back and the proof runs again. Sigma rules run in rsigma. Sentinel analytics rules run
+  rolled back and the proof runs again. The proof also counts what would be sent, in bytes: the
+  forwarded events and, for counted events, the summary records the pipeline sends instead (one
+  per minute per summary group), so a saving is never larger than what the SIEM stops
+  receiving. Sigma rules run in rsigma. Sentinel analytics rules run
   in the Kusto emulator when `--kusto` is given, where each result row counts as an alert, and
   Elastic's rules in Elasticsearch when `--elasticsearch` is given. Wazuh rules are not
   evaluated in the proof: they constrain the guardrails, and `--wazuh-api` can spot-check
   reductions with a Wazuh manager's `logtest`. Splunk's searches constrain the guardrails only.
 - **F. Plan and configurations.** Sluice writes the report, the savings plan (`plan.json`, ADR
   0023) and the configurations built from the same proven selection: always a `vector.yaml`,
-  and on request a configuration in a tool's own language, each run in that tool on the sample
-  before it is written.
+  and on request a configuration in a tool's own language (`--sentinel-native`,
+  `--elastic-native`, `--fluent-bit-native`, `--otel-native`), each run in that tool on the
+  sample before it is written. The report ([an example](example-report.html), from `sluice demo
+  --scale 100`) gives the saving per mode, explains implied values with the sample's largest
+  one, lists per kind of event what goes, why, and where it can run, says how counting works
+  where events are counted, shows per source up to 10 events as they are sent in a table of
+  their fields (`--no-examples` leaves them out), and lists every rule with what Sluice made of
+  it.
 
 ## What the configurations do
 
@@ -123,8 +135,9 @@ flowchart LR
    (`azure_logs_ingestion`, `splunk_hec_logs`, `elasticsearch`, and so on).
 5. **Summarize.** Summarized events become counts: a Vector `reduce` transform emits one record
    per template and per combination of the recipe's summary keys every 60 seconds
-   (`sluice_summary`, `sluice_template`, `sluice_keys`, `sluice_count`). Rules never see
-   summaries; the originals are in the archive.
+   (`sluice_summary`, `sluice_source`, `sluice_template`, `sluice_keys`, `sluice_count`). Rules
+   never see summaries; the originals are in the archive. These records are what the SIEM
+   receives for the counted events, and the proof counts their bytes as sent.
 
 ### In a SIEM's ingestion or an agent: field removals
 
@@ -138,8 +151,13 @@ and counting stay with a pipeline tool; `runs_in` in the plan says per saving wh
 |---|---|---|
 | Microsoft Sentinel (ADR 0013) | The data collection rule with a `transformKql` per table, and an untransformed flow of the same stream into an Auxiliary archive table; where it empties implied values, `<Table>Full.kql`, a workspace function that puts them back (ADR 0032) | the Kusto emulator |
 | Elasticsearch (ADR 0024) | An ingest pipeline per source: one Painless `script` processor; where it removes implied values, runtime fields that put them back in a search or a data view (ADR 0032) | Elasticsearch, through `_ingest/pipeline/_simulate` |
-| Fluent Bit (ADR 0027) | A Lua filter per source | Fluent Bit |
-| OpenTelemetry Collector (ADR 0028) | OTTL statements per source in a `transform` processor | the collector |
+| Fluent Bit (ADR 0027) | A Lua filter per source; an implied value tested against a whole number stays for Vector, as Lua holds `3` and `3.0` alike | Fluent Bit |
+| OpenTelemetry Collector (ADR 0028) | OTTL statements per source in a `transform` processor; the same for whole numbers, as its JSON parser reads every number as a float | the collector |
+
+Each of them, like Vector, removes an object its removals emptied and keeps one that came empty
+(ADR 0033); Sentinel's transformation removes whole columns only. The command-line tests
+(`crates/sluice-cli/tests/natives.rs`) run each `--…-native` option end to end against its real
+engine.
 
 ## An example: one Windows firewall event, step by step
 
@@ -160,7 +178,7 @@ connection* (`EventID: 5156`, `Application|endswith: '\lsass.exe'`).
 | 1 Receive | In your Vector, the JSON arrives: `EventID 5156`, `Application …\svchost.exe`, `DestAddress 10.0.0.53`, `DestPort 53`, `Protocol 17`, a rendered `Message`, and so on. |
 | 2 Archive | A full copy goes to the archive sink before anything changes. |
 | 3 Reduce | The program classifies the event as the 5156 template. Its `Application` is `svchost.exe`, outside the pre-filter, so its route is `summarize`. An `lsass.exe` event would be forwarded unchanged. |
-| 5 Summarize | Instead of the event, the SIEM receives one record per minute per key combination, such as `{"sluice_template": "windows-security:5156:…", "sluice_keys": {"Application": "…\svchost.exe", "DestAddress": "10.0.0.53", "DestPort": "53", "Protocol": 17}, "sluice_count": 1840}`. |
+| 5 Summarize | Instead of the event, the SIEM receives one record per minute per key combination, such as `{"sluice_summary": true, "sluice_source": "windows-security", "sluice_template": "windows-security:5156:…", "sluice_keys": {"Application": "…\svchost.exe", "DestAddress": "10.0.0.53", "DestPort": "53", "Protocol": 17}, "sluice_count": 1840}`. On the demo, 12,000 such events become 4,938 records: the saving the report gives is what is left after them. |
 | SIEM | The rule runs on the forwarded `lsass.exe` events as before. The single event is in the archive. |
 
 Read from Microsoft Sentinel's `SecurityEvent` table instead (`--sentinel-table
@@ -207,6 +225,13 @@ that M9 and M10 addressed. What remains:
   proof yet. Google SecOps YARA-L, QRadar and workbook queries are not read: for those, the
   completeness of the rules is the operator's claim, and without it Sluice makes only savings
   that keep every event.
+- **Implied values are learned from one sample.** On a sample of one machine, its name looks
+  implied; the report names, per source, the values that are the same on every kind of event,
+  so a reader can check them. Removing them stays lossless (a value guard sends any other
+  value), but the saving is then too high for a fleet. Out of the sample, a put-back step
+  (`<Table>Full`, the runtime fields) recognises a record by its kind and may give a value to
+  a record that never had the field. An analyst who queries the table itself for an implied
+  value finds nothing; `<Table>Full` and the runtime fields read as before (ADR 0032).
 - **Nothing watches what runs.** Sluice proves a configuration before you deploy it, and
   `sluice prove` again when it changes; it does not see your traffic afterwards. A format that
   changes fits no template and passes through unchanged, which costs savings, not detections.
@@ -220,7 +245,7 @@ Sluice is a Rust workspace with one crate per responsibility. Dependencies point
 
 | Crate | Responsibility |
 |---|---|
-| `sluice-core` | The domain model, the safety contract, the guardrails and the shadow proof. Pure logic. |
+| `sluice-core` | The domain model, the safety contract, the guardrails (which objects a plan may empty included) and the shadow proof with its byte count. Pure logic. |
 | `sluice-discover` | Template discovery: key sets for JSON, Drain for text. |
 | `sluice-rules` | Reads Sigma, Wazuh, Sentinel, Elastic and Splunk rules into requirements; evaluates Sigma for the proof. |
 | `sluice-vector` | Compiles recipes to VRL and Vector configuration, runs that VRL for the proof, and derives Sentinel tables and their data collection rules. |
@@ -228,7 +253,7 @@ Sluice is a Rust workspace with one crate per responsibility. Dependencies point
 | `sluice-elastic` | Reductions as Elasticsearch ingest pipelines, and Elastic's rules run in Elasticsearch for the proof. |
 | `sluice-fluentbit` | Reductions as Fluent Bit Lua filters, and a real Fluent Bit to prove them in. |
 | `sluice-otel` | Reductions as OpenTelemetry Collector `transform` statements, and a real collector to prove them in. |
-| `sluice-autopilot` | Puts it together: discover, resolve recipes, guard, prove, emit the data plane, the savings plan and the report. |
+| `sluice-autopilot` | Puts it together: discover, resolve recipes, learn implied values, guard, prove, emit the data plane, the savings plan and the report. |
 | `sluice-ai` | The optional AI advisor for recipes. |
 | `sluice-wazuh` | Spot checks through a Wazuh manager's `logtest` API, and its rule and decoder files (`sluice rules fetch wazuh`). |
 | `sluice-sentinel` | A Sentinel workspace's analytics rules, hunting queries, functions and query log, read-only (`sluice rules fetch sentinel`). |
@@ -296,11 +321,18 @@ Every engine Sluice generates code for gets a test against the real engine:
 - **Kusto:** `scripts/kql-check.sh` runs generated KQL and Sentinel rules in the Kusto emulator.
 - **Elasticsearch, Fluent Bit, OpenTelemetry Collector:** `scripts/elastic-check.sh`,
   `scripts/fluentbit-check.sh` and `scripts/otel-check.sh` run the generated pipelines, filters
-  and statements in the real engine, against what Vector does on the same records.
+  and statements in the real engine, against what Vector does on the same records, and then the
+  `sluice` binary's `--…-native` options end to end (`crates/sluice-cli/tests/natives.rs`).
 - **Sigma:** a differential test of the requirements against pySigma over all SigmaHQ rules.
 - **Wazuh:** findings checked with a live manager's `logtest` ([notes](notes/wazuh.md)).
 - **Azure:** generated tables, data collection rules and transformations checked in a real
   workspace.
 
 Property tests cover the central claim: for all inputs, the alerts over the forwarded data equal
-the alerts over the full data. `scripts/check.sh` runs every gate; CI runs the same.
+the alerts over the full data. `scripts/check.sh` runs every gate; CI runs the same, including
+the check that [the example report](example-report.html) the README links is what the demo
+writes now (`scripts/example-report.sh --check`; the demo is deterministic). Beyond the
+gates, `cargo-mutants` checks that the tests catch a changed line, and `cargo llvm-cov` measures
+line coverage with every engine attached; both, per crate and file, are in the
+[testing plan](testing-plan.md). Real data runs (`scripts/real-data/`, and public datasets such
+as OTRF's) are recorded in the [field value study](notes/field-value.md).

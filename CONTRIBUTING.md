@@ -27,8 +27,8 @@ Every gate must pass:
 bash scripts/check.sh
 ```
 
-This runs `cargo fmt`, `cargo clippy` (pedantic, warnings are errors), the tests, `cargo doc` and
-`cargo deny`. With Vector installed and Docker running, it also runs the generated code in the
+This runs `cargo fmt`, `cargo clippy` (pedantic, warnings are errors), the tests, `cargo doc`,
+the check that `docs/example-report.html` is what the demo writes now, and `cargo deny`. With Vector installed and Docker running, it also runs the generated code in the
 real engines (Vector, the Kusto emulator, Elasticsearch, Fluent Bit and the OpenTelemetry
 Collector) and fails when one removes more than Vector does.
 
@@ -54,6 +54,7 @@ engine is there. CI runs all of them but `kql-check.sh`, whose emulator image is
 | `scripts/otel-check.sh` | Generated `transform` statements in the OpenTelemetry Collector |
 | `scripts/sigma-differential.sh [--sigmahq]` | Rule requirements against pySigma, on the examples or the full SigmaHQ set |
 | `scripts/bench.sh [source] [scale]` | Data plane throughput with the real Vector ([docs/notes/benchmarks.md](docs/notes/benchmarks.md)) |
+| `scripts/example-report.sh` | Writes `docs/example-report.html`, the demo's report the README links to |
 
 `scripts/real-data/` takes samples from real systems (`collect-sentinel.sh`, `collect-elastic.sh`,
 `collect-linux.sh`, `collect-windows.ps1`) and repeats the real-data runs of
@@ -61,6 +62,16 @@ engine is there. CI runs all of them but `kql-check.sh`, whose emulator image is
 
 Install Vector with `scripts/install-vector.sh` and the release toolchain with
 `scripts/install-zig.sh`; both verify checksums and need no root.
+
+### Update the docs in the same pull request
+
+A change is not done until the documentation describes it. Before you push, update what your
+change touches: the README, [Using Sluice](docs/usage.md), the [user guide](docs/guide.md),
+[architecture](docs/architecture.md), the [glossary](docs/glossary.md), `CHANGELOG.md` under
+`[Unreleased]`, and the ADR or note it belongs to. Search the docs for the old wording and any
+number you changed (the demo's output, a measured saving). When the report or the analysis
+changes, regenerate [the example report](docs/example-report.html) with
+`scripts/example-report.sh`.
 
 ## Structure
 

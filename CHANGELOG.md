@@ -11,7 +11,7 @@ All notable changes to Sluice are recorded here. The format follows
   only while it holds that value: Windows' `Keywords`, `Channel` and `Task`, Sentinel's
   `Activity` and the account columns it derives, 4624's placeholders. Every removed value can be
   put back from `plan.json` (`remove_implied`). On the real
-  Windows sample with all of SigmaHQ: 25.0 % → 42.4 %, 236 = 236 alerts. The research and its
+  Windows sample with all of SigmaHQ: 25.0 % → 42.3 %, 236 = 236 alerts. The research and its
   sources are in `docs/notes/field-value.md` and `docs/credits.md`.
 - **Implied values in Sentinel.** `--sentinel-native` empties them in the data collection rule
   too, where they can be put back exactly, and writes `sentinel/<Table>Full.kql`, a workspace
@@ -46,6 +46,15 @@ All notable changes to Sluice are recorded here. The format follows
   the demo saves 79.2 %, not 84.8 %. The summary, the report and `plan.json` (`summaries`) give
   the number of records, and the report says per kind of event how counting works. Samples
   without counting (the real Windows, Sentinel and OTRF runs) are unchanged.
+- **An identifier is never implied by another field.** A field named as an identifier
+  (`ExecutionThreadID`, `agent.ephemeral_id`) was learned as implied per `Computer`: true for
+  the one thread or agent run each machine kept through the sample, false after its next
+  restart. It is now implied by the kind of event only (a `SubjectLogonId` that is always
+  `0x0`). Found on OTRF's APT3 data (four machines of a second network); the demo saves 78.8 %
+  instead of 79.6 %, savings that would not have lasted.
+- **An example report in the repository.** `docs/example-report.html` is the demo's report, so
+  the README shows what Sluice finds before anything is installed; `scripts/example-report.sh`
+  writes it again.
 - **Emptied objects go.** When the savings remove every field of a nested object, the object
   itself is no longer sent as `{}` (Vector, the ingest pipeline, the Lua filter and the
   collector). An object that came empty with the event is sent as it came. The report credits

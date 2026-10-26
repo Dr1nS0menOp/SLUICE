@@ -9,6 +9,13 @@ runs.**
 > **Alpha (0.1).** The analysis and its proof are tested on real data and in the real engines;
 > the commands, `plan.json` and the report may still change. See [Status: alpha](#status-alpha).
 
+**See what it finds before you install anything:**
+[`docs/example-report.html`](docs/example-report.html) is the report Sluice writes for its demo,
+an hour of a small company network with six planted attacks. Download it and open it in a
+browser (GitHub shows an HTML file as its source). It shows where the bytes go, which fields can
+be left out and why that is safe, what the SIEM still receives, event by event, and the proof that
+every alert stays the same.
+
 ## The idea
 
 Security teams pay for every byte their SIEM ingests, yet much of that data is padding: rendered
@@ -125,15 +132,18 @@ example Sigma rules:
 
 ```
 80,536 events from 6 sources, 76 templates
-  ingest  121.0 MB → 24.7 MB  (79.6% saved, 41,562 events summarized into 17,161 records)
-  modes   rules 67.5%, implied 12.1%
+  ingest  121.0 MB → 25.6 MB  (78.8% saved, 41,562 events summarized into 17,161 records)
+  modes   rules 67.5%, implied 11.3%
   proof   41 alerts on full data, 41 on forwarded data  ✓ no detection changed
 ```
 
 It writes into `out/`:
-- `report.html`: the advice, for people. It opens with what the report means, then the largest
-  savings first, each with the fields it removes, why that is safe, and the proof. Every
-  analysis writes one; it is a single page you can mail or open offline.
+- `report.html`: the advice, for people ([this one](docs/example-report.html), regenerated with
+  `scripts/example-report.sh`). It opens with what the report means and the saving per mode,
+  explains implied values, then shows the largest savings first, each with the fields it
+  removes, why that is safe, and the proof, and per source the events as the SIEM would still
+  receive them. Every analysis writes one; it is a single page without scripts that you can mail
+  or open offline.
 - `plan.json`: the same decisions, for tools;
 - `vector.yaml`: a [Vector](https://vector.dev) 0.59 configuration that archives all 80,536
   events, sends the 38,974 the proof sent, and counts the other 41,562 into summary records;
@@ -241,7 +251,9 @@ sluice analyze --input samples --sources sources.yaml --sentinel-rules sentinel-
 ```
 
 `out/sentinel/dcr.json` is that rule with the proven transformation, plus an untransformed flow
-into an archive table. With your own account, not Sluice's, first create the archive table, then
+into an archive table. Where the rule empties implied values, `out/sentinel/SecurityEventFull.kql`
+is a function that puts them back: save it in the workspace and query `SecurityEventFull` to read
+every value as before. With your own account, not Sluice's, first create the archive table, then
 update the rule:
 
 ```sh
@@ -421,7 +433,9 @@ curl -u elastic -X PUT "$ELASTICSEARCH/_ingest/pipeline/logs-system.security@cus
 ```
 
 If the `@custom` pipeline exists already, add the `pipeline` processor to it rather than
-replacing it. Counting events needs `out/vector.yaml`. Remove the proof's Elasticsearch when you
+replacing it. Where the pipeline removes implied values, `out/elastic/windows-security.runtime.json`
+holds runtime fields that put them back: add them to a Kibana data view, or to a search as
+`runtime_mappings`. Counting events needs `out/vector.yaml`. Remove the proof's Elasticsearch when you
 are done: `docker rm -f sluice-elastic`.
 
 ### Splunk (not yet tested against a real Splunk)
@@ -441,8 +455,8 @@ Records in another field convention than Sigma's need the pipeline your SIEM con
 such as `--sigma-pipeline ecs=ecs_windows`. [Using Sluice](docs/usage.md) has the details.
 
 On this project's development machine, with all 3,152 SigmaHQ rules declared complete:
-- Windows System, Application and PowerShell logs (42,335 events): 25.0 % less ingest, with
-  236 = 236 alerts.
+- Windows System, Application and PowerShell logs (42,335 events): 42.3 % less ingest, 18.0 %
+  of it by implied values, with 236 = 236 alerts.
 - A Linux server's `auth.log` and `syslog` (166,665 lines): 25.7 % less.
 
 ## 4. Where the savings run
@@ -452,8 +466,8 @@ Sluice proves each configuration in the engine it is for before it writes it:
 | Where the saving runs | What `sluice analyze` writes | Proven in |
 |---|---|---|
 | [Vector](https://vector.dev) | `vector.yaml`, always: every saving, counting included | the `vrl` crate Vector embeds; its tests let `vector test` check Vector itself |
-| Microsoft Sentinel's ingestion | with `--sentinel-native --sentinel-dcr RULE.json`: that data collection rule with a `transformKql` per table and an untransformed flow into an archive table | the Kusto emulator |
-| Elasticsearch's ingestion | with `--elastic-native`: an ingest pipeline per source | Elasticsearch |
+| Microsoft Sentinel's ingestion | with `--sentinel-native --sentinel-dcr RULE.json`: that data collection rule with a `transformKql` per table and an untransformed flow into an archive table, and `<Table>Full.kql`, which puts implied values back | the Kusto emulator |
+| Elasticsearch's ingestion | with `--elastic-native`: an ingest pipeline per source, and runtime fields that put implied values back | Elasticsearch |
 | Fluent Bit | with `--fluent-bit-native`: a Lua filter per source | Fluent Bit |
 | OpenTelemetry Collector | with `--otel-native`: `transform` statements per source | the collector |
 

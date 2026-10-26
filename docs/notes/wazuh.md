@@ -95,7 +95,7 @@ Before this, Sluice dropped empty fields under such rules, which could silence a
   data: with SigmaHQ as the reference (another SIEM), the same data saves 24-29%.
 
 **Implied values change nothing here** (2026-10-24): `sluice demo`'s sample with the example
-Sigma rules saves 79.6 % (rules 67.5 %, implied 12.1 %; recounted 2026-10-26 with the summary
+Sigma rules saves 78.8 % (rules 67.5 %, implied 11.3 %; recounted 2026-10-26 with the summary
 records it sends and the emptied objects it no longer sends); with the stock Wazuh ruleset added
 (4,652 rules, `--wazuh-decoders`) it saves 0.0 % in both modes, 41 = 41 alerts. Removing an
 implied value changes the JSON line those rules read, so the guardrails keep it like any other

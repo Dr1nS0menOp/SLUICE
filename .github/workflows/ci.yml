@@ -31,6 +31,8 @@ jobs:
       - run: cargo doc --workspace --no-deps --all-features --locked
         env:
           RUSTDOCFLAGS: -D warnings
+      # The README links this report: it must be what the demo writes now.
+      - run: bash scripts/example-report.sh --check
 
   vector:
     name: Generated config against the real Vector

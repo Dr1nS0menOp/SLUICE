@@ -56,8 +56,9 @@ generation.
 5. **sluice-cli**, **sluice-archive**, **sluice-mcp**, **sluice-ai**, **sluice-synth**.
    Target: ≥ 70 %, the rest stays covered end to end.
 
-Coverage is measured with `cargo llvm-cov` (to be added to the gates once the targets hold);
-the numbers are a floor, not the goal. The goal is that a wrong change fails a test.
+Coverage is measured with `cargo llvm-cov` (not part of the gates; the latest figures, with
+every engine attached, are in the coverage table below); the numbers are a floor, not the goal.
+The goal is that a wrong change fails a test.
 
 ## What to test, with example cases
 
@@ -119,6 +120,12 @@ secrets never in errors or `Debug` output (done for Azure credentials), timeouts
 3. `program.rs` and `runtime.rs` are tested only through generated configurations.
 4. `running.rs` (new) has two integration tests; its edge cases are untested.
 5. No mutation testing and no coverage measurement yet.
+
+Where these stand on 2026-10-26 (the table above is the count of 2026-10-14, kept as a record):
+1 is closed, `guard/protection/tests.rs` tests the conditional protection on its own; 2 has
+`sentinel/extract/tests.rs` next to the module tests; 3 is closed, `program/tests.rs` and the
+tests in `runtime.rs` run the generated VRL directly; 4 went with `sluice-server` (ADR 0030);
+5 is closed, mutation results and line coverage per crate follow below.
 
 ## Bugs found
 
