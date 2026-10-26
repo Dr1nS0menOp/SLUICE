@@ -50,7 +50,9 @@ pub(super) fn explain(report: &Report) -> String {
          values, no value in the second half of the sample that the first half lacked, and a \
          name that is not an identifier's (ending in <code>Id</code> or <code>Guid</code>, \
          such as a logon ID). Each of its values needs at least 20 events before Sluice learns \
-         what it fixes. A field a detection rule reads is never left out of an event that rule \
+         what it fixes. A field named as an identifier is itself fixed only by the kind of \
+         event, never by another field: a thread or a process one machine kept through the \
+         sample changes at its next restart. A field a detection rule reads is never left out of an event that rule \
          could match.</p>\
          <p><b>When the data changes.</b> If an event later holds another value, that event \
          simply carries the field: the saving gets smaller, and nothing is lost or \
@@ -219,6 +221,7 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("at least 20 events"), "{text}");
+        assert!(text.contains("changes at its next restart"), "{text}");
         assert!(text.contains("<code>Keywords</code> on windows-security events"));
         assert!(text.contains("Leaving it out of 1,200 events saved 45 KB"));
     }

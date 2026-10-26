@@ -391,9 +391,8 @@ mod learn {
 
 #[test]
 fn a_field_another_removed_one_is_implied_by_stays_even_if_what_implies_it_stays_too() {
-    // `ObjectId` (largest) is implied by `B` (or `C`; ties go to the first name), so `B` must
-    // stay, though `C`, which implies `B`, stays too. `ObjectId` is named as an identifier, so
-    // it implies nothing.
+    // `ObjectName` (largest) is implied by `B` (or `C`; ties go to the first name), so `B` must
+    // stay, though `C`, which implies `B`, stays too.
     let events: Vec<Map<String, Value>> = (0..80)
         .filter_map(|i| {
             let (object, b, c) = if i % 2 == 0 {
@@ -401,25 +400,57 @@ fn a_field_another_removed_one_is_implied_by_stays_even_if_what_implies_it_stays
             } else {
                 ("object-one-with-a-long-value-", "b1-mid", "c1")
             };
-            match json!({"ObjectId": object, "B": b, "C": c}) {
+            match json!({"ObjectName": object, "B": b, "C": c}) {
                 Value::Object(map) => Some(map),
                 _ => None,
             }
         })
         .collect();
     let refs: Vec<&Map<String, Value>> = events.iter().collect();
-    let fields = variant(&["ObjectId", "B", "C"]);
+    let fields = variant(&["ObjectName", "B", "C"]);
     let values = learn_template(&BTreeSet::new(), std::slice::from_ref(&fields), &refs);
     let removed: BTreeSet<&str> = values.iter().map(|v| v.field.as_str()).collect();
-    assert!(removed.contains("ObjectId"), "{values:?}");
+    assert!(removed.contains("ObjectName"), "{values:?}");
     assert!(
         !removed.contains("B"),
-        "`ObjectId` is put back from it: {values:?}"
+        "`ObjectName` is put back from it: {values:?}"
     );
     assert!(
         values
             .iter()
-            .filter(|v| v.field.as_str() == "ObjectId")
+            .filter(|v| v.field.as_str() == "ObjectName")
             .all(|v| v.when.as_ref().is_some_and(|(on, _)| on.as_str() == "B"))
     );
+}
+
+#[test]
+fn an_identifier_is_implied_by_the_kind_of_event_but_never_by_another_field() {
+    // Per machine, one logging thread through the sample, and a logon ID that is always `0x0`.
+    let events: Vec<Map<String, Value>> = (0..80)
+        .filter_map(|i| {
+            let (computer, thread) = if i % 2 == 0 {
+                ("dc01.corp.example", "3063")
+            } else {
+                ("ws01.corp.example", "1197")
+            };
+            match json!({"Computer": computer, "ExecutionThreadID": thread,
+                         "agent": {"ephemeral_id": format!("{computer}-run-7")},
+                         "SubjectLogonId": "0x0"})
+            {
+                Value::Object(map) => Some(map),
+                _ => None,
+            }
+        })
+        .collect();
+    let refs: Vec<&Map<String, Value>> = events.iter().collect();
+    let fields = variant(&[
+        "Computer",
+        "ExecutionThreadID",
+        "agent.ephemeral_id",
+        "SubjectLogonId",
+    ]);
+    let values = learn_template(&BTreeSet::new(), std::slice::from_ref(&fields), &refs);
+    let removed: BTreeSet<&str> = values.iter().map(|v| v.field.as_str()).collect();
+    assert_eq!(removed, ["SubjectLogonId"].into(), "{values:?}");
+    assert!(values.iter().all(|v| v.when.is_none()));
 }

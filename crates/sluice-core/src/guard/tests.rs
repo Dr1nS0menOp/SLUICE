@@ -186,6 +186,46 @@ fn c3_events_a_selective_rule_could_match_are_kept_whole() {
 }
 
 #[test]
+fn c3_an_implied_value_a_rule_reads_stays_on_the_events_it_could_match() {
+    use crate::recipe::{ImpliedValue, Literal};
+    let implied = |field: &str, value: &str| ImpliedValue {
+        field: field.into(),
+        value: Literal::Text(value.into()),
+        when: None,
+    };
+    let implied_values = recipe(vec![Reduction::DropImplied {
+        values: vec![
+            implied("Keywords", "Audit Failure"),
+            implied("LogonType", "3"),
+        ],
+    }]);
+
+    // A rule (or a logged query, which joins the inventory as one) over every 4625 reads
+    // `Keywords`: that value stays; the other may go.
+    let everywhere = [rule("q1", &["EventID", "Keywords"], eq("EventID", "4625"))];
+    let effective = guard(&template(), Some(&implied_values), ctx(&everywhere));
+    let fields: Vec<&str> = effective
+        .drop_implied
+        .iter()
+        .map(|v| v.field.as_str())
+        .collect();
+    assert_eq!(fields, ["LogonType"]);
+    assert!(matches!(
+        &effective.adjustments[0].reason,
+        Reason::FieldNeededByRule { field, .. } if field.as_str() == "Keywords"
+    ));
+
+    // One that matches only some of them: the value may go elsewhere, never on those.
+    let selective = [rule("q2", &["Keywords"], eq("TargetUserName", "admin"))];
+    let effective = guard(&template(), Some(&implied_values), ctx(&selective));
+    assert_eq!(effective.drop_implied.len(), 2);
+    assert_eq!(
+        effective.keep_whole_when,
+        Some(eq("TargetUserName", "admin"))
+    );
+}
+
+#[test]
 fn c3_empty_fields_referenced_by_rules_are_kept() {
     let rules = [rule("r1", &["IpAddress"], eq("EventID", "4625"))];
     let recipe = recipe(vec![Reduction::DropEmptyFields]);

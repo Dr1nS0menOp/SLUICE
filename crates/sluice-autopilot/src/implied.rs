@@ -173,7 +173,11 @@ fn candidate<'a>(
 }
 
 /// `field`'s values implied by `on`: for each value of `on` with enough events, the one value
-/// `field` then always holds.
+/// `field` then always holds. A field named as an identifier is never implied this way: a
+/// thread, a process or an agent's run that one machine kept through a sample changes at its
+/// next restart (OTRF's APT3 data learned `ExecutionThreadID` per `Computer`, the demo
+/// `agent.ephemeral_id`), so the saving would not last. The kind of event may still imply one,
+/// such as a `SubjectLogonId` that is always `0x0`.
 fn implied_by<'a>(
     field: &'a FieldPath,
     column: &[Literal],
@@ -186,7 +190,11 @@ fn implied_by<'a>(
         groups.entry(key).or_default().insert(value);
         *counts.entry(key).or_default() += 1;
     }
-    if !(2..=MAX_IMPLYING_VALUES).contains(&groups.len()) || !closed(implying) || identifier(on) {
+    if !(2..=MAX_IMPLYING_VALUES).contains(&groups.len())
+        || !closed(implying)
+        || identifier(on)
+        || identifier(field)
+    {
         return None;
     }
     let mut values = Vec::new();
