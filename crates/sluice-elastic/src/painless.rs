@@ -49,6 +49,8 @@ pub(crate) fn list<'a>(items: impl IntoIterator<Item = &'a str>) -> String {
 /// - `sluiceRemoveEmptyExcept(ctx, keys, keep, drop)`: `sluiceRemoveEmpty` on each of `keys`
 ///   that is not in `drop` and neither covers nor is covered by a path in `keep`.
 /// - `sluiceIsInt(v, i)`: whether `v` is the whole number `i`, as an `Integer` or a `Long`.
+/// - `sluiceFilled(root, segments)`: whether the value at a path is an object with a field;
+///   `sluiceRemoveEmptied(root, segments)` removes it when it is an object with none.
 pub(crate) const FUNCTIONS: &str = r"boolean sluiceMeta(String k) {
   return k == '_index' || k == '_id' || k == '_version' || k == '_routing' || k == '_version_type' || k == '_if_seq_no' || k == '_if_primary_term' || k == '_dynamic_templates' || k == '_type' || k == '_ingest';
 }
@@ -181,6 +183,14 @@ void sluiceRemoveEmptyExcept(Map doc, Set keys, List keep, List drop) {
 }
 boolean sluiceIsInt(def v, long i) {
   return (v instanceof Integer || v instanceof Long) && ((Number) v).longValue() == i;
+}
+boolean sluiceFilled(def root, List path) {
+  def v = sluiceGet(root, path);
+  return v instanceof Map && !((Map) v).isEmpty();
+}
+void sluiceRemoveEmptied(def root, List path) {
+  def v = sluiceGet(root, path);
+  if (v instanceof Map && ((Map) v).isEmpty()) { sluiceRemove(root, path); }
 }
 ";
 

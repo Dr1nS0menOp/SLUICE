@@ -214,18 +214,37 @@ fn example(
     pattern: Option<&str>,
     recipe: Option<&EffectiveRecipe>,
 ) -> Example {
-    let mut omitted: Vec<Omitted> = removed_members(before, after)
-        .into_iter()
-        .map(|member| Omitted {
-            path: member.path.to_string(),
-            bytes: to_u64(member.bytes),
-            reason: match recipe {
-                Some(r) if r.drop_fields.iter().any(|f| f.covers(&member.path)) => Omission::Recipe,
-                Some(r) if text::implied(&member.path, r) => Omission::Implied(shown(member.value)),
-                _ => Omission::Empty,
-            },
-        })
-        .collect();
+    // A field of an object the recipe removes whole is shown as that object, with its bytes;
+    // the shell of an object that went because its fields did is no field of its own.
+    let mut by_recipe: BTreeMap<String, u64> = BTreeMap::new();
+    let mut omitted: Vec<Omitted> = Vec::new();
+    for member in removed_members(before, after) {
+        let named = recipe.and_then(|r| {
+            r.drop_fields
+                .iter()
+                .filter(|f| f.covers(&member.path))
+                .min()
+        });
+        if let Some(named) = named {
+            *by_recipe.entry(named.to_string()).or_default() += to_u64(member.bytes);
+        } else if !member.shell {
+            omitted.push(Omitted {
+                path: member.path.to_string(),
+                bytes: to_u64(member.bytes),
+                reason: match recipe {
+                    Some(r) if text::implied(&member.path, r) => {
+                        Omission::Implied(shown(member.value))
+                    }
+                    _ => Omission::Empty,
+                },
+            });
+        }
+    }
+    omitted.extend(by_recipe.into_iter().map(|(path, bytes)| Omitted {
+        path,
+        bytes,
+        reason: Omission::Recipe,
+    }));
     omitted.sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.path.cmp(&b.path)));
     let shown = shortened(after);
     let mut sent = Vec::new();
@@ -498,6 +517,37 @@ mod tests {
         );
         assert_eq!(shown.raw, "{\n  \"EventID\": 4624\n}");
         assert_eq!(shown.bytes_out, 16);
+    }
+
+    #[test]
+    fn a_whole_object_the_recipe_removes_is_one_field_and_an_emptied_object_is_none() {
+        let recipe = EffectiveRecipe {
+            drop_fields: ["EventData".into()].into(),
+            drop_implied: vec![ImpliedValue {
+                field: "agent.id".into(),
+                value: Literal::Text("a".into()),
+                when: None,
+            }],
+            ..EffectiveRecipe::passthrough("t".into())
+        };
+        let before = object(json!({
+            "EventID": 1, "EventData": {"User": "bob", "Note": "x"}, "agent": {"id": "a"}
+        }));
+        let after = object(json!({"EventID": 1}));
+        let shown = example(&before, &after, None, Some(&recipe));
+        let left: Vec<(&str, u64, &Omission)> = shown
+            .omitted
+            .iter()
+            .map(|o| (o.path.as_str(), o.bytes, &o.reason))
+            .collect();
+        // `"EventData":{"User":"bob","Note":"x"},` is 38 bytes; `"id":"a",` is 9.
+        assert_eq!(
+            left,
+            [
+                ("EventData", 38, &Omission::Recipe),
+                ("agent.id", 9, &Omission::Implied("a".into())),
+            ]
+        );
     }
 
     #[test]

@@ -46,6 +46,10 @@ All notable changes to Sluice are recorded here. The format follows
   the demo saves 79.2 %, not 84.8 %. The summary, the report and `plan.json` (`summaries`) give
   the number of records, and the report says per kind of event how counting works. Samples
   without counting (the real Windows, Sentinel and OTRF runs) are unchanged.
+- **Emptied objects go.** When the savings remove every field of a nested object, the object
+  itself is no longer sent as `{}` (Vector, the ingest pipeline, the Lua filter and the
+  collector). An object that came empty with the event is sent as it came. The report credits
+  an emptied object to the mode whose removals emptied it: the demo saves 79.6 % (was 79.2 %).
 - **What the SIEM still receives.** The report shows, per source, up to 10 events of the sample
   as they are sent after the savings, one of each kind of event first, as a table that scrolls
   sideways: one row per event, one column per field, each cell the value sent, the value left out

@@ -402,6 +402,21 @@ fn action(
     if lines.is_empty() {
         return None;
     }
+    // As in Vector: an object the removals emptied goes, one that came empty stays.
+    let objects = plan.emptiable_objects();
+    let before = objects.iter().enumerate().map(|(n, object)| {
+        format!(
+            "  boolean sluiceO{n} = sluiceFilled(ctx, {});",
+            painless::segments(object)
+        )
+    });
+    let after = objects.iter().enumerate().map(|(n, object)| {
+        format!(
+            "  if (sluiceO{n}) {{ sluiceRemoveEmptied(ctx, {}); }}",
+            painless::segments(object)
+        )
+    });
+    let lines: Vec<String> = before.chain(lines).chain(after).collect();
     let body = lines.join("\n");
     let code = match &recipe.keep_whole_when {
         Some(keep) => format!("  if (!({})) {{\n{body}\n  }}", conditions.call(keep)),

@@ -560,7 +560,8 @@ fn a_removed_field_says_its_mode_and_the_value_it_always_held() {
         events: 2,
         bytes: 40,
     };
-    let field = |path: &str, shared: bool| removed_field(&path.into(), removal, &recipe, shared);
+    let field =
+        |path: &str, shared: bool| removed_field(&path.into(), removal, &recipe, shared, None);
     let channel = field("Channel", true);
     assert_eq!(
         (channel.mode, channel.constant.as_deref()),
@@ -618,4 +619,92 @@ fn the_rules_verdict_is_that_of_the_report_s_rules() {
     let verdict = report.rules_verdict();
     assert_ne!(verdict, "");
     assert_eq!(verdict, rules::verdict(&report.rule_rows));
+}
+
+#[test]
+fn the_fields_of_an_object_the_recipe_removes_whole_are_shown_as_that_object() {
+    let recipe = EffectiveRecipe {
+        drop_fields: [FieldPath::from("EventData")].into(),
+        ..EffectiveRecipe::passthrough("t".into())
+    };
+    let removal = |events, bytes| Removal { events, bytes };
+    let removals: BTreeMap<FieldPath, Removal> = [
+        ("EventData".into(), removal(10, 14)),
+        ("EventData.User".into(), removal(10, 200)),
+        ("EventData.Note".into(), removal(4, 30)),
+        ("Channel".into(), removal(10, 50)),
+    ]
+    .into();
+    let grouped = by_what_removed_them(Some(&removals), &recipe);
+    assert_eq!(
+        grouped,
+        [
+            ("Channel".into(), removal(10, 50)),
+            ("EventData".into(), removal(10, 244)),
+        ]
+        .into()
+    );
+    assert!(by_what_removed_them(None, &recipe).is_empty());
+}
+
+#[test]
+fn an_object_emptied_by_implied_values_saves_as_implied_and_one_with_any_other_as_rules() {
+    use sluice_core::recipe::{ImpliedValue, Literal};
+    let recipe = EffectiveRecipe {
+        drop_fields: [FieldPath::from("agent.ephemeral")].into(),
+        drop_implied: vec![
+            ImpliedValue {
+                field: "agent.id".into(),
+                value: Literal::Text("a".into()),
+                when: None,
+            },
+            ImpliedValue {
+                field: "ecs.version".into(),
+                value: Literal::Text("8".into()),
+                when: None,
+            },
+            ImpliedValue {
+                field: "host.os.version".into(),
+                value: Literal::Text("10".into()),
+                when: None,
+            },
+        ],
+        ..EffectiveRecipe::passthrough("t".into())
+    };
+    let one = Removal {
+        events: 1,
+        bytes: 1,
+    };
+    let grouped: BTreeMap<FieldPath, Removal> = [
+        "agent",
+        "agent.id",
+        "agent.ephemeral",
+        "ecs",
+        "ecs.version",
+        "Message",
+        "host",
+        "host.os",
+        "host.os.version",
+    ]
+    .into_iter()
+    .map(|p| (FieldPath::from(p), one))
+    .collect();
+    let mode = |p: &str| shell_mode(&FieldPath::from(p), &grouped, &recipe);
+    assert_eq!(mode("ecs"), Some(Mode::Implied));
+    assert_eq!(
+        mode("host"),
+        Some(Mode::Implied),
+        "host.os is a shell inside it, emptied by an implied value"
+    );
+    assert_eq!(mode("host.os"), Some(Mode::Implied));
+    assert_eq!(mode("agent"), Some(Mode::Rules), "a recipe field went too");
+    assert_eq!(mode("Message"), None, "no field inside: not a shell");
+    assert_eq!(mode("agent.id"), None);
+
+    let shell = removed_field(&"ecs".into(), one, &recipe, true, Some(Mode::Implied));
+    assert_eq!(shell.mode, Mode::Implied);
+    assert!(shell.why.starts_with("its fields went"), "{}", shell.why);
+    let plain = removed_field(&"ecs.version".into(), one, &recipe, true, None);
+    assert_eq!(plain.mode, Mode::Implied);
+    assert!(plain.why.starts_with("always"), "{}", plain.why);
 }

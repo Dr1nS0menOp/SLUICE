@@ -258,10 +258,15 @@ pub struct RemovedMember<'a> {
     pub value: &'a Value,
     /// The bytes it took, as `"name":value,` in compact JSON.
     pub bytes: usize,
+    /// Whether this is what was left of an object whose fields are members of their own: its
+    /// name and braces, `"name":{}`.
+    pub shell: bool,
 }
 
-/// The fields of `before` that `after` no longer has. An object that lost only some of its
-/// fields is followed into; one removed whole counts as its own path.
+/// The fields of `before` that `after` no longer has. An object is followed into, whether it
+/// lost some of its fields or went whole: each field counts as its own path, and an object that
+/// went counts once more as its shell, so a saving is credited to the fields that made it (an
+/// object a recipe removes whole, and one the removals emptied, look alike here).
 #[must_use]
 pub fn removed_members<'a>(
     before: &'a Map<String, Value>,
@@ -295,10 +300,23 @@ fn removed_under<'a>(
             format!("{prefix}.{key}")
         };
         match (value, after.get(key)) {
+            (Value::Object(inner), None) if !inner.is_empty() => {
+                removed_under(&path, inner, &Map::new(), members);
+                // `"name":{` and `}` with the member's comma, less the comma the last field
+                // was counted with and an object does not write.
+                let shell = member_size(key, &Value::Object(Map::new())).saturating_sub(1);
+                members.push(RemovedMember {
+                    path: FieldPath::new(path),
+                    value,
+                    bytes: shell,
+                    shell: true,
+                });
+            }
             (_, None) => members.push(RemovedMember {
                 path: FieldPath::new(path),
                 value,
                 bytes: member_size(key, value),
+                shell: false,
             }),
             (Value::Object(inner), Some(Value::Object(kept))) => {
                 removed_under(&path, inner, kept, members);

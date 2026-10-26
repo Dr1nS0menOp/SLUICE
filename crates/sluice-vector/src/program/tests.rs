@@ -318,6 +318,75 @@ fn an_implied_value_goes_only_while_it_holds_and_is_of_its_type() {
 }
 
 #[test]
+fn an_object_the_removals_emptied_goes_and_one_with_a_field_left_stays() {
+    let template = keyset(
+        "nested",
+        "1",
+        &[
+            "EventID",
+            "agent.id",
+            "agent.name",
+            "host.os.name",
+            "ecs.version",
+        ],
+    );
+    let recipe = EffectiveRecipe {
+        drop_fields: paths(&["agent.id", "host.os.name", "ecs.version"]),
+        ..EffectiveRecipe::passthrough("nested".into())
+    };
+    let plans = [(template, recipe)];
+    let body = forwarded(
+        reduce(
+            &plans,
+            json!({"EventID": 1, "agent": {"id": "a", "name": "WS"},
+                   "host": {"os": {"name": "Windows"}}, "ecs": {"version": "8"}}),
+        )
+        .1,
+    );
+    assert_eq!(
+        Value::Object(body),
+        json!({"EventID": 1, "agent": {"name": "WS"}}),
+        "host.os, then host, and ecs went; agent keeps its name"
+    );
+}
+
+#[test]
+fn c3_an_empty_object_that_came_with_the_event_is_sent_as_it_came() {
+    let template = keyset("nested", "1", &["EventID", "agent.id"]);
+    let recipe = EffectiveRecipe {
+        drop_fields: paths(&["agent.id"]),
+        ..EffectiveRecipe::passthrough("nested".into())
+    };
+    let plans = [(template, recipe)];
+    // `flatten` drops empty objects, so `extra: {}` classifies as the template; `agent` held a
+    // field the recipe removed, `extra` held none.
+    let body = forwarded(
+        reduce(
+            &plans,
+            json!({"EventID": 1, "agent": {"id": "a"}, "extra": {}}),
+        )
+        .1,
+    );
+    assert_eq!(Value::Object(body), json!({"EventID": 1, "extra": {}}));
+}
+
+#[test]
+fn c3_events_kept_whole_keep_their_objects_too() {
+    let template = keyset("nested", "1", &["EventID", "User", "agent.id"]);
+    let recipe = EffectiveRecipe {
+        drop_fields: paths(&["agent.id"]),
+        keep_whole_when: Some(eq("User", "admin")),
+        ..EffectiveRecipe::passthrough("nested".into())
+    };
+    let plans = [(template, recipe)];
+    let admin = json!({"EventID": 1, "User": "admin", "agent": {"id": "a"}});
+    assert_eq!(
+        Value::Object(forwarded(reduce(&plans, admin.clone()).1)),
+        admin
+    );
+}
+
+#[test]
 fn a_text_template_without_wildcards_is_tried_after_every_key_set() {
     // By id `a-text` would come first; key sets go before any text template.
     let program = super::source_program(&[

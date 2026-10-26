@@ -165,6 +165,16 @@ gives the saving of each:
   can have left). The pipeline keeps an empty field that may go as implied, so its absence has
   one meaning. Proven on the sample in Elasticsearch: on the demo, 41 fields of
   `windows-security` read every forwarded document as the full one.
+- **Emptied objects go too** (2026-10-26). When every field of a nested object goes, the object
+  went on as `{}`: on the demo's Windows logoff (4634), 34 of the 262 bytes sent were
+  `"agent":{},"ecs":{},"host":{"os":{}}`. Every generator that removes nested fields (Vector,
+  the ingest pipeline, the Lua filter, the collector) now removes such an object after its
+  removals, deepest first (`Plan::emptiable_objects`). It is lossless: a rule that reads an
+  object keeps its fields, so no rule can tell. An object that came empty with the event stays:
+  Vector, Painless and Lua note before the removals whether the object held a field; the
+  collector needs no note, as its exact recognition never takes a record with an extra empty
+  object. Sentinel's transformation removes whole columns only, so nothing changes there; the
+  put-back steps read a missing parent as a missing field, as before.
 - **The report** shows per source up to 10 events as they are sent, with what was left out and
   why, and says in plain words what an implied value is.
 
@@ -176,7 +186,7 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
 | Linux `auth.log` and `syslog`; SigmaHQ | 25.7 % | 25.7 % | 0 = 0 |
 | Sentinel `SecurityEvent` and `WindowsEvent`; the Windows Security Events solution and SigmaHQ | 0.0 % | 0.0 % | 1,706 = 1,706 |
 | Sentinel `SecurityEvent` of the test workspace; its own two rules | 4.1 % | 37.9 % | 0 = 0 |
-| `sluice demo --scale 100`; the example rules | 67.9 % | 79.2 % | 41 = 41 |
+| `sluice demo --scale 100`; the example rules | 67.9 % | 79.6 % | 41 = 41 |
 | OTRF Security-Datasets APT29 day 1, Security and Sysmon of **four machines**; the example rules | 63.2 % (the rules' share) | 80.0 % (implied 16.8 %) | 0 = 0 |
 | The same four machines; all 3,152 SigmaHQ rules | 32.8 % (the rules' share) | 58.8 % (implied 26.1 %) | 29,555 = 29,555 |
 | APT29 day 2, the same four machines, Security; all SigmaHQ | 35.1 % (the rules' share) | 63.5 % (implied 28.4 %) | 287 = 287 |
@@ -221,21 +231,15 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
   reads as before; analytics rules keep querying the table, and the guardrails keep every field
   they read. For Elasticsearch, the runtime fields of `SOURCE.runtime.json` do the same in a
   search or a data view. Splunk has no such step yet (parked). **Wazuh needs none:** with its
-  stock ruleset loaded (4,652 rules) the demo saves 0.0 %, implied values included (79.2 %
-  without them, measured 2026-10-24 and recounted 2026-10-25 with the summary records), because raw-text rules such as 1002 read the whole JSON
+  stock ruleset loaded (4,652 rules) the demo saves 0.0 %, implied values included (79.6 %
+  without them, measured 2026-10-24 and recounted 2026-10-26 with the summary records and the
+  emptied objects), because raw-text rules such as 1002 read the whole JSON
   line (`docs/notes/wazuh.md`), and Windows data reaches Wazuh through its agent, not through
   Sluice. Nothing is removed, so nothing needs putting back.
 - **Out of the sample, a rebuild can guess.** `<Table>Full` and the runtime fields recognise a
   record by its kind of event; a record of that kind that arrived without the field (a variant
   the sample did not have), or with it empty in Sentinel, where an emptied and an empty column
   look alike, gets the implied value. The proof on the sample rules this out there only.
-- **Emptied objects are still sent.** When every field of a nested object goes, the object
-  stays as `{}`: on the demo's Windows logoff (4634) the event is sent as 262 bytes of which
-  `"agent":{},"ecs":{},"host":{"os":{}}` take 34 (13 %), measured 2026-10-25. Removing an object
-  the reductions emptied would be lossless, but each engine must do it after its removals, only
-  for objects it emptied itself (an empty object in the source event can be tested for), and the
-  put-back steps must then create the parent again. ECS-shaped data (Beats, the Elastic agent)
-  gains most; flat records (Sentinel, Windows XML) nothing.
 - **Linux text lines.** Template text is the bulk of a line, and rules read it whole. Saving there
   stays with counting kinds of event no rule needs, and with archives that compress by template
   (as CLP does).

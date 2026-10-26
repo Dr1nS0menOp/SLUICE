@@ -15,6 +15,7 @@ use crate::predicate::Predicate;
 use crate::recipe::{Level, Recipe, Reduction};
 use crate::rules::RuleRequirements;
 
+mod emptied;
 mod model;
 mod protection;
 

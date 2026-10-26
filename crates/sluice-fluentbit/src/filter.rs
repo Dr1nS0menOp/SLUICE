@@ -350,6 +350,21 @@ fn action(
     if lines.is_empty() {
         return None;
     }
+    // As in Vector: an object the removals emptied goes, one that came empty stays.
+    let objects = plan.emptiable_objects();
+    let before = objects.iter().enumerate().map(|(n, object)| {
+        format!(
+            "    local sluice_o{n} = sluice_filled(r, {})",
+            lua::segments(object)
+        )
+    });
+    let after = objects.iter().enumerate().map(|(n, object)| {
+        format!(
+            "    if sluice_remove_emptied(r, {}, sluice_o{n}) then changed = true end",
+            lua::segments(object)
+        )
+    });
+    let lines: Vec<String> = before.chain(lines).chain(after).collect();
     Some(Action {
         code: lines.join("\n"),
         keep: recipe.keep_whole_when.as_ref().map(|k| conditions.call(k)),

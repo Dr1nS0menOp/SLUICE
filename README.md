@@ -125,8 +125,8 @@ example Sigma rules:
 
 ```
 80,536 events from 6 sources, 76 templates
-  ingest  121.0 MB → 25.2 MB  (79.2% saved, 41,562 events summarized into 17,161 records)
-  modes   rules 67.5%, implied 11.7%
+  ingest  121.0 MB → 24.7 MB  (79.6% saved, 41,562 events summarized into 17,161 records)
+  modes   rules 67.5%, implied 12.1%
   proof   41 alerts on full data, 41 on forwarded data  ✓ no detection changed
 ```
 

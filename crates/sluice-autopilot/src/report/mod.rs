@@ -241,12 +241,13 @@ fn row(analysis: &Analysis, template: &Template, recipe: &EffectiveRecipe) -> Te
     let key = Some(template.id.clone());
     let volume = proof.per_template.get(&key).copied().unwrap_or_default();
     let shared = shared(template, recipe);
-    let mut removed: Vec<RemovedField> = proof
-        .removed
-        .get(&key)
-        .into_iter()
-        .flatten()
-        .map(|(path, removal)| removed_field(path, *removal, recipe, shared))
+    let grouped = by_what_removed_them(proof.removed.get(&key), recipe);
+    let mut removed: Vec<RemovedField> = grouped
+        .iter()
+        .map(|(path, removal)| {
+            let shell = shell_mode(path, &grouped, recipe);
+            removed_field(path, *removal, recipe, shared, shell)
+        })
         .collect();
     removed.sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.path.cmp(&b.path)));
     let proposal = analysis.proposals.get(&template.id);
@@ -270,25 +271,78 @@ fn shared(template: &Template, recipe: &EffectiveRecipe) -> bool {
     crate::plan::placements(template, recipe).len() > 1
 }
 
-/// What removing `path` came to on the sample, by which mode, why, and where it can run.
+/// The proof's removals, with the fields of an object the recipe removes whole gathered under
+/// that object: the recipe names it, not its fields. The events are the most that lost any of
+/// them, which the object's shell, there in every event that lost it, makes exact.
+fn by_what_removed_them(
+    removals: Option<&BTreeMap<FieldPath, Removal>>,
+    recipe: &EffectiveRecipe,
+) -> BTreeMap<FieldPath, Removal> {
+    let mut grouped: BTreeMap<FieldPath, Removal> = BTreeMap::new();
+    for (path, removal) in removals.into_iter().flatten() {
+        let named = recipe
+            .drop_fields
+            .iter()
+            .filter(|f| f.covers(path))
+            .min()
+            .unwrap_or(path);
+        let entry = grouped.entry(named.clone()).or_default();
+        entry.events = entry.events.max(removal.events);
+        entry.bytes += removal.bytes;
+    }
+    grouped
+}
+
+/// For an object that went because its fields did (its shell, `"name":{}`), the mode of those
+/// fields: implied when every one of them went as implied. `None` for any other field.
+fn shell_mode(
+    path: &FieldPath,
+    grouped: &BTreeMap<FieldPath, Removal>,
+    recipe: &EffectiveRecipe,
+) -> Option<Mode> {
+    let below = |p: &FieldPath| grouped.keys().any(|q| q != p && p.covers(q));
+    // The fields inside, not the shells of objects inside it: those went by the same fields.
+    let mut inside = grouped
+        .keys()
+        .filter(|p| *p != path && path.covers(p) && !below(p))
+        .peekable();
+    inside.peek()?;
+    Some(if inside.all(|p| text::implied(p, recipe)) {
+        Mode::Implied
+    } else {
+        Mode::Rules
+    })
+}
+
+/// What removing `path` came to on the sample, by which mode, why, and where it can run. A
+/// `shell` is an object that went because its fields did, with their mode.
 fn removed_field(
     path: &FieldPath,
     removal: Removal,
     recipe: &EffectiveRecipe,
     shared: bool,
+    shell: Option<Mode>,
 ) -> RemovedField {
     let implied = text::implied(path, recipe);
     RemovedField {
         path: path.to_string(),
         events: removal.events,
         bytes: removal.bytes,
-        mode: if implied { Mode::Implied } else { Mode::Rules },
+        mode: match shell {
+            Some(mode) => mode,
+            None if implied => Mode::Implied,
+            None => Mode::Rules,
+        },
         constant: recipe
             .drop_implied
             .iter()
             .find(|v| implied && &v.field == path && v.when.is_none())
             .map(|v| v.value.to_string()),
-        why: text::why_removed(path, recipe),
+        why: if shell.is_some() {
+            "its fields went, and an empty object says nothing".to_owned()
+        } else {
+            text::why_removed(path, recipe)
+        },
         runs_in: text::where_removed(path, recipe, shared),
     }
 }

@@ -426,10 +426,9 @@ fn c1_in_fluent_bit_records_lose_exactly_what_they_lose_in_vector() {
         }
         let was = leaf_values(before);
         for (path, value) in leaf_values(after) {
-            // An object whose last field went is a leaf of its own now, as in Vector.
+            // An object whose last field went is gone, as in Vector: nothing new appears.
             let Some(was) = was.get(&path) else {
-                assert_eq!(value, json!({}), "{path} is new: {shown}");
-                continue;
+                panic!("{path} is new, {value}: {shown}");
             };
             assert!(
                 same(was, &value),

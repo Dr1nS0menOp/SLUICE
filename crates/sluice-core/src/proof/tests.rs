@@ -459,10 +459,24 @@ fn removed_fields_are_named_by_path_with_their_bytes() {
     assert_eq!(
         removed,
         [
-            // `"Message":"long text",` and `"os":{"kernel":""},`
+            // `"Message":"long text",`; `"os":{"kernel":""},` as its field `"kernel":"",` and
+            // its shell `"os":{` and `},`, together the 19 bytes the object took.
             (FieldPath::new("Message"), 22),
-            (FieldPath::new("host.os"), 19),
+            (FieldPath::new("host.os.kernel"), 12),
+            (FieldPath::new("host.os"), 7),
         ]
     );
     assert_eq!(removed_paths(&before, &before), []);
+    let members = removed_members(&before, &after);
+    assert_eq!(
+        members.iter().map(|m| m.shell).collect::<Vec<_>>(),
+        [false, false, true]
+    );
+
+    // An object that came empty and went is a field of its own, not a shell.
+    let (Value::Object(empty), Value::Object(none)) = (json!({"x": {}}), json!({})) else {
+        unreachable!("objects")
+    };
+    assert_eq!(removed_paths(&empty, &none), [(FieldPath::new("x"), 7)]);
+    assert!(!removed_members(&empty, &none)[0].shell);
 }

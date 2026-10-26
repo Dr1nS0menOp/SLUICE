@@ -231,6 +231,17 @@ fn removal(plan: &Plan<'_>, left_out: &mut Vec<String>) -> Option<Removal> {
         ));
         fields.insert(implied.field.clone());
     }
+    // As in Vector: an object the removals emptied goes. Recognition is exact, map by map, so
+    // an object that came empty is a key no template expects, and its record stays whole.
+    if !statements.is_empty() {
+        for object in plan.emptiable_objects() {
+            let value = ottl::path(ROOT, &object);
+            statements.push(delete(
+                &object,
+                Some(&format!("IsMap({value}) and Len({value}) == 0")),
+            ));
+        }
+    }
     (!statements.is_empty()).then_some(Removal {
         statements,
         fields,
