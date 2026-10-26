@@ -189,8 +189,8 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
 | `sluice demo --scale 100`; the example rules | 67.9 % | 79.6 % | 41 = 41 |
 | OTRF Security-Datasets APT29 day 1, Security and Sysmon of **four machines**; the example rules (summary records counted, 2026-10-26) | 61.2 % (the rules' share) | 78.1 % (implied 16.8 %) | 0 = 0 |
 | The same four machines; all 3,152 SigmaHQ rules (again on 2026-10-26: the same) | 32.8 % (the rules' share) | 58.8 % (implied 26.1 %) | 29,555 = 29,555 |
-| APT29 day 2, the same four machines, Security; all SigmaHQ | 35.1 % (the rules' share) | 63.5 % (implied 28.4 %) | 287 = 287 |
-| APT29 day 2, Sysmon (407,265 events, 812 MB); all SigmaHQ | 32.6 % (the rules' share) | 58.2 % (implied 25.6 %) | 8,431 = 8,431 |
+| APT29 day 2, the same four machines, Security; all SigmaHQ (again on 2026-10-26: the same) | 35.1 % (the rules' share) | 63.5 % (implied 28.4 %) | 287 = 287 |
+| APT29 day 2, Sysmon (407,265 events, 812 MB); all SigmaHQ (again on 2026-10-26: the same, 135 s, 4.5 GB peak) | 32.6 % (the rules' share) | 58.2 % (implied 25.6 %) | 8,431 = 8,431 |
 
 - On Linux nothing changes, as predicted: its lines are text.
 - With SigmaHQ on records in Sentinel's names, SigmaHQ's rules may read any field (ADR 0018),
