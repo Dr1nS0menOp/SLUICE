@@ -83,8 +83,6 @@ never a detection. The report lists every rule next to what Sluice made of it.
 
 **Experimental:**
 
-- **Splunk.** The fetch is written against Splunk's documented API but has not run against a
-  real Splunk, and no engine runs Splunk's searches in the proof.
 - **Rules read from files** instead of fetched from the SIEM. A file cannot say that it holds
   every rule the SIEM runs, or what a workspace's functions do, so Sluice saves less and the
   report lists what it could not check.
@@ -449,14 +447,6 @@ replacing it. Where the pipeline removes implied values, `out/elastic/windows-se
 holds runtime fields that put them back: add them to a Kibana data view, or to a search as
 `runtime_mappings`. Counting events needs `out/vector.yaml`. Remove the proof's Elasticsearch when you
 are done: `docker rm -f sluice-elastic`.
-
-### Splunk (not yet tested against a real Splunk)
-
-`sluice rules fetch --out splunk-rules splunk --api https://splunk.example:8089` reads three
-things: the saved searches, macros, and the `props` and `transforms` of every app. Give it a
-read-only account's token in `SPLUNK_TOKEN`. Then pass `--splunk-rules splunk-rules` to `sluice
-analyze`. No engine runs Splunk's searches in the proof yet: what they read still limits every
-saving.
 
 ### Any other SIEM: Sigma rules
 

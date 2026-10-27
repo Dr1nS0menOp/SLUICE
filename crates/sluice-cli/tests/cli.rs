@@ -391,8 +391,8 @@ fn connect_refuses_nothing_to_write_and_samples_that_are_not_json() {
     let out = dir.to_str().unwrap();
     let error = sluice_fails(&["connect", "sentinel", "--out", out]);
     assert!(error.contains("nothing to write"), "{error}");
-    let error = sluice_fails(&["connect", "splunk", "--summary-table", "--out", out]);
-    assert!(error.contains("invalid value 'splunk'"), "{error}");
+    let error = sluice_fails(&["connect", "chronicle", "--summary-table", "--out", out]);
+    assert!(error.contains("invalid value 'chronicle'"), "{error}");
 
     let sample = dir.join("bad.ndjson");
     // A byte order mark and a blank line: the line number is still the one an editor shows.

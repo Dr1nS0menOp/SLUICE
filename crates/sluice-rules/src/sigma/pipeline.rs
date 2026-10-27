@@ -58,7 +58,7 @@ impl SigmaPipeline {
         if !schema.is_declared() || schema == Schema::Sigma {
             return Err(RulesError::SigmaPipeline(format!(
                 "{name}: a pipeline maps Sigma's names onto another convention; name it \
-                 (ecs, cim, asim, ocsf, udm, sentinel or splunk)"
+                 (ecs, asim, ocsf, udm or sentinel)"
             )));
         }
         Ok(Self {

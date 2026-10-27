@@ -25,7 +25,6 @@ sluice-kql = { path = "crates/sluice-kql" }
 sluice-otel = { path = "crates/sluice-otel" }
 sluice-rules = { path = "crates/sluice-rules" }
 sluice-sentinel = { path = "crates/sluice-sentinel" }
-sluice-splunk = { path = "crates/sluice-splunk" }
 sluice-vector = { path = "crates/sluice-vector" }
 sluice-wazuh = { path = "crates/sluice-wazuh" }
 sluice-synth = { path = "crates/sluice-synth" }

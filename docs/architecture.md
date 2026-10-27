@@ -36,8 +36,7 @@ takes in Vector. The terms are explained in the [glossary](glossary.md).
 - **Rules.** `sluice rules fetch` reads what a SIEM runs, read-only, into a directory with an
   `inventory.json` that marks it complete (ADR 0021): a Sentinel workspace's analytics rules,
   hunting queries, functions, query log and tables (ADR 0031); a Wazuh manager's rule and
-  decoder files; the detection rules of a Kibana space; Splunk's saved searches, macros, props
-  and transforms.
+  decoder files; the detection rules of a Kibana space.
   Sigma rules come from a directory, and the operator says whether they are complete.
 - **A sample.** One NDJSON file per source, an hour or a day of it, and a sources file that
   describes each source: its Sigma log source, its format (JSON or text) and the field naming
@@ -74,8 +73,7 @@ synthetic data.
   *pre-filter*: a superset of the events it could match. Sigma rules are read with rsigma, Wazuh
   `rules.xml` with quick-xml (bounded by decoders), Microsoft Sentinel analytics rules with
   Sluice's own KQL reader (ASIM parsers included), Elastic's KQL and EQL with Sluice's own
-  parsers (ES|QL and Lucene read broadly), and Splunk's searches by their base search, with
-  macros expanded. Anything not understood widens to "may read everything, on every event".
+  parsers (ES|QL and Lucene read broadly). Anything not understood widens to "may read everything, on every event".
 - **D. Guardrails.** The safety contract turns each proposal into an *effective recipe*: unknown
   data and rare templates (fewer than 100 events, or under 0.1 % of their source) are never
   saved on, nothing is saved without the archive, a field a rule may read is kept on every event
@@ -93,7 +91,7 @@ synthetic data.
   in the Kusto emulator when `--kusto` is given, where each result row counts as an alert, and
   Elastic's rules in Elasticsearch when `--elasticsearch` is given. Wazuh rules are not
   evaluated in the proof: they constrain the guardrails, and `--wazuh-api` can spot-check
-  reductions with a Wazuh manager's `logtest`. Splunk's searches constrain the guardrails only.
+  reductions with a Wazuh manager's `logtest`.
 - **F. Plan and configurations.** Sluice writes the report, the savings plan (`plan.json`, ADR
   0023) and the configurations built from the same proven selection: always a `vector.yaml`,
   and on request a configuration in a tool's own language (`--sentinel-native`,
@@ -132,7 +130,7 @@ flowchart LR
    fails on is forwarded unchanged, and so is an event that fits no template.
 4. **Forward.** Forwarded events go to the forward sink, whole or trimmed. The generated file
    writes them to a file; in your deployment, your SIEM's Vector sink takes its place
-   (`azure_logs_ingestion`, `splunk_hec_logs`, `elasticsearch`, and so on).
+   (`azure_logs_ingestion`, `elasticsearch`, and so on).
 5. **Summarize.** Summarized events become counts: a Vector `reduce` transform emits one record
    per template and per combination of the recipe's summary keys every 60 seconds
    (`sluice_summary`, `sluice_source`, `sluice_template`, `sluice_keys`, `sluice_count`). Rules
@@ -220,11 +218,10 @@ that M9 and M10 addressed. What remains:
   sources name their event-type fields and share a template per kind of event across their
   frequent shapes. A rare text line that differs only at a parameter position still shares its
   template.
-- **Not every SIEM's rules are read.** `sluice rules fetch` reads Sentinel, Wazuh, Elastic
-  Security and Splunk (ADR 0021, ADR 0025, ADR 0026); no engine runs Splunk's searches in the
-  proof yet. Google SecOps YARA-L, QRadar and workbook queries are not read: for those, the
-  completeness of the rules is the operator's claim, and without it Sluice makes only savings
-  that keep every event.
+- **Not every SIEM's rules are read.** `sluice rules fetch` reads Sentinel, Wazuh and Elastic
+  Security (ADR 0021, ADR 0025). Splunk is not supported (ADR 0034), and Google SecOps YARA-L,
+  QRadar and workbook queries are not read: for those, the completeness of the rules (as Sigma
+  rules) is the operator's claim, and without it Sluice makes only savings that keep every event.
 - **Implied values are learned from one sample.** On a sample of one machine, its name looks
   implied; the report names, per source, the values that are the same on every kind of event,
   so a reader can check them. Removing them stays lossless (a value guard sends any other
@@ -247,7 +244,7 @@ Sluice is a Rust workspace with one crate per responsibility. Dependencies point
 |---|---|
 | `sluice-core` | The domain model, the safety contract, the guardrails (which objects a plan may empty included) and the shadow proof with its byte count. Pure logic. |
 | `sluice-discover` | Template discovery: key sets for JSON, Drain for text. |
-| `sluice-rules` | Reads Sigma, Wazuh, Sentinel, Elastic and Splunk rules into requirements; evaluates Sigma for the proof. |
+| `sluice-rules` | Reads Sigma, Wazuh, Sentinel and Elastic rules into requirements; evaluates Sigma for the proof. |
 | `sluice-vector` | Compiles recipes to VRL and Vector configuration, runs that VRL for the proof, and derives Sentinel tables and their data collection rules. |
 | `sluice-kql` | KQL for Sentinel: reductions as DCR transformations, and analytics rules run in the Kusto emulator for the proof. |
 | `sluice-elastic` | Reductions as Elasticsearch ingest pipelines, and Elastic's rules run in Elasticsearch for the proof. |
@@ -257,7 +254,6 @@ Sluice is a Rust workspace with one crate per responsibility. Dependencies point
 | `sluice-ai` | The optional AI advisor for recipes. |
 | `sluice-wazuh` | Spot checks through a Wazuh manager's `logtest` API, and its rule and decoder files (`sluice rules fetch wazuh`). |
 | `sluice-sentinel` | A Sentinel workspace's analytics rules, hunting queries, functions and query log, read-only (`sluice rules fetch sentinel`). |
-| `sluice-splunk` | Splunk's saved searches, macros, props and transforms over its REST API, read-only (`sluice rules fetch splunk`). |
 | `sluice-http` | The one HTTP client the adapters use: timeouts per caller, one answer limit, certificate handling and short error excerpts. |
 | `sluice-synth` | Deterministic synthetic security logs for the demo and the tests. |
 | `sluice-cli` | The `sluice` command: arguments, files, exit codes, logging. |
@@ -293,7 +289,6 @@ Git history only; `archive/` held them until 2026-10-22 (ADR 0030).
 | Microsoft Sentinel analytics rules (KQL) | Reading the rules a Sentinel workspace runs, ASIM parsers included, into requirements (step C) | Sentinel's detections are KQL, not Sigma (ADR 0015). |
 | [Kusto emulator](https://learn.microsoft.com/azure/data-explorer/kusto-emulator-overview) (Docker) | Running Sentinel's analytics rules themselves on full and forwarded records (step E, with `--kusto`), and the generated DCR transformations | The proof for Sentinel is decided by Microsoft's engine and Microsoft's rules. |
 | Elastic Security detection rules (KQL, EQL, ES\|QL) and Elasticsearch | Reading Elastic's rules into requirements (step C), and running them and the generated ingest pipelines in Elasticsearch (step E, with `--elasticsearch`) | Elastic's detections are its own languages (ADR 0025). |
-| Splunk saved searches (SPL) | Reading scheduled and correlation searches, with their macros, into requirements (step C) | Splunk's detections are SPL (ADR 0026). |
 | Drain (implemented in Sluice) | Template discovery for text logs (step A) | A well-studied online log parser; small enough to own ([notes](notes/drain.md)). |
 
 ### Configurations Sluice writes

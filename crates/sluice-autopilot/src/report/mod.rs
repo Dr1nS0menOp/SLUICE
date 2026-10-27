@@ -159,10 +159,6 @@ impl Report {
             rules.push(("Elastic".to_owned(), count(elastic.rules.requirements())));
             requirements.extend(elastic.rules.requirements());
         }
-        if let Some(splunk) = input.splunk {
-            rules.push(("Splunk".to_owned(), count(splunk.requirements())));
-            requirements.extend(splunk.requirements());
-        }
         Self {
             total: proof.total,
             alerts_full: proof.full_alerts.len(),

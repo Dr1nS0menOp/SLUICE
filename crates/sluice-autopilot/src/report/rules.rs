@@ -37,7 +37,7 @@ impl RuleStatus {
 /// One rule or query, and what Sluice made of it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RuleRow {
-    /// `Sigma`, `Wazuh`, `Sentinel`, `Elastic` or `Splunk`.
+    /// `Sigma`, `Wazuh`, `Sentinel` or `Elastic`.
     pub set: String,
     /// The rule's id.
     pub rule: String,
@@ -76,9 +76,6 @@ pub(crate) fn rows(input: Input<'_>) -> Vec<RuleRow> {
             elastic.rules.requirements(),
             elastic.rules.names(),
         );
-    }
-    if let Some(splunk) = input.splunk {
-        set_rows(&mut rows, "Splunk", splunk.requirements(), splunk.names());
     }
     rows
 }
@@ -220,9 +217,9 @@ mod tests {
     fn an_unreadable_rule_is_not_read() {
         let opaque = RuleRequirements::opaque(RuleId::new("sentinel:unreadable:x.yaml#1"));
         assert_eq!(judge(&opaque).0, RuleStatus::NotRead);
-        // Whatever its id says: a Splunk search with a macro Sluice has no definition of.
+        // Whatever its id says: a Sentinel rule calling a function Sluice has no source of.
         let (status, detail) = judge(&RuleRequirements::opaque(RuleId::new(
-            "splunk:Unknown Macro",
+            "sentinel:Unknown Function",
         )));
         assert_eq!(status, RuleStatus::NotRead);
         assert!(detail.ends_with("everywhere"), "{detail}");

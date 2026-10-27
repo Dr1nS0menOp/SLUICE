@@ -4,7 +4,8 @@
 
 **Where the project stands (2026-10-22): v0.1.0, the first release, an alpha.** Sluice advises
 only (ADR 0030). The README's guides were checked against Microsoft Sentinel (end to end, on a
-live workspace), Elastic Security and Wazuh; Splunk and rules read from files are experimental.
+live workspace), Elastic Security and Wazuh; rules read from files are experimental. Splunk was
+removed on 2026-10-27 (ADR 0034).
 Most of this file is the history of how it got here. After the alpha, in this order:
 
 1. **What each field is worth, beyond the rules** (on a branch of its own first): per field of
@@ -12,7 +13,8 @@ Most of this file is the history of how it got here. After the alpha, in this or
    as text that can always be looked up again (an EventID's description, which `Message`
    repeats). Ideally an algorithm that sees it by itself. It must still go through the
    guardrails and the proof.
-   **Status 2026-10-26: built on branch `study/field-value`, not merged, awaiting review.**
+   **Status 2026-10-26: done, merged into main and pushed (`4c0f703`, then `614cf90` for the
+   example report on OTRF's APT29 data).**
    *Implied values* (ADR 0032): learned from the sample, removed only while they hold, put back
    by `plan.json`, Sentinel's `<Table>Full` and Elasticsearch's runtime fields, in every engine;
    `--mode rules,implied`. Also: summary records counted in what is sent, emptied objects not
@@ -22,8 +24,7 @@ Most of this file is the history of how it got here. After the alpha, in this or
    (24.7 %), every alert the same ([field value study](docs/notes/field-value.md)).
 2. Problems in `plan.json` too, not only in the report.
 3. One `--native` flag instead of one per target.
-4. Splunk out of the freezer, once its licence question is settled.
-5. The MCP and AI flow that drafts data collection rules and their shaping (M12).
+4. The MCP and AI flow that drafts data collection rules and their shaping (M12).
 
 Known small limit: `sluice … | head` ends with a "Broken pipe" panic when `head` closes the
 pipe early. The files are written by then. Resetting `SIGPIPE` needs `unsafe`, which the
@@ -671,7 +672,7 @@ Its scope is planned when it starts; it includes at least:
      proof. The report becomes a view of it.
   2. **One generator per tool** turning the plan into configuration: Vector (exists), then a
      Sentinel DCR `transformKql` (finish ADR 0013: L1 only, since a DCR cannot summarize),
-     then Elastic ingest pipelines and Splunk (ingest actions or props/transforms), then
+     then Elastic ingest pipelines, then
      agents such as Fluent Bit and the OpenTelemetry Collector.
   3. **Each generator is labelled** *proven* (checked against the real engine, as Vector and
      the Kusto emulator are) or *advisory* (cannot be checked), per CLAUDE.md.
@@ -679,7 +680,7 @@ Its scope is planned when it starts; it includes at least:
      only in a pipeline tool (counting needs Vector or similar).
 
   Order: the plan and the Sentinel DCR generator first (Sentinel is the first audience), then
-  Elastic and Splunk.
+  Elastic.
 
   Status 2026-10-16 (ADR 0023): step 1 done for `sluice analyze` and `sluice demo`: `plan.json`
   (`sluice.plan/1`) with the proof, and per source and kind of event its shape, removals,
@@ -696,7 +697,7 @@ Its scope is planned when it starts; it includes at least:
   *proven*: `--elastic-native` proves a Painless pipeline per source in a real
   Elasticsearch (never more than Vector, same Sigma alerts); on the real Windows sample with
   SigmaHQ, System −24.8 % and Application −39.3 %. Text templates and counting stay with a
-  pipeline tool. Next: Splunk.
+  pipeline tool.
 
   Status 2026-10-17 (ADR 0027): Fluent Bit Lua filters are done and *proven* in a real Fluent
   Bit (4.0.3): the same recognition and keep-whole as the ingest pipelines, an unchanged record
@@ -713,8 +714,7 @@ Its scope is planned when it starts; it includes at least:
   real ECS sample to measure on.
 - Requirements extractors and, where an engine can run offline, proofs for each SIEM's own rule
   language, in this order (decided 2026-10-14): Elastic first (KQL, EQL, ES|QL, detection
-  rules; OpenSearch and the SIEMs built on it follow), then Splunk SPL (correlation searches),
-  then Google SecOps YARA-L, LogScale, Datadog, Graylog and Wazuh beyond rules. QRadar is left
+  rules; OpenSearch and the SIEMs built on it follow), then Google SecOps YARA-L, LogScale, Datadog, Graylog and Wazuh beyond rules. QRadar is left
   out for now.
 
   Status 2026-10-17 (ADR 0026): Splunk's scheduled and correlation searches are requirements,
@@ -724,16 +724,17 @@ Its scope is planned when it starts; it includes at least:
   all of it from the REST API. On ESCU 6.8.0: 2,223 searches read, 845 bounded. On hold since
   2026-10-17 (confirmed 2026-10-18): a Splunk engine for the proof and a Splunk generator, which
   need the Splunk General Terms accepted. `sluice rules fetch splunk` was tested against a
-  stand-in only, never a real Splunk.
-- The rest of M10 for every SIEM: inventories over Splunk (`saved/searches`, macros,
-  extractions), Elastic (detection rules, ingest pipelines) and Chronicle; workbook and
+  stand-in only, never a real Splunk. **Removed on 2026-10-27 (ADR 0034):** Sluice does not
+  support Splunk; the code is in the Git history.
+- The rest of M10 for every SIEM: inventories over Elastic (detection rules, ingest pipelines)
+  and Chronicle; workbook and
   dashboard queries; `sluice up` reloading the inventory (done 2026-10-17: `--reload-rules`,
   ADR 0021); summaries as a table of their own with
-  counting helpers (a KQL function, a Splunk macro; Sentinel done 2026-10-17, ADR 0029); fields nobody queries (query logs) as the
+  counting helpers (a KQL function; Sentinel done 2026-10-17, ADR 0029); fields nobody queries (query logs) as the
   safest cut proposals.
-- Destinations, table shapes and schema mappings (CIM, ECS, UDM, OCSF, ASIM, LEEF/CEF) for each,
+- Destinations, table shapes and schema mappings (ECS, UDM, OCSF, ASIM, LEEF/CEF) for each,
   with native ingest-time transformations where the platform has them (Elastic ingest
-  pipelines, Splunk ingest actions, SecOps parser extensions), proven like VRL (M5).
+  pipelines, SecOps parser extensions), proven like VRL (M5).
 - **An MCP integration that works the advice out where Sluice writes nothing (idea,
   2026-10-18).** An assistant reads Sluice's advice over MCP (`plan.json`, the report, the
   proven configurations) and drafts what the user's platform still needs: for example the data
@@ -758,7 +759,7 @@ Its scope is planned when it starts; it includes at least:
   - Parser packs (M9 step 3) in the same hub, with the same CI, and the AI-proposed parser that
     is accepted only when it rebuilds every line of its cluster exactly. Both let Sigma field
     rules be compared with text sources again (ADR 0020).
-  - Normalization for teams that want it, on M9's schema layer (OCSF, ECS, CIM, ASIM, UDM
+  - Normalization for teams that want it, on M9's schema layer (OCSF, ECS, ASIM, UDM
     mappings), proven against the rules that read the mapped names, and PII masking with the
     same proof.
 
@@ -871,7 +872,7 @@ sluice/
                         #   (pure: no I/O, no async; engines injected via traits)
     sluice-synth/       # deterministic synthetic log generator (demo + tests)
     sluice-discover/    # Drain (text) and keyset (JSON) template discovery, frequency stats
-    sluice-rules/       # Sigma (rsigma), Wazuh, Sentinel, Elastic and Splunk rules → requirements
+    sluice-rules/       # Sigma (rsigma), Wazuh, Sentinel and Elastic rules → requirements
     sluice-vector/      # reductions → VRL, VRL execution (vrl crate), vector.yaml + vector tests
     sluice-kql/         # reductions → Sentinel DCR transformations; rules in the Kusto emulator
     sluice-elastic/     # reductions → ingest pipelines; Elastic's rules in Elasticsearch
@@ -881,7 +882,6 @@ sluice/
     sluice-ai/          # L3 advisor: redaction, prompt, Anthropic and OpenAI-compatible models
     sluice-wazuh/       # Wazuh logtest client (spot check) and rule inventory
     sluice-sentinel/    # Sentinel rule inventory over Azure APIs (read-only)
-    sluice-splunk/      # Splunk saved searches, macros, props and transforms (read-only)
     sluice-http/        # the one HTTP client of the adapters
     sluice-cli/         # `sluice` binary: demo, analyze, prove, rules, recipes, connect
   recipes/<vendor>/<product>/<event>.yaml + samples/   # community recipes (YAML)

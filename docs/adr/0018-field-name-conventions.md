@@ -26,7 +26,7 @@ fields are absent" as "this rule reads nothing here".
 1. **A convention for field names.** `Schema` (`sluice-core`) names the convention a set of field
    names follows: `sigma`, `ecs`, `cim`, `asim`, `ocsf`, `udm`, `sentinel` (the columns of the
    Sentinel tables that are not ASIM), `splunk` (fields as Splunk extracts them, ADR 0026), or
-   `undeclared`, the default.
+   `undeclared`, the default. (Since 2026-10-27, ADR 0034: `cim` and `splunk` are removed.)
 2. **Sources declare it.** `Source.schema` (`schema:` in the sources file and in the `sluice up`
    configuration), copied into every `Template`. A source with a `shape` follows the shape's
    convention unless it says otherwise: the Windows shapes write Sigma's names (ADR 0014), the ASIM

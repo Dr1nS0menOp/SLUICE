@@ -6,6 +6,11 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
+- **Removed: Splunk** ([ADR 0034](docs/adr/0034-no-splunk.md)). `--splunk-rules`, `sluice rules
+  fetch splunk`, the SPL reader, the crate `sluice-splunk` and the field conventions only Splunk
+  has (`schema: splunk` and `schema: cim`) are gone. They were experimental: no engine ran
+  Splunk's searches in the proof, and the fetch never ran against a real Splunk. A Splunk user
+  can still give Sluice Sigma rules, as for any SIEM whose rules Sluice does not read.
 - **Implied values** (study branch, [ADR 0032](docs/adr/0032-implied-values.md)). `sluice analyze` and `sluice demo` learn from the sample
   which values the kind of event, or another field of the event, implies, and remove a field
   only while it holds that value: Windows' `Keywords`, `Channel` and `Task`, Sentinel's

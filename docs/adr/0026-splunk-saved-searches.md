@@ -1,6 +1,7 @@
 # ADR 0026: Splunk saved searches as requirements
 
-- Status: Accepted
+- Status: Superseded by [ADR 0034](0034-no-splunk.md) (2026-10-27: Splunk is removed; the code
+  below is in the Git history)
 - Date: 2026-10-17
 
 ## Context

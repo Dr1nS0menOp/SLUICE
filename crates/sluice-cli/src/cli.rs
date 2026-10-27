@@ -118,12 +118,6 @@ pub(crate) struct RuleSets {
     /// `_find` JSON) or Elastic's prebuilt rules package (ADR 0025).
     #[arg(long, value_name = "DIR")]
     pub(crate) elastic_rules: Option<PathBuf>,
-    /// Directory of Splunk saved searches and macros: `savedsearches.conf` and `macros.conf`,
-    /// or the REST API's `saved/searches` and `admin/macros` JSON, with `props.conf` and
-    /// `transforms.conf` for the fields Splunk derives (ADR 0026). No engine runs them in the
-    /// proof.
-    #[arg(long, value_name = "DIR")]
-    pub(crate) splunk_rules: Option<PathBuf>,
 }
 
 impl RuleSets {
@@ -133,7 +127,6 @@ impl RuleSets {
             self.wazuh_rules.as_deref(),
             self.sentinel_rules.as_deref(),
             self.elastic_rules.as_deref(),
-            self.splunk_rules.as_deref(),
         ]
         .into_iter()
         .flatten()
@@ -190,17 +183,6 @@ pub(crate) enum FetchTarget {
         /// The Kibana space; the default space without it.
         #[arg(long)]
         space: Option<String>,
-    },
-    /// Splunk: the saved searches and macros of every app the user sees, enabled or not (only
-    /// scheduled, enabled ones count). Credentials: `SPLUNK_TOKEN` (an authentication token),
-    /// or `SPLUNK_USER` and `SPLUNK_PASSWORD`. Then `--splunk-rules OUT`.
-    Splunk {
-        /// The management port, such as `https://splunk:8089`.
-        #[arg(long)]
-        api: String,
-        /// Accept Splunk's self-signed certificate. Only on a trusted network path.
-        #[arg(long)]
-        insecure: bool,
     },
 }
 

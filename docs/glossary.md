@@ -30,11 +30,11 @@ configuration use in brackets where it differs.
 | **Implied value** (`drop_implied`, `remove_implied`) | A value the kind of event, or another field of the event, implies: `Channel: Security` on a Windows Security event. Removed only while the field holds exactly it (L1), so `plan.json`, Sentinel's `<Table>Full` and Elasticsearch's runtime fields can put it back (ADR 0032). A field named as an identifier is implied by the kind of event only, never by another field; an IP address or a port is never implied. |
 | **Emptied object** (`Plan::emptiable_objects`) | A nested object whose every field the savings removed. It goes too, rather than being sent as `{}`; an object that came empty stays (ADR 0033). |
 | **Mode** (`--mode`) | A kind of saving: `rules` (the recipes) or `implied` (implied values). Both run by default; the report gives the saving of each. |
-| **Rule** | A detection rule or query the SIEM runs: Sigma, Wazuh XML, Sentinel KQL, Elastic's KQL, EQL or ES\|QL, or a Splunk saved search. |
+| **Rule** | A detection rule or query the SIEM runs: Sigma, Wazuh XML, Sentinel KQL, or Elastic's KQL, EQL or ES\|QL. |
 | **Rule inventory** (`inventory.json`) | The rules a SIEM runs, read from its API by `sluice rules fetch`. It marks the rule set complete, which summaries need. |
 | **Requirements** (`requirements`) | What a rule needs from the data: the log source it applies to, the fields it reads, whether it searches free text, whether it counts events, and its pre-filter. |
 | **Pre-filter** (`prefilter`) | Every event a rule could possibly match: wider rather than narrower. What Sluice does not understand counts as "every event". |
-| **Field naming convention** (`schema`) | Which names a source's records use: `sigma`, `ecs`, `cim`, `asim`, `ocsf`, `udm`, `sentinel` or `splunk`. A Sigma rule is compared only with sources that declare `sigma`, or with a pipeline that maps it. |
+| **Field naming convention** (`schema`) | Which names a source's records use: `sigma`, `ecs`, `asim`, `ocsf`, `udm` or `sentinel`. A Sigma rule is compared only with sources that declare `sigma`, or with a pipeline that maps it. |
 
 ## Safety
 

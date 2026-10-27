@@ -109,9 +109,8 @@ which names its records follow, with `schema`:
 | `schema` | The records use |
 |---|---|
 | `sigma` | The names Sigma rules use: Windows event data (`Image`, `TargetUserName`) and whatever names your own rules were written against. |
-| `ecs`, `cim`, `asim`, `ocsf`, `udm` | Elastic's, Splunk's, Sentinel's ASIM, OCSF's or Google's names. |
+| `ecs`, `asim`, `ocsf`, `udm` | Elastic's, Sentinel's ASIM, OCSF's or Google's names. |
 | `sentinel` | The columns of a Sentinel table that is not ASIM (`Syslog`, `CommonSecurityLog`). |
-| `splunk` | The fields as Splunk extracts them: a JSON event's key paths (ADR 0026). |
 | (left out) | Not declared. |
 
 A Sigma rule is compared with a source whose `schema` is `sigma`, or one for which you load a
@@ -119,7 +118,7 @@ processing pipeline (ADR 0020):
 
 ```sh
 sluice analyze ... --sigma-pipeline ecs=ecs_windows            # built into rsigma
-sluice analyze ... --sigma-pipeline cim=./splunk-windows.yml   # a pySigma pipeline file
+sluice analyze ... --sigma-pipeline ocsf=./ocsf-windows.yml    # a pySigma pipeline file
 ```
 
 Use the pipeline your SIEM converts Sigma rules with: Sluice then proves the rule the SIEM runs.
@@ -131,9 +130,8 @@ every field of every event, so no field it could read is removed from that sourc
 `names its fields as sigma does, the records use ecs`. This is the safe direction. Declaring
 `sigma` for records that use other names is not: a rule would then look as if it read nothing,
 and Sluice would remove what it reads. The same holds for a pipeline other than the SIEM's.
-Elastic's detection rules name ECS fields and Splunk's searches the fields Splunk extracts, so
-they are compared with sources that declare `ecs` or `splunk`, and on any other source read as
-reading every field of every event (ADR 0025, ADR 0026). Wazuh and Sentinel rules relate their
+Elastic's detection rules name ECS fields, so they are compared with sources that declare `ecs`,
+and on any other source read as reading every field of every event (ADR 0025). Wazuh and Sentinel rules relate their
 own field names to the data and are not affected.
 
 Text sources have no field names until the SIEM parses the line. A Sigma rule that tests a named
@@ -145,12 +143,12 @@ line`); a keyword rule is matched against the line as it is.
 | Command | What it does |
 |---------|--------------|
 | `sluice demo` | Generates an hour of synthetic traffic with planted attacks and runs the whole analysis on it. `--elastic-native`, `--fluent-bit-native`, `--otel-native`, `--llm` and `--mode` as for `analyze`. |
-| `sluice analyze --input DIR --sources FILE --rules DIR` | Runs the analysis on your sample (`DIR/<source>.ndjson`) and writes the files below. `--wazuh-rules` (with `--wazuh-decoders` to bound them), `--wazuh-api` (logtest spot check), `--sentinel-rules` with `--kusto` and `--sentinel-table` (proof in the Kusto emulator; add `--sentinel-native` for a proven DCR `transformKql` per table, and `--sentinel-dcr RULE.json` to have it written into that rule together with an untransformed flow into an Auxiliary archive table, ADR 0013), `--elasticsearch URL` (runs the Elastic rules in the proof, ADR 0025) with `--elastic-native` (an ingest pipeline per source, proven there, ADR 0024), `--fluent-bit CMD --fluent-bit-native` (a Fluent Bit Lua filter per source, proven in Fluent Bit, ADR 0027), `--otel-collector CMD --otel-native` (OpenTelemetry Collector transform statements per source, proven in the collector, ADR 0028), `--elastic-rules DIR` (Elastic Security detection rules as Kibana exports them, ADR 0025), `--splunk-rules DIR` (Splunk's `savedsearches.conf` and `macros.conf`, ADR 0026), `--sigma-pipeline`, `--recipes`, `--llm` are optional, and `--mode` picks the kinds of saving (`rules`, `implied` or both, the default), and `--no-examples` leaves the sample's events out of the report. Summaries need a complete rule set: fetched, or `--rules-complete`. |
+| `sluice analyze --input DIR --sources FILE --rules DIR` | Runs the analysis on your sample (`DIR/<source>.ndjson`) and writes the files below. `--wazuh-rules` (with `--wazuh-decoders` to bound them), `--wazuh-api` (logtest spot check), `--sentinel-rules` with `--kusto` and `--sentinel-table` (proof in the Kusto emulator; add `--sentinel-native` for a proven DCR `transformKql` per table, and `--sentinel-dcr RULE.json` to have it written into that rule together with an untransformed flow into an Auxiliary archive table, ADR 0013), `--elasticsearch URL` (runs the Elastic rules in the proof, ADR 0025) with `--elastic-native` (an ingest pipeline per source, proven there, ADR 0024), `--fluent-bit CMD --fluent-bit-native` (a Fluent Bit Lua filter per source, proven in Fluent Bit, ADR 0027), `--otel-collector CMD --otel-native` (OpenTelemetry Collector transform statements per source, proven in the collector, ADR 0028), `--elastic-rules DIR` (Elastic Security detection rules as Kibana exports them, ADR 0025), `--sigma-pipeline`, `--recipes`, `--llm` are optional, and `--mode` picks the kinds of saving (`rules`, `implied` or both, the default), and `--no-examples` leaves the sample's events out of the report. Summaries need a complete rule set: fetched, or `--rules-complete`. |
 | `sluice prove --config FILE --input DIR --sources FILE --rules DIR` | Proves a Vector configuration as it is, on a sample: exit 1 when the rules' alerts on what it forwards differ from those on the full sample, or when the sample raises no alert (`--allow-no-alerts` accepts that). `--json` for CI; `--sentinel-rules`, `--kusto` and `--sentinel-table` as for `analyze` (ADR 0022). |
 | `sluice connect sentinel --out DIR …` | Writes Sentinel tables and data collection rules as files; it changes nothing in Azure. `--sample FILE --table NAME` (with `--time-field F` for `TimeGenerated`) derives a custom table `NAME_CL` and its rule; `--summary-table` writes the table `SluiceSummary_CL`, its rule and the function `SluiceCounts.kql` (ADR 0029). `--workspace ID` and `--location` fill in the rules. |
 | `sluice recipes [schema \| export --out DIR \| contribute --from DIR --into REPO]` | Lists the built-in recipes, prints their JSON Schema, exports them to edit, or copies the recipes an AI proposed and the proof kept (`OUT/ai-recipes` from `analyze --llm`) into a recipe repository, checked. |
-| `sluice rules fetch --out DIR sentinel\|wazuh\|elastic\|splunk …` | Reads the rules a SIEM runs from its API, read-only, into `DIR` with an `inventory.json` that marks them complete (ADR 0021). For Sentinel also every workspace function, and `tables.json`, the tables the workspace has: a rule reads nothing through any other (ADR 0031). Fetching again replaces the directory. |
-| `sluice rules requirements --rules DIR` | Prints, as JSON, what each rule needs: log source, fields, raw text, state. Also for Wazuh (`--wazuh-rules`), Sentinel (`--sentinel-rules`), Elastic (`--elastic-rules`) and Splunk (`--splunk-rules`) rules. |
+| `sluice rules fetch --out DIR sentinel\|wazuh\|elastic …` | Reads the rules a SIEM runs from its API, read-only, into `DIR` with an `inventory.json` that marks them complete (ADR 0021). For Sentinel also every workspace function, and `tables.json`, the tables the workspace has: a rule reads nothing through any other (ADR 0031). Fetching again replaces the directory. |
+| `sluice rules requirements --rules DIR` | Prints, as JSON, what each rule needs: log source, fields, raw text, state. Also for Wazuh (`--wazuh-rules`), Sentinel (`--sentinel-rules`) and Elastic (`--elastic-rules`) rules. |
 
 ## What Sluice writes
 

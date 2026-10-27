@@ -131,7 +131,7 @@ fn sigma_pipelines_are_built_in_names_or_files() {
     .unwrap();
     let specs = [
         "ecs=ecs_windows".to_owned(),
-        format!(" cim ={}", file.display()),
+        format!(" ocsf ={}", file.display()),
     ];
     let pipelines = sigma_pipelines(&specs).unwrap();
     let names: Vec<_> = pipelines
@@ -142,7 +142,10 @@ fn sigma_pipelines_are_built_in_names_or_files() {
         names,
         [
             (sluice_core::schema::Schema::Ecs, "ecs_windows".to_owned()),
-            (sluice_core::schema::Schema::Cim, file.display().to_string()),
+            (
+                sluice_core::schema::Schema::Ocsf,
+                file.display().to_string()
+            ),
         ]
     );
 }
