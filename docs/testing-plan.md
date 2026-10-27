@@ -333,7 +333,7 @@ rule ids, typed problems, shared case folding and the workspace's tables (ADR 00
 | Sentinel records, solution | 40,590 records, 46.2 MB | 3.0 %; 4672 −39 %, 4798 −38 % | 0 = 0 | 11 %; 4672 −43 % |
 | Sentinel records, solution + SigmaHQ | same | 0.0 % | 1,706 = 1,706 | (before ADR 0018) |
 
-With `--elastic-native` (2026-10-17, Elasticsearch 9.1.0, same data and SigmaHQ): Windows
+With `--native elastic` (2026-10-17, Elasticsearch 9.1.0, same data and SigmaHQ): Windows
 System 11.6 → 8.7 MB (−24.8 %, 35 kinds of event, 60 = 60 alerts), Application 17.8 → 10.8 MB
 (−39.3 %, 25 kinds, 176 = 176), PowerShell 0.0 %; every removed field also removed by Vector.
 Linux saves nothing there: all its templates are text templates. Before only templates that

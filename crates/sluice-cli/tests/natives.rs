@@ -70,7 +70,8 @@ fn elastic_native_writes_proven_pipelines_and_runtime_fields() {
         out.to_str().unwrap(),
         "--elasticsearch",
         &url,
-        "--elastic-native",
+        "--native",
+        "elastic",
     ]);
     assert!(
         summary.contains("every removed field also removed by Vector"),
@@ -107,7 +108,8 @@ fn fluent_bit_native_writes_proven_lua_filters() {
         out.to_str().unwrap(),
         "--fluent-bit",
         &command,
-        "--fluent-bit-native",
+        "--native",
+        "fluent-bit",
     ]);
     assert!(
         summary.contains("every removed field also removed by Vector"),
@@ -132,7 +134,8 @@ fn otel_native_writes_proven_transform_statements() {
         out.to_str().unwrap(),
         "--otel-collector",
         &command,
-        "--otel-native",
+        "--native",
+        "otel",
     ]);
     assert!(
         summary.contains("every removed field also removed by Vector"),
@@ -220,7 +223,8 @@ fn sentinel_native_writes_a_proven_rule_and_rewrites_it_the_same() {
             &url,
             "--sentinel-table",
             "windows-security=Win_CL",
-            "--sentinel-native",
+            "--native",
+            "sentinel",
             "--sentinel-dcr",
             rule.to_str().unwrap(),
             "--rules-complete",

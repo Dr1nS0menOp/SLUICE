@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tries a `sluice analyze --sentinel-native --sentinel-dcr RULE.json` transformation in that real
+# Tries a `sluice analyze --native sentinel --sentinel-dcr RULE.json` transformation in that real
 # data collection rule: makes it the transformKql of one stream's data flow, sends a few records
 # read back from the table, and compares what Azure stored with what the Kusto emulator makes of
 # the same records with the same KQL. The rule is restored afterwards.

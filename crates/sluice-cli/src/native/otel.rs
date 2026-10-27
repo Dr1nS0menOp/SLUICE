@@ -1,4 +1,4 @@
-//! `sluice analyze --otel-native`: the plan's field removals as `transform` processor statements
+//! `sluice analyze --native otel`: the plan's field removals as `transform` processor statements
 //! (OTTL) per source (ADR 0028), proven in a real OpenTelemetry Collector with the rules of the
 //! analysis.
 //!

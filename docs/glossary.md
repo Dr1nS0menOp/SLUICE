@@ -55,4 +55,4 @@ configuration use in brackets where it differs.
 |---|---|
 | **VRL** | Vector Remap Language, in which Sluice writes reductions. The same code runs in Vector and in the proof. |
 | **`vector.yaml`** | The Vector configuration `sluice analyze` writes: Sluice's programs, routes and summaries between sources and sinks you make your own, with tests. |
-| **DCR** | An Azure Monitor data collection rule: decides which columns reach a Sentinel table. `sluice connect sentinel` writes them, and `--sentinel-native` adds the proven transformation. |
+| **DCR** | An Azure Monitor data collection rule: decides which columns reach a Sentinel table. `sluice connect sentinel` writes them, and `--native sentinel` adds the proven transformation. |

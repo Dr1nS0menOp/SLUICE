@@ -1,4 +1,4 @@
-//! The data collection rule of `--sentinel-native`: the data flow a transformation joins, and the
+//! The data collection rule of `--native sentinel`: the data flow a transformation joins, and the
 //! rule written back with each proven transformation in its table's flow and, next to it, an
 //! untransformed flow of the same stream into an archive table (contract rule 2).
 

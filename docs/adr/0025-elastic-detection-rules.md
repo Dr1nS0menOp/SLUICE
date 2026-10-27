@@ -62,7 +62,7 @@ only).
    field no event carries. Rules Elasticsearch refuses even so are set aside when the engine is
    built and covered by their requirements. A threshold or new-terms rule is compared per
    matching document and group, which is stricter than its count over the group: what keeps
-   the documents and groups keeps the counts. With `--elastic-native`, the pipelines are proven
+   the documents and groups keeps the counts. With `--native elastic`, the pipelines are proven
    with these rules too.
 
 7. **`sluice rules fetch elastic --kibana URL [--space S]`** reads every rule of a Kibana space

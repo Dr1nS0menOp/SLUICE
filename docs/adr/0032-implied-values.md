@@ -41,8 +41,8 @@ removal must lose nothing, and a reader of the forwarded data must be able to se
    proven in its own engine. An agent leaves a value tested against a whole number in place: Lua
    holds `3` and `3.0` alike, and the collector's JSON parser reads every number as a float.
 4. **Put back exactly.** `plan.json` lists every implied value (`remove_implied`).
-   `--sentinel-native` writes `<Table>Full.kql`, a workspace function that puts them back when a
-   query runs; it reads a GUID column as text, as a query sees it. `--elastic-native` writes
+   `--native sentinel` writes `<Table>Full.kql`, a workspace function that puts them back when a
+   query runs; it reads a GUID column as text, as a query sees it. `--native elastic` writes
    `SOURCE.runtime.json`: runtime fields of the field's type that shadow each field and give its
    value back. Their logic is a Painless function, proven on the sample through `_simulate`
    without writing to the cluster. The ingest pipeline keeps an empty field that may go as

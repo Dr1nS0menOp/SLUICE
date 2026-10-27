@@ -69,14 +69,14 @@ The constraints (docs/notes/sentinel-dcr.md) shape everything:
    2026-10-17** (`sluice_kql::transformation`, from the plan of ADR 0023). Recognition is on a
    signature: one bit per column the source's templates have (empty or not), plus a test that
    every other column is empty, and the discriminator values. That is exact only where an empty
-   column and a missing one are the same, so `sluice analyze --sentinel-native` generates only
+   column and a missing one are the same, so `sluice analyze --native sentinel` generates only
    from samples without empty fields: records read back from the table. Columns Azure fills
    itself are not part of the signature; templates it cannot tell apart remove what all of them
    remove and keep every column where any keeps the event whole. Nested fields, counting and
    text templates stay with a pipeline tool and are listed. Empty-field removal is left out: an
    empty column is not billed.
 3. Stream declaration and DCR JSON with the archive flow; `sluice connect sentinel --native`.
-   **DCR done 2026-10-17**: with `--sentinel-dcr RULE.json`, `sluice analyze --sentinel-native`
+   **DCR done 2026-10-17**: with `--sentinel-dcr RULE.json`, `sluice analyze --native sentinel`
    writes `sentinel/dcr.json`, that rule with each proven transformation in its table's data
    flow and, for each changed table, an untransformed flow of the same stream into
    `Sluice<Table>Archive_CL`, plus `sentinel/Sluice<Table>Archive_CL.table.json`, the table on
@@ -98,9 +98,9 @@ The constraints (docs/notes/sentinel-dcr.md) shape everything:
    synthetic Windows records sent as flat JSON: `Message` emptied, 54 % saved, 27 = 27 alerts,
    and the same transformation again on the rule it wrote. Nested objects are dynamic columns
    and stay with a pipeline tool. `sluice connect sentinel --native` is not needed: `connect`
-   writes the rule, `analyze --sentinel-native` adds the proven part.
+   writes the rule, `analyze --native sentinel` adds the proven part.
 4. The proof gate on emulator output; a real-workspace measurement of `_BilledSize`. **Proof
-   done 2026-10-17**: `--sentinel-native` runs the transformation on the sample in the emulator,
+   done 2026-10-17**: `--native sentinel` runs the transformation on the sample in the emulator,
    checks that every column it empties on a record the proven data plane removes from it too,
    and that Microsoft's rules raise the same alerts on the transformed records; only then is
    anything written. The transformation names only columns of the data

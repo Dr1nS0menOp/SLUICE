@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests against a real Fluent Bit (ADR 0027): the Lua filter's tests, the differential test of its
-# pre-filters against the VRL ones, and `sluice demo --fluent-bit-native`. Fluent Bit runs in
+# pre-filters against the VRL ones, and `sluice demo --native fluent-bit`. Fluent Bit runs in
 # Docker; check.sh runs this only when the image is already present.
 set -euo pipefail
 

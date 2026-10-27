@@ -24,7 +24,7 @@ Most of this file is the history of how it got here. After the alpha, in this or
    (24.7 %), every alert the same ([field value study](docs/notes/field-value.md)).
 2. Problems in `plan.json` too, not only in the report. **Done 2026-10-27** (`problems`, ADR
    0023).
-3. One `--native` flag instead of one per target.
+3. One `--native` flag instead of one per target. **Done 2026-10-27.**
 4. The MCP and AI flow that drafts data collection rules and their shaping (M12).
 
 Known small limit: `sluice … | head` ends with a "Broken pipe" panic when `head` closes the
@@ -689,13 +689,13 @@ Its scope is planned when it starts; it includes at least:
   plan; the report shows it next). The report still renders from its own model.
 
   Status 2026-10-17 (ADR 0013): the Sentinel DCR generator is done and *proven*:
-  `--sentinel-native` proves each table's `transformKql` in the Kusto emulator, and
+  `--native sentinel` proves each table's `transformKql` in the Kusto emulator, and
   `--sentinel-dcr RULE.json` writes the rule back with it and an untransformed flow into an
   Auxiliary archive table. Deployed in the test workspace: Azure emptied what the emulator did
   and archived every record whole. The report shows `runs_in`.
 
   Status 2026-10-17 (ADR 0024): the Elasticsearch ingest pipeline generator is done and
-  *proven*: `--elastic-native` proves a Painless pipeline per source in a real
+  *proven*: `--native elastic` proves a Painless pipeline per source in a real
   Elasticsearch (never more than Vector, same Sigma alerts); on the real Windows sample with
   SigmaHQ, System −24.8 % and Application −39.3 %. Text templates and counting stay with a
   pipeline tool.
@@ -850,12 +850,13 @@ Done later on 2026-10-18:
   fetched inventory lists them, and a rule or parser branch over a table the workspace lacks
   reads nothing.
 
-Still proposed:
+Done on 2026-10-27, at the maintainer's word:
 
-- **One `--native` flag.** `--native sentinel,elastic,fluent-bit,otel` instead of the four
+- **One `--native` flag.** `--native sentinel,elastic,fluent-bit,otel` replaces the four
   switches `--sentinel-native`, `--elastic-native`, `--fluent-bit-native` and `--otel-native`:
-  the same behaviour, spelled differently, so a CLI change for users and the maintainer's
-  decision.
+  the same behaviour, one spelling. A target without its engine (`--kusto`, `--elasticsearch`,
+  `--fluent-bit`, `--otel-collector`) and an engine flag no target uses are refused before
+  anything is read.
 
 ## Project layout (Rust Cargo workspace)
 

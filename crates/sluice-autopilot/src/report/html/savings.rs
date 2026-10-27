@@ -268,9 +268,9 @@ fn removed(row: &TemplateRow) -> String {
         out.push_str(
             "<p class=\"muted\">An implied value is not lost: <code>plan.json</code> lists it \
              under <code>remove_implied</code>, so it can be put back. For Microsoft Sentinel \
-             the function <code>&lt;Table&gt;Full</code> that <code>--sentinel-native</code> \
+             the function <code>&lt;Table&gt;Full</code> that <code>--native sentinel</code> \
              writes puts it back at query time, and for Elasticsearch the runtime fields that \
-             <code>--elastic-native</code> writes. The archive keeps every event whole.</p>",
+             <code>--native elastic</code> writes. The archive keeps every event whole.</p>",
         );
     }
     out

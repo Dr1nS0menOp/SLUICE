@@ -12,7 +12,7 @@ statement that indexes into a string.
 
 ## Decision
 
-1. **OTTL statements per source** (`sluice_otel::transform`, `--otel-native` for `analyze` and
+1. **OTTL statements per source** (`sluice_otel::transform`, `--native otel` for `analyze` and
    `demo`, with `--otel-collector CMD`), for records whose body is the parsed JSON record (the
    `filelog` receiver's `json_parser` with `parse_to: body`). Only field removals: text
    templates and counting stay with a pipeline tool.

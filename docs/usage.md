@@ -150,9 +150,9 @@ configuration keeps and the rules raise the same alerts. What it cannot express 
 counting) is listed and left unchanged.
 
 ```sh
-sluice analyze … --elasticsearch http://127.0.0.1:9200 --elastic-native   # writes out/elastic/
-sluice analyze … --fluent-bit fluent-bit --fluent-bit-native             # out/fluent-bit/
-sluice analyze … --otel-collector otelcol-contrib --otel-native          # out/otel/
+sluice analyze … --elasticsearch http://127.0.0.1:9200 --native elastic   # writes out/elastic/
+sluice analyze … --fluent-bit fluent-bit --native fluent-bit             # out/fluent-bit/
+sluice analyze … --otel-collector otelcol-contrib --native otel          # out/otel/
 ```
 
 - **Elasticsearch** ([ADR 0024](adr/0024-elastic-ingest-pipelines.md)): one ingest pipeline per
@@ -220,12 +220,12 @@ sluice analyze --input samples/ --sources sources.yaml --sentinel-rules inventor
 ### Savings in Sentinel's own ingestion
 
 To have the data collection rule carry the savings, without a pipeline tool in the path, add
-`--sentinel-native` and the rule the records go through (L1 only: whole top-level columns):
+`--native sentinel` and the rule the records go through (L1 only: whole top-level columns):
 
 ```sh
 sluice analyze --input samples/ --sources sources.yaml --sentinel-rules inventory/sentinel \
   --kusto http://127.0.0.1:8090 --sentinel-table nginx=Nginx_CL \
-  --sentinel-native --sentinel-dcr dcr/Nginx.dcr.json --out out/
+  --native sentinel --sentinel-dcr dcr/Nginx.dcr.json --out out/
 ```
 
 Use records read back from the table as the sample (an empty field and a missing one are the

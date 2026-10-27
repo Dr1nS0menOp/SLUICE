@@ -94,8 +94,8 @@ synthetic data.
   reductions with a Wazuh manager's `logtest`.
 - **F. Plan and configurations.** Sluice writes the report, the savings plan (`plan.json`, ADR
   0023) and the configurations built from the same proven selection: always a `vector.yaml`,
-  and on request a configuration in a tool's own language (`--sentinel-native`,
-  `--elastic-native`, `--fluent-bit-native`, `--otel-native`), each run in that tool on the
+  and on request a configuration in a tool's own language (`--native` with
+  `sentinel`, `elastic`, `fluent-bit` or `otel`), each run in that tool on the
   sample before it is written. The report ([an example](example-report.html), for OTRF's APT29 data; written by `scripts/example-report.sh`, not by `sluice demo
   --scale 100`) gives the saving per mode, explains implied values with the sample's largest
   one, lists per kind of event what goes, why, and where it can run, says how counting works
@@ -295,7 +295,7 @@ Git history only; `archive/` held them until 2026-10-22 (ADR 0030).
 
 | Technology | What Sluice uses it for |
 |---|---|
-| Azure Monitor data collection rules | Microsoft Sentinel tables: custom `_CL` tables derived from a sample and the summary table, with their rules (`sluice connect sentinel`), and DCR transformations that make the plan's field removals (`--sentinel-native`). Verified in a real workspace ([notes](notes/sentinel-dcr.md)). |
+| Azure Monitor data collection rules | Microsoft Sentinel tables: custom `_CL` tables derived from a sample and the summary table, with their rules (`sluice connect sentinel`), and DCR transformations that make the plan's field removals (`--native sentinel`). Verified in a real workspace ([notes](notes/sentinel-dcr.md)). |
 | Elasticsearch ingest pipelines (Painless) | The plan's field removals in Elastic's own ingestion, without Vector ([ADR 0024](adr/0024-elastic-ingest-pipelines.md), [notes](notes/elasticsearch.md)). |
 | Fluent Bit Lua filters | The plan's field removals in the agent ([ADR 0027](adr/0027-fluent-bit-lua-filters.md), [notes](notes/fluent-bit.md)). |
 | OpenTelemetry Collector `transform` statements (OTTL) | The plan's field removals in the collector ([ADR 0028](adr/0028-otel-transform-statements.md), [notes](notes/otel-collector.md)). |

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests against a real OpenTelemetry Collector (ADR 0028): the transform statements' tests, the
-# differential test of their conditions against the VRL ones, and `sluice demo --otel-native`.
+# differential test of their conditions against the VRL ones, and `sluice demo --native otel`.
 # The collector runs in Docker; check.sh runs this only when the image is already present.
 set -euo pipefail
 

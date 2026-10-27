@@ -1,4 +1,4 @@
-//! `sluice analyze --fluent-bit-native`: the plan's field removals as a Fluent Bit Lua filter
+//! `sluice analyze --native fluent-bit`: the plan's field removals as a Fluent Bit Lua filter
 //! per source (ADR 0027), proven in a real Fluent Bit with the rules of the analysis.
 //!
 //! Fluent Bit changes some records on its own (it reads `1e21` as `1`, and saturates integers

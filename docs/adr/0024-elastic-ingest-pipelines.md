@@ -42,7 +42,7 @@ Painless, a full language, so templates can be recognised exactly as VRL recogni
 4. **Left to a pipeline tool:** text templates (recognised by a Rust regex), counting, templates
    with a field named like Elasticsearch metadata (`_id`, `_index`, …), and a pipeline whose
    script would exceed the 65,535 bytes Elasticsearch compiles. Each is listed.
-5. **Proven in a real Elasticsearch.** `sluice analyze --elasticsearch URL --elastic-native` (and `sluice demo`)
+5. **Proven in a real Elasticsearch.** `sluice analyze --elasticsearch URL --native elastic` (and `sluice demo`)
    runs each pipeline on the sample with `_ingest/pipeline/_simulate`, strictly (a failing
    script is an error), and writes `elastic/SOURCE.pipeline.json` only if every field removed
    from a document is one the proven data plane removes from it too, and the Sigma rules raise

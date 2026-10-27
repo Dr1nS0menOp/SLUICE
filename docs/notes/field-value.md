@@ -143,7 +143,7 @@ gives the saving of each:
   removals, so a field is only removed while what implies it is still in the event.
 - **Plan and report.** `plan.json` lists them as `remove_implied`, the dictionary to put every
   removed value back; the report says per kind of event which fields are implied, and by what.
-- **Sentinel.** The data collection rule of `--sentinel-native` empties implied values too, as
+- **Sentinel.** The data collection rule of `--native sentinel` empties implied values too, as
   a test per column (`tostring(column) == value`, and the implying column's value), after the
   other removals. In the table an emptied column and an empty one look alike, so it empties a
   value only where the `<Table>Full` function it writes can put it back by the record's event
@@ -159,7 +159,7 @@ gives the saving of each:
   collector's transform statements remove implied values too, each proven against Vector in
   the real engine; the agents leave a value tested against a whole number in place, since they
   cannot tell `3` from `3.0`.
-- **Elasticsearch puts them back.** `--elastic-native` also writes `SOURCE.runtime.json`:
+- **Elasticsearch puts them back.** `--native elastic` also writes `SOURCE.runtime.json`:
   runtime fields (`keyword`, `long` or `boolean`) that shadow each implied field and give its value back on a document the
   pipeline took it from (its kind of event, the implying field's value, a key set the pipeline
   can have left). The pipeline keeps an empty field that may go as implied, so its absence has
@@ -219,7 +219,7 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
   - *Elastic Security Serverless* meters ingest as "the fully enriched normalized data size at
     the end of the ingest pipeline", "before Elasticsearch compression is performed"
     ([billing dimensions](https://www.elastic.co/docs/deploy-manage/cloud-organization/billing/security-billing-dimensions)).
-    So the fields `--elastic-native`'s pipeline removes, implied values and emptied objects
+    So the fields `--native elastic`'s pipeline removes, implied values and emptied objects
     included, are not billed; a field the pipeline adds would be.
   - *Splunk*: data that ingest actions filter or route "such that the data does not get added
     to an index" is not licensed volume

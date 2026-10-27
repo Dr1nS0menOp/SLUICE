@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A JSON source sent to a custom table (`<Name>_CL`), end to end in the Kusto emulator (ADR 0013):
 # `sluice connect sentinel --sample` writes the table and its data collection rule, then
-# `sluice analyze --sentinel-native` proves a transformation for it with a Sentinel rule on the
+# `sluice analyze --native sentinel` proves a transformation for it with a Sentinel rule on the
 # table, writes the rule back with an archive flow, and does so again on the rule it wrote.
 #
 #   SLUICE_KUSTO_URL=http://127.0.0.1:8090 scripts/sentinel-custom-check.sh
@@ -46,7 +46,7 @@ EOF
 analyze() {
     sluice analyze --input "$work/samples" --sources "$work/demo/sluice.yaml" \
         --sentinel-rules "$work/rules" --kusto "$url" --sentinel-table windows-security=Win_CL \
-        --sentinel-native --sentinel-dcr "$1" --rules-complete --out "$2" | grep '^  native'
+        --native sentinel --sentinel-dcr "$1" --rules-complete --out "$2" | grep '^  native'
 }
 analyze "$work/connect/Win.dcr.json" "$work/first"
 kql="$work/first/sentinel/windows-security.transform.kql"
