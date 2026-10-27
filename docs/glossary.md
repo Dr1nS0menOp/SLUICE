@@ -15,7 +15,7 @@ configuration use in brackets where it differs.
 | **Route** (`forward`, `summarize`) | What the generated program does with an event: forward it, whole or trimmed, or count it into a summary. |
 | **Summary** | A count per minute, per template and per combination of the recipe's key fields. Rules never see summaries; the originals are in the archive. |
 | **Summary record** (`sluice_count`) | What the SIEM receives for counted events: one record per summary, with the number of events it stands for. Its bytes count in what is sent, and the report gives how many there are. |
-| **Savings plan** (`plan.json`) | Per source and kind of event, what may be removed or counted, which events keep every field, where the saving can run (`runs_in`), and the proof. Every configuration is built from the same proven selection. |
+| **Savings plan** (`plan.json`) | Per source and kind of event, what may be removed or counted, which events keep every field, where the saving can run (`runs_in`), the proof, and the problems reading the rules. Every configuration is built from the same proven selection. |
 | **Native configuration** | A configuration in a tool's own language: a data collection rule `transformKql`, an Elasticsearch ingest pipeline, a Fluent Bit Lua filter or OpenTelemetry Collector `transform` statements. Field removals only, each proven in that tool. |
 
 ## Deciding

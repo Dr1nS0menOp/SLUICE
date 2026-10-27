@@ -22,7 +22,8 @@ Most of this file is the history of how it got here. After the alpha, in this or
    SIEM still receives as a table), and an example report in the repository. Measured on a
    Windows PC (25.0 % → 42.3 %), on four machines of OTRF's APT29 (57.6 %) and of its APT3
    (24.7 %), every alert the same ([field value study](docs/notes/field-value.md)).
-2. Problems in `plan.json` too, not only in the report.
+2. Problems in `plan.json` too, not only in the report. **Done 2026-10-27** (`problems`, ADR
+   0023).
 3. One `--native` flag instead of one per target.
 4. The MCP and AI flow that drafts data collection rules and their shaping (M12).
 
@@ -840,7 +841,8 @@ Done later on 2026-10-18:
   Sigma rules that share an id are reported.
 - **Problems are data** (`sluice_core::problem::Problem`, with a kind and the rule): the
   report groups them and says per kind what to do, and lists each function whose source is
-  missing with the rules that call it and how to give it. `plan.json` does not carry them yet.
+  missing with the rules that call it and how to give it. `plan.json` carries them too since
+  2026-10-27 (`problems`).
 - **Case folding is shared** (`codegen::folded_values`) by the Fluent Bit, Elasticsearch,
   OpenTelemetry Collector and KQL generators. Fluent Bit's and Elasticsearch's predicate
   compilers are still the same code in two syntaxes.
@@ -854,7 +856,6 @@ Still proposed:
   switches `--sentinel-native`, `--elastic-native`, `--fluent-bit-native` and `--otel-native`:
   the same behaviour, spelled differently, so a CLI change for users and the maintainer's
   decision.
-- **Problems in `plan.json`**, for tools that act on them.
 
 ## Project layout (Rust Cargo workspace)
 

@@ -6,6 +6,10 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
+- **Problems in `plan.json`.** What Sluice could not read or check in the rules and recipes (a
+  rule file it could not parse, a function whose source is missing, a rule read broadly) is now
+  in `plan.json` as `problems`, sorted, with its `kind`, its rule and, for a missing function,
+  the function and its rule language. Until now only the report listed them.
 - **Removed: Splunk** ([ADR 0034](docs/adr/0034-no-splunk.md)). `--splunk-rules`, `sluice rules
   fetch splunk`, the SPL reader, the crate `sluice-splunk` and the field conventions only Splunk
   has (`schema: splunk` and `schema: cim`) are gone. They were experimental: no engine ran

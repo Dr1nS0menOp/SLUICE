@@ -50,6 +50,23 @@ pub enum ProblemKind {
     Recipe,
 }
 
+impl ProblemKind {
+    /// The kind's name in `plan.json`, in snake case, without the details a kind carries.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Self::Unreadable => "unreadable",
+            Self::UnknownFunction { .. } => "unknown_function",
+            Self::ReadBroadly => "read_broadly",
+            Self::Unchecked => "unchecked",
+            Self::SharedId => "shared_id",
+            Self::MissingRule => "missing_rule",
+            Self::LeftOut => "left_out",
+            Self::Recipe => "recipe",
+        }
+    }
+}
+
 impl Problem {
     /// A problem of `kind`, about `rule` if it concerns one.
     #[must_use]
@@ -83,5 +100,38 @@ mod tests {
             "sentinel:r: uses `my_parser`",
         );
         assert_eq!(problem.to_string(), "sentinel:r: uses `my_parser`");
+    }
+
+    #[test]
+    fn every_kind_has_its_own_snake_case_name() {
+        let kinds = [
+            ProblemKind::Unreadable,
+            ProblemKind::UnknownFunction {
+                engine: Engine::Sentinel,
+                name: "f".into(),
+            },
+            ProblemKind::ReadBroadly,
+            ProblemKind::Unchecked,
+            ProblemKind::SharedId,
+            ProblemKind::MissingRule,
+            ProblemKind::LeftOut,
+            ProblemKind::Recipe,
+        ];
+        let names: std::collections::BTreeSet<_> = kinds.iter().map(ProblemKind::name).collect();
+        assert_eq!(names.len(), kinds.len());
+        assert!(
+            names
+                .iter()
+                .all(|n| n.chars().all(|c| c.is_ascii_lowercase() || c == '_')),
+            "{names:?}"
+        );
+        assert_eq!(
+            ProblemKind::UnknownFunction {
+                engine: Engine::Elastic,
+                name: String::new()
+            }
+            .name(),
+            "unknown_function"
+        );
     }
 }

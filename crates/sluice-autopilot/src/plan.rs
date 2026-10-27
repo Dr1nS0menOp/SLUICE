@@ -12,6 +12,7 @@ use sluice_core::guard::{EffectiveRecipe, Route};
 use sluice_core::ids::TemplateId;
 use sluice_core::logsource::LogSource;
 use sluice_core::predicate::Predicate;
+use sluice_core::problem::{Problem, ProblemKind};
 use sluice_core::proof::{Selection, Volume};
 use sluice_core::recipe::{ImpliedValue, Recipe};
 use sluice_core::schema::Schema;
@@ -37,8 +38,49 @@ pub struct SavingsPlan {
     pub total: Volume,
     /// Bytes each kind of saving the analysis made saved (`--mode`).
     pub saved_by_mode: BTreeMap<Mode, u64>,
+    /// What Sluice could not read or check in the rules and recipes, sorted. Each one was read
+    /// as broadly as it could reach (fail closed): it costs savings, never a detection, and
+    /// fixing it (giving a function's source, a rule that is referred to) can save more.
+    pub problems: Vec<PlanProblem>,
     /// Every source, with every kind of event found in it.
     pub sources: Vec<SourcePlan>,
+}
+
+/// One problem, as the report lists it.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub struct PlanProblem {
+    /// `unreadable`, `unknown_function`, `read_broadly`, `unchecked`, `shared_id`,
+    /// `missing_rule`, `left_out` or `recipe` ([`ProblemKind::name`]).
+    pub kind: &'static str,
+    /// The rule it concerns, if there is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule: Option<String>,
+    /// For `unknown_function`: the function or parser whose source is missing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub function: Option<String>,
+    /// For `unknown_function`: the rule language that calls it (`sentinel`, `elastic`, …).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine: Option<&'static str>,
+    /// What happened and what Sluice did, as a sentence.
+    pub message: String,
+}
+
+impl From<&Problem> for PlanProblem {
+    fn from(problem: &Problem) -> Self {
+        let (function, engine) = match &problem.kind {
+            ProblemKind::UnknownFunction { engine, name } => {
+                (Some(name.clone()), Some(engine.prefix()))
+            }
+            _ => (None, None),
+        };
+        Self {
+            kind: problem.kind.name(),
+            rule: problem.rule.as_ref().map(ToString::to_string),
+            function,
+            engine,
+            message: problem.message.clone(),
+        }
+    }
 }
 
 /// The proof on the sample.
@@ -196,6 +238,7 @@ impl SavingsPlan {
                 .iter()
                 .map(|&mode| (mode, report.saved_by(mode)))
                 .collect(),
+            problems: problems(&report.problems),
             sources,
         }
     }
@@ -208,6 +251,13 @@ impl SavingsPlan {
     pub fn to_json(&self) -> serde_json::Result<String> {
         serde_json::to_string_pretty(self).map(|json| json + "\n")
     }
+}
+
+/// `problems` for the plan: sorted, so the same analysis writes the same file.
+fn problems(problems: &[Problem]) -> Vec<PlanProblem> {
+    let mut listed: Vec<PlanProblem> = problems.iter().map(PlanProblem::from).collect();
+    listed.sort();
+    listed
 }
 
 /// Where `recipe`'s saving on `template` can run; none when it changes nothing. Only a pipeline
@@ -290,6 +340,46 @@ mod tests {
             text_fields: BTreeSet::new(),
             stats: TemplateStats::default(),
         }
+    }
+
+    #[test]
+    fn problems_are_listed_sorted_with_a_missing_functions_name_and_language() {
+        use sluice_core::ids::{Engine, RuleId};
+        let listed = problems(&[
+            Problem::new(ProblemKind::Recipe, None, "a recipe"),
+            Problem::new(
+                ProblemKind::UnknownFunction {
+                    engine: Engine::Sentinel,
+                    name: "my_parser".into(),
+                },
+                Some(RuleId::of(Engine::Sentinel, "r")),
+                "uses my_parser",
+            ),
+        ]);
+        assert_eq!(
+            listed,
+            [
+                PlanProblem {
+                    kind: "recipe",
+                    rule: None,
+                    function: None,
+                    engine: None,
+                    message: "a recipe".into(),
+                },
+                PlanProblem {
+                    kind: "unknown_function",
+                    rule: Some("sentinel:r".into()),
+                    function: Some("my_parser".into()),
+                    engine: Some("sentinel"),
+                    message: "uses my_parser".into(),
+                },
+            ]
+        );
+        let json = serde_json::to_value(&listed[0]).expect("serializes");
+        assert_eq!(
+            json,
+            serde_json::json!({"kind": "recipe", "message": "a recipe"})
+        );
     }
 
     #[test]
