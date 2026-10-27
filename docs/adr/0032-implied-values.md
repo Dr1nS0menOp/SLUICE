@@ -63,8 +63,8 @@ removal must lose nothing, and a reader of the forwarded data must be able to se
     Monitor Agent's stream too, a rule may empty `Activity` and `EventLevelName`, and Azure bills
     exactly the bytes left (`docs/notes/sentinel-dcr.md`).
 - An analyst who queries the table itself for `RestrictedAdminMode == "-"` finds nothing. The
-  Sentinel function and the Elasticsearch runtime fields read the data as before; Splunk, Wazuh
-  and other destinations have no such step. Wazuh needs none: with its stock ruleset loaded,
+  Sentinel function and the Elasticsearch runtime fields read the data as before; Wazuh and other
+  destinations have no such step. Wazuh needs none: with its stock ruleset loaded,
   nothing is removed.
 - Outside the sample, a put-back step can guess. A record of a known kind that arrived without the
   field (a variant the sample lacked) gets the implied value. So does, in Sentinel, a record whose

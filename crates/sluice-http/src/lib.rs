@@ -1,5 +1,5 @@
-//! The HTTP client every Sluice adapter uses: to read a SIEM's API (Azure, Wazuh, Kibana,
-//! Splunk), to run rules and configurations in a real engine (Elasticsearch, the Kusto emulator)
+//! The HTTP client every Sluice adapter uses: to read a SIEM's API (Azure, Wazuh,
+//! Kibana), to run rules and configurations in a real engine (Elasticsearch, the Kusto emulator)
 //! and to ask a language model. One answer limit, one way to skip certificate verification and
 //! one error excerpt, instead of a client per adapter that each did these its own way.
 //!

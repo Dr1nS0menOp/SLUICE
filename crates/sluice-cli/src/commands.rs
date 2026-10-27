@@ -48,7 +48,6 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
             wazuh: None,
             sentinel: None,
             elastic: None,
-            splunk: None,
         },
         &RecipeBook::embedded()?,
         Helpers {
@@ -98,7 +97,6 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
         wazuh,
         sentinel: sentinel_rules,
         elastic: elastic_rules,
-        splunk: splunk_rules,
     } = input::rule_sets(&args.sets, &args.sentinel_table)?;
     input::hint_undeclared_schemas(&sources, &sigma);
     let book = crate::recipes::recipe_book(args.recipes.as_deref())?;
@@ -144,7 +142,6 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
                 rules,
                 engine: elasticsearch.as_ref().map(|e| e as &dyn RuleEngine),
             }),
-            splunk: splunk_rules.as_ref(),
         },
         &book,
         Helpers {
@@ -216,7 +213,7 @@ pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
         RulesCommand::Requirements(sets) => sets,
     };
     let loaded = input::rule_sets(sets, &[])?;
-    // Sentinel's, Elastic's and Splunk's loaders print their own problems.
+    // Sentinel's and Elastic's loaders print their own problems.
     let mut problems: Vec<&sluice_core::problem::Problem> =
         loaded.sigma.problems().iter().collect();
     if let Some(wazuh) = &loaded.wazuh {

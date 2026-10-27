@@ -92,14 +92,11 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
    # Elastic Security: the detection rules of a Kibana space (KIBANA_API_KEY, or KIBANA_USER
    # and KIBANA_PASSWORD)
    sluice rules fetch --out inventory/elastic elastic --kibana https://kibana:5601
-   # Splunk: the saved searches and macros of every app (SPLUNK_TOKEN, or SPLUNK_USER and
-   # SPLUNK_PASSWORD)
-   sluice rules fetch --out inventory/splunk splunk --api https://splunk:8089
    ```
 
    Then pass `--wazuh-rules inventory/wazuh/rules --wazuh-decoders inventory/wazuh/decoders`,
-   `--sentinel-rules inventory/sentinel`, `--elastic-rules inventory/elastic` (with
-   `--elasticsearch URL` the proof runs them too) or `--splunk-rules inventory/splunk`. Sigma
+   `--sentinel-rules inventory/sentinel` or `--elastic-rules inventory/elastic` (with
+   `--elasticsearch URL` the proof runs them too). Sigma
    rules have no SIEM API to read them from: pass `--rules-complete` when the directory holds
    every Sigma rule your SIEM runs. Without either, Sluice makes only savings that keep every
    event, and says so (ADR 0021).

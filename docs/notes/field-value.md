@@ -225,7 +225,7 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
     to an index" is not licensed volume
     ([license implications](https://help.splunk.com/en/data-management/perform-basic-data-processing/license-implications)).
     The page says nothing on fields removed from an event that is indexed, so whether a
-    smaller event costs less stays to be measured (Splunk is parked).
+    smaller event costs less was not measured (Sluice does not support Splunk, ADR 0034).
   - Wazuh is self-hosted: nothing is billed per byte, only disk and the indexer's load.
 - **Versions.** `Version`, `Task` and `Keywords` can change between Windows builds. A
   value-guarded removal stays exact; only the savings vary. Microsoft's page on 4624 (read
@@ -276,7 +276,7 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
   table itself for `RestrictedAdminMode == "-"` finds nothing. For Sentinel, `<Table>Full`
   reads as before; analytics rules keep querying the table, and the guardrails keep every field
   they read. For Elasticsearch, the runtime fields of `SOURCE.runtime.json` do the same in a
-  search or a data view. Splunk has no such step yet (parked). **Wazuh needs none:** with its
+  search or a data view. **Wazuh needs none:** with its
   stock ruleset loaded (4,652 rules) the demo saves 0.0 %, implied values included (78.5 %
   without them, measured 2026-10-24 and recounted 2026-10-26 with the summary records and the
   emptied objects), because raw-text rules such as 1002 read the whole JSON

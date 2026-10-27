@@ -35,5 +35,5 @@ a table of their own with counting helpers".
 
 - Configurations written before keep sending summaries to every destination; one for a Sentinel
   table of one shape should add `sluice_records: [events]` and a summaries destination.
-- Splunk and Elastic store summary records as events of their own and need no table; their
-  counting helpers (a Splunk macro) are still to come.
+- Elastic stores summary records as events of their own and needs no table. (Splunk, named here
+  at first, was removed on 2026-10-27, ADR 0034.)

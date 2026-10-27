@@ -70,8 +70,8 @@ impl<'a> Protection<'a> {
             }
             if rule.matches_raw_text {
                 match &template.shape {
-                    // A JSON record's raw text is every field serialized (Splunk's `_raw`,
-                    // Wazuh's full log): a term may match any value, however short.
+                    // A JSON record's raw text is every field serialized (Wazuh's full log, a
+                    // Sigma keyword rule): a term may match any value, however short.
                     TemplateShape::Keyset { .. } => claims.push(claim(None)),
                     TemplateShape::Text { .. } => {
                         claims.extend(template.text_fields.iter().map(|f| claim(Some(f.clone()))));

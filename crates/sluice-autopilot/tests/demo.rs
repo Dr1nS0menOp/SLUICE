@@ -40,7 +40,6 @@ fn demo() -> &'static Demo {
             wazuh: None,
             sentinel: None,
             elastic: None,
-            splunk: None,
         };
         let analysis = analyze(
             input,
@@ -78,7 +77,6 @@ fn plan() -> SavingsPlan {
         wazuh: None,
         sentinel: None,
         elastic: None,
-        splunk: None,
     };
     let report = Report::new(&demo.analysis, input);
     SavingsPlan::new(&demo.analysis, &report, &demo.sample.sources)
@@ -151,7 +149,6 @@ fn counting_runs_only_in_a_pipeline_and_removing_fields_also_in_the_siem() {
         wazuh: None,
         sentinel: None,
         elastic: None,
-        splunk: None,
     };
     let report = Report::new(&demo.analysis, input);
     let row = |id: &str| report.templates.iter().find(|t| t.id == id).expect("a row");
@@ -295,7 +292,6 @@ fn the_report_shows_each_source_s_events_as_they_are_sent() {
         wazuh: None,
         sentinel: None,
         elastic: None,
-        splunk: None,
     };
     let report = Report::new(&demo.analysis, input);
     let sources: Vec<&str> = report.examples.iter().map(|s| s.source.as_str()).collect();

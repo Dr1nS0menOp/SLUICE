@@ -219,7 +219,10 @@ added.
 of `sluice-autopilot` then pointed the embedded recipes at the deleted copy, and the real tree's
 tests saw none (`cargo clean -p sluice-autopilot` fixes it). Run
 `CARGO_TARGET_DIR=~/.cache/sluice-mutants-target cargo mutants -j 1 …` and delete that directory
-afterwards.
+afterwards. The same holds for any other copy of the tree, such as a fresh clone to check what CI
+sees (2026-10-27): built into the shared target directory and then deleted, it left the release
+build without recipes, and the example report came out at 25.0 % instead of 77.2 %, all of it
+implied values. Give the copy its own `CARGO_TARGET_DIR`.
 
 Line coverage (`cargo llvm-cov` 0.9.1, MIT/Apache-2.0, 2026-10-16), first measurement and after
 the tests it led to. The crates the field-value branch changed were measured again on 2026-10-24,
@@ -247,11 +250,10 @@ tests; it has tests of its own now (89 %, the rest branches VRL's types rule out
 | sluice-cli | 55.1 % | 72.2 % |  |  | 70 % |
 | sluice-synth | 100 % | 100 % |  |  | 70 % |
 | sluice-elastic (2026-10-17) | 88.4 % | 88.4 % | 91.2 % | 91.3 % | 85 % |
-| sluice-splunk (2026-10-17) | 63.7 % | 96.8 % |  |  | 85 % |
 | sluice-fluentbit (2026-10-17) | 93.0 % | 95.2 % | 96.7 % | 96.8 % | 85 % |
 | sluice-otel (2026-10-17) | 95.9 % | 95.9 % | 96.6 % | 96.7 % | 85 % |
 
-sluice-rules with its Elastic and Splunk extractors: 95.6 % (2026-10-17). The engine-backed
+sluice-rules with its Elastic and Splunk extractors: 95.6 % (2026-10-17; Splunk and its crate `sluice-splunk` were removed on 2026-10-27, ADR 0034). The engine-backed
 tests count only with their engines set (`SLUICE_ELASTIC_URL`, `SLUICE_KUSTO_URL`,
 `SLUICE_FLUENT_BIT`, `SLUICE_OTEL_COLLECTOR`, as the `*-check.sh` scripts set them). Run
 `cargo llvm-cov clean --workspace` before measuring: profile data of earlier builds stays behind

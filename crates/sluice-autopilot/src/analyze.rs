@@ -14,7 +14,7 @@ use sluice_core::rules::RuleRequirements;
 use sluice_core::source::Source;
 use sluice_core::template::{LineHeader, Template, TemplateShape};
 use sluice_discover::{DiscoverConfig, Discovery, discover};
-use sluice_rules::{ElasticRules, SentinelRules, SigmaRules, SplunkRules, WazuhRules};
+use sluice_rules::{ElasticRules, SentinelRules, SigmaRules, WazuhRules};
 use sluice_vector::{Plan, VrlReducer, compile_reducer};
 
 use crate::basis::RulesBasis;
@@ -83,8 +83,6 @@ pub struct Input<'a> {
     pub sentinel: Option<Sentinel<'a>>,
     /// Elastic Security detection rules, if any.
     pub elastic: Option<Elastic<'a>>,
-    /// Splunk saved searches, if any. They constrain the guardrails only: the proof does not run them.
-    pub splunk: Option<&'a SplunkRules>,
 }
 
 /// Elastic Security detection rules (ADR 0025). Their requirements constrain the guardrails;
@@ -213,9 +211,6 @@ pub fn analyze(
     }
     if let Some(elastic) = input.elastic {
         problems.extend(elastic.rules.problems().iter().cloned());
-    }
-    if let Some(splunk) = input.splunk {
-        problems.extend(splunk.problems().iter().cloned());
     }
     if !settings.modes.contains(&Mode::Rules) {
         // The recipes' savings are not asked for; the recipes stay unused, and so does an
@@ -352,7 +347,6 @@ pub fn analyze_proposals(
         .chain(input.wazuh.map_or(&[][..], WazuhRules::requirements))
         .chain(input.sentinel.map_or(&[][..], |s| s.rules.requirements()))
         .chain(input.elastic.map_or(&[][..], |e| e.rules.requirements()))
-        .chain(input.splunk.map_or(&[][..], SplunkRules::requirements))
         .chain(&settings.operator_rules)
         .cloned()
         .collect();

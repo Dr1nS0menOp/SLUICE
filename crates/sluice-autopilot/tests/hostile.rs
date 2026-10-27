@@ -185,7 +185,6 @@ fn odd_names_and_values_compile_and_keep_every_alert() {
                     wazuh: None,
                     sentinel: None,
                     elastic: None,
-                    splunk: None,
                 };
                 // Any error here (a generated program that does not compile) fails the property.
                 let analysis = analyze_proposals(
@@ -297,7 +296,6 @@ fn odd_text_lines_compile_and_keep_every_alert() {
                 wazuh: None,
                 sentinel: None,
                 elastic: None,
-                splunk: None,
             };
             let analysis = analyze_proposals(
                 input,

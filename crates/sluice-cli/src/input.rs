@@ -109,7 +109,6 @@ pub(crate) struct Loaded {
     pub(crate) wazuh: Option<sluice_rules::WazuhRules>,
     pub(crate) sentinel: Option<sluice_rules::SentinelRules>,
     pub(crate) elastic: Option<sluice_rules::ElasticRules>,
-    pub(crate) splunk: Option<sluice_rules::SplunkRules>,
 }
 
 impl Loaded {
@@ -124,9 +123,6 @@ impl Loaded {
         }
         if let Some(elastic) = &self.elastic {
             all.extend(elastic.requirements());
-        }
-        if let Some(splunk) = &self.splunk {
-            all.extend(splunk.requirements());
         }
         all
     }
@@ -148,7 +144,6 @@ pub(crate) fn rule_sets(sets: &RuleSets, sentinel_tables: &[String]) -> Result<L
         wazuh: wazuh(sets.wazuh_rules.as_deref(), sets.wazuh_decoders.as_deref())?,
         sentinel: sentinel(sets.sentinel_rules.as_deref(), sentinel_tables)?,
         elastic: elastic(sets.elastic_rules.as_deref())?,
-        splunk: splunk(sets.splunk_rules.as_deref())?,
     })
 }
 
@@ -276,23 +271,6 @@ pub(crate) fn elastic(dir: Option<&Path>) -> Result<Option<sluice_rules::Elastic
             .map(|(path, text)| (path.as_str(), text.as_str())),
     );
     warn("Elastic", rules.problems());
-    Ok(Some(rules))
-}
-
-/// The Splunk saved searches and macros in `dir` (`.conf` files or REST JSON answers), if
-/// given; problems are printed as warnings ([`warn`]).
-pub(crate) fn splunk(dir: Option<&Path>) -> Result<Option<sluice_rules::SplunkRules>> {
-    let Some(dir) = dir else {
-        return Ok(None);
-    };
-    let files = files(dir, &["conf", "json"])?;
-    let rules = sluice_rules::SplunkRules::parse(
-        files
-            .iter()
-            .filter(|(path, _)| !is_manifest(dir, path))
-            .map(|(path, text)| (path.as_str(), text.as_str())),
-    );
-    warn("Splunk", rules.problems());
     Ok(Some(rules))
 }
 

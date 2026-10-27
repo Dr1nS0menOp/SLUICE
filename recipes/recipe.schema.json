@@ -285,11 +285,6 @@
           "const": "ecs"
         },
         {
-          "description": "Splunk's Common Information Model.",
-          "type": "string",
-          "const": "cim"
-        },
-        {
           "description": "Microsoft Sentinel's Advanced Security Information Model.",
           "type": "string",
           "const": "asim"
@@ -308,11 +303,6 @@
           "description": "The columns of a Microsoft Sentinel table that is not an ASIM table (`Syslog`,\n`CommonSecurityLog`).",
           "type": "string",
           "const": "sentinel"
-        },
-        {
-          "description": "The fields as Splunk extracts them at search time: for a JSON event, its key paths\njoined by dots (`KV_MODE = json`). Aliases and calculated fields (`props.conf`) are not\npart of the record; given `props.conf`, Splunk searches are read through them.",
-          "type": "string",
-          "const": "splunk"
         }
       ]
     }

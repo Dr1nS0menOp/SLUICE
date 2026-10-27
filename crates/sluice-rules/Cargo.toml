@@ -1,6 +1,6 @@
 [package]
 name = "sluice-rules"
-description = "Rule awareness for Sluice: Sigma, Wazuh, Microsoft Sentinel, Elastic and Splunk rules as engine-neutral requirements"
+description = "Rule awareness for Sluice: Sigma, Wazuh, Microsoft Sentinel and Elastic rules as engine-neutral requirements"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
