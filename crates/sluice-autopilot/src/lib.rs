@@ -26,9 +26,11 @@ pub use crate::contribute::{Contribution, ai_recipes};
 pub use crate::error::AutopilotError;
 pub use crate::mode::Mode;
 pub use crate::plan::{
-    CountInstead, PLAN_FORMAT, Placement, PlanProof, SavingsPlan, SourcePlan, TemplatePlan,
+    CountInstead, PLAN_FORMAT, Placement, PlanProblem, PlanProof, SavingsPlan, SourcePlan,
+    TemplatePlan,
 };
 pub use crate::recipes::{RecipeBook, Resolution};
+pub use crate::report::text::problem_advice;
 pub use crate::report::{
     EMPTY_PROOF, EXAMPLES_PER_SOURCE, Example, Omission, Omitted, Report, RuleRow, RuleStatus,
     SentField, SourceExamples, TemplateRow, render_html,

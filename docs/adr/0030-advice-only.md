@@ -35,9 +35,9 @@ real engine, carry the advice out (ADR 0023, 0013, 0024, 0027, 0028).
      requirements`.
    - `sluice analyze` and `sluice demo`: discovery, guardrails, the proof on the sample,
      `report.html`, `plan.json`, and a `vector.yaml` for the user's own Vector.
-   - The native generators, each proven in its real engine: `--sentinel-native` (data collection
-     rule `transformKql`, custom tables included), `--elastic-native` (Elasticsearch ingest
-     pipelines), `--fluent-bit-native` (Fluent Bit Lua filters) and `--otel-native`
+   - The native generators, each proven in its real engine: `--native sentinel` (data collection
+     rule `transformKql`, custom tables included), `--native elastic` (Elasticsearch ingest
+     pipelines), `--native fluent-bit` (Fluent Bit Lua filters) and `--native otel`
      (OpenTelemetry Collector `transform` statements).
    - `sluice recipes` (list, `schema`, `export`, `contribute`) and the AI advisor (`--llm`).
    - `sluice prove`, which checks that a Vector configuration still raises the same alerts on a

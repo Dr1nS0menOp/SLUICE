@@ -150,9 +150,9 @@ configuration keeps and the rules raise the same alerts. What it cannot express 
 counting) is listed and left unchanged.
 
 ```sh
-sluice analyze … --elasticsearch http://127.0.0.1:9200 --elastic-native   # writes out/elastic/
-sluice analyze … --fluent-bit fluent-bit --fluent-bit-native             # out/fluent-bit/
-sluice analyze … --otel-collector otelcol-contrib --otel-native          # out/otel/
+sluice analyze … --elasticsearch http://127.0.0.1:9200 --native elastic   # writes out/elastic/
+sluice analyze … --fluent-bit fluent-bit --native fluent-bit             # out/fluent-bit/
+sluice analyze … --otel-collector otelcol-contrib --native otel          # out/otel/
 ```
 
 - **Elasticsearch** ([ADR 0024](adr/0024-elastic-ingest-pipelines.md)): one ingest pipeline per
@@ -220,12 +220,12 @@ sluice analyze --input samples/ --sources sources.yaml --sentinel-rules inventor
 ### Savings in Sentinel's own ingestion
 
 To have the data collection rule carry the savings, without a pipeline tool in the path, add
-`--sentinel-native` and the rule the records go through (L1 only: whole top-level columns):
+`--native sentinel` and the rule the records go through (L1 only: whole top-level columns):
 
 ```sh
 sluice analyze --input samples/ --sources sources.yaml --sentinel-rules inventory/sentinel \
   --kusto http://127.0.0.1:8090 --sentinel-table nginx=Nginx_CL \
-  --sentinel-native --sentinel-dcr dcr/Nginx.dcr.json --out out/
+  --native sentinel --sentinel-dcr dcr/Nginx.dcr.json --out out/
 ```
 
 Use records read back from the table as the sample (an empty field and a missing one are the
@@ -283,7 +283,25 @@ first: its pattern and rationale come from your logs.
 You can also write recipes yourself: `sluice recipes export --out my-recipes`, edit, and pass
 `--recipes my-recipes`.
 
-## 6. Review every change in Git
+## 6. Work the advice out with an assistant
+
+`sluice mcp` hands an analysis to an AI assistant over the Model Context Protocol, so it can
+draft what your platform still needs, and has every draft proven before it proposes it
+([ADR 0035](adr/0035-mcp-for-assistants.md)). In Claude Code:
+
+```sh
+claude mcp add sluice -- sluice mcp --out out --input samples --sources sources.yaml \
+  --rules sigma/rules   # add --sentinel-rules DIR --kusto URL --sentinel-table S=T for KQL
+```
+
+The assistant reads `summary`, `source_plan`, `problems` and the files Sluice wrote, and proves
+a changed `vector.yaml` with `prove_vector` or a data collection rule's `transformKql` with
+`prove_transform_kql` (which drops no record and keeps every Sentinel alert, or does not hold).
+Every tool only reads or proves on your sample: nothing is deployed, and the sample and the report
+are not offered to read. A transformation that shapes a new source into a standard table cannot
+be proven this way yet; treat it as advisory.
+
+## 7. Review every change in Git
 
 Sluice's product is a configuration and its proof ([ADR 0022](adr/0022-configs-as-the-product.md)).
 Keep what `sluice analyze` writes in a repository, so a new analysis arrives as a reviewable

@@ -38,7 +38,7 @@ last on 2026-10-18, with the shaping VRL); what they found about Azure still hol
   columns the stream declares, and refuses a `guid`.
 - Records sent with a value of the wrong type for a stream column (a number for a `string`
   column) arrive with that column empty.
-- A 9,630-character transformation from `sluice analyze --sentinel-native --sentinel-dcr` was
+- A 9,630-character transformation from `sluice analyze --native sentinel --sentinel-dcr` was
   accepted by Azure in the `sluice-windows` rule of the test workspace. On 150 real Security
   records sent through it (`scripts/real-data/try-dcr-native.sh`), Azure and the emulator
   agreed on every record: `EventData` emptied on 7 of 50 4672 and 16 of 50 4798 records (the
@@ -51,7 +51,7 @@ last on 2026-10-18, with the shaping VRL); what they found about Azure still hol
 
 ## The archive flow (2026-10-17)
 
-The rule `sluice analyze --sentinel-native --sentinel-dcr` writes has, next to the transformed
+The rule `sluice analyze --native sentinel --sentinel-dcr` writes has, next to the transformed
 flow into `SecurityEvent`, an untransformed flow of the same stream into
 `SluiceSecurityEventArchive_CL` on the Auxiliary plan (`scripts/real-data/deploy-dcr-native.sh`).
 
@@ -156,7 +156,7 @@ do) saves exactly as much as removing it.
 **Implied values, measured 2026-10-24** in the same workspace with
 `scripts/real-data/try-dcr-implied.sh`: 100 real records (20 each of 4624, 4672, 4688, 4798 and
 5379) sent through the rule as it is and again through Sluice's transformation (15,310
-characters, from `sluice analyze --sentinel-native` on the workspace's 20,154-record sample).
+characters, from `sluice analyze --native sentinel` on the workspace's 20,154-record sample).
 Each batch was checked against the emulator's run of the rule version meant for it.
 
 | EventID | Full | With Sluice's transformation | Less |

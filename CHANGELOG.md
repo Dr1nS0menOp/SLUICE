@@ -6,6 +6,23 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
+- **`sluice mcp`: the advice to an AI assistant, and Sluice's proof for what it drafts**
+  ([ADR 0035](docs/adr/0035-mcp-for-assistants.md)). Over the Model Context Protocol on stdio, an
+  assistant reads an analysis (`summary`, `source_plan`, `problems`, `files`, `read_file`) and
+  proves its drafts on the sample before it proposes them: `prove_vector` (`sluice prove` on a
+  changed `vector.yaml`) and `prove_transform_kql` (a data collection rule's transformation in
+  the Kusto emulator: no record dropped, every Sentinel alert kept). Every tool is read-only, and
+  nothing is deployed. The protocol is a small crate of its own (`sluice-mcp`), tested against
+  the official Python MCP SDK (1.30.0 and 2.3.0) in the gates and CI (`scripts/mcp-check.sh`).
+- **One `--native` flag.** `--native sentinel,elastic,fluent-bit,otel` replaces `--sentinel-native`,
+  `--elastic-native`, `--fluent-bit-native` and `--otel-native` (for `sluice analyze`; the demo
+  takes `elastic`, `fluent-bit` and `otel`). Each target still needs the engine it is proven in,
+  and Sluice now says which one is missing (`--native elastic needs --elasticsearch URL`) before
+  it reads anything. The old switches are gone.
+- **Problems in `plan.json`.** What Sluice could not read or check in the rules and recipes (a
+  rule file it could not parse, a function whose source is missing, a rule read broadly) is now
+  in `plan.json` as `problems`, sorted, with its `kind`, its rule and, for a missing function,
+  the function and its rule language. Until now only the report listed them.
 - **Removed: Splunk** ([ADR 0034](docs/adr/0034-no-splunk.md)). `--splunk-rules`, `sluice rules
   fetch splunk`, the SPL reader, the crate `sluice-splunk` and the field conventions only Splunk
   has (`schema: splunk` and `schema: cim`) are gone. They were experimental: no engine ran
@@ -18,7 +35,7 @@ All notable changes to Sluice are recorded here. The format follows
   put back from `plan.json` (`remove_implied`). On the real
   Windows sample with all of SigmaHQ: 25.0 % → 42.3 %, 236 = 236 alerts. The research and its
   sources are in `docs/notes/field-value.md` and `docs/credits.md`.
-- **Implied values in Sentinel.** `--sentinel-native` empties them in the data collection rule
+- **Implied values in Sentinel.** `--native sentinel` empties them in the data collection rule
   too, where they can be put back exactly, and writes `sentinel/<Table>Full.kql`, a workspace
   function that puts them back so a query reads the table as before. A rule takes the most
   worthwhile values that fit in its 15,360 characters (counting the rule's own
@@ -39,7 +56,7 @@ All notable changes to Sluice are recorded here. The format follows
   fixed a bug: a query reads `SecurityEvent`'s GUID columns as `string`, although the tables
   API lists them as `guid`. The function wrote `toguid(…)` there, which `case` refused, so it
   now reads such a column as text.
-- **Implied values back in Elasticsearch.** `--elastic-native` also writes
+- **Implied values back in Elasticsearch.** `--native elastic` also writes
   `elastic/SOURCE.runtime.json`: runtime fields (`keyword`, `long` or `boolean`) that put each implied value back when a
   query runs, for a search's `runtime_mappings` or a Kibana data view. They are proven on the
   sample in Elasticsearch through `_simulate`, without writing to the cluster: every forwarded

@@ -1,7 +1,9 @@
 //! Problems reading any rule set reach the analysis, so the report shows them, not only the
 //! terminal of whoever ran it.
 
-use sluice_autopilot::{Elastic, Helpers, Input, RecipeBook, Report, Sentinel, Settings, analyze};
+use sluice_autopilot::{
+    Elastic, Helpers, Input, RecipeBook, Report, SavingsPlan, Sentinel, Settings, analyze,
+};
 use sluice_rules::{ElasticRules, SentinelRules, SigmaRules};
 use sluice_synth::{SynthConfig, generate};
 
@@ -52,5 +54,16 @@ fn sentinel_and_elastic_rule_problems_are_listed_in_the_analysis() {
             "{set}"
         );
         assert!(report.rule_rows.iter().any(|r| r.set == set), "{set}");
+    }
+    // And in `plan.json`, for tools that act on them.
+    let plan = SavingsPlan::new(&analysis, &report, &sample.sources);
+    for needle in ["broken.yaml", "broken.ndjson"] {
+        assert!(
+            plan.problems
+                .iter()
+                .any(|p| p.kind == "unreadable" && p.message.contains(needle)),
+            "{needle}: {:?}",
+            plan.problems
+        );
     }
 }

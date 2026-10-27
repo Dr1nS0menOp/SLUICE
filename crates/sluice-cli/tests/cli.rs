@@ -305,8 +305,13 @@ fn sluice_fails(args: &[&str]) -> String {
 fn a_flag_without_what_it_is_for_is_refused() {
     let analyze = ["analyze", "--input", "in", "--sources", "sources.yaml"];
     for (extra, wanted) in [
-        (&["--fluent-bit", "fluent-bit"][..], "--fluent-bit-native"),
-        (&["--otel-collector", "otelcol"][..], "--otel-native"),
+        (&["--fluent-bit", "fluent-bit"][..], "--native fluent-bit"),
+        (&["--otel-collector", "otelcol"][..], "--native otel"),
+        (&["--sentinel-dcr", "dcr.json"][..], "--native sentinel"),
+        // A target without the engine it is proven in.
+        (&["--native", "elastic"][..], "--elasticsearch URL"),
+        (&["--native", "fluent-bit,otel"][..], "--fluent-bit CMD"),
+        (&["--native", "sentinel"][..], "--kusto URL"),
         (&["--wazuh-insecure"][..], "--wazuh-api"),
         (
             &["--elasticsearch", "http://127.0.0.1:9"][..],
@@ -318,7 +323,11 @@ fn a_flag_without_what_it_is_for_is_refused() {
         assert!(error.contains(wanted), "{args:?}: {error}");
     }
     let error = sluice_fails(&["demo", "--elasticsearch", "http://127.0.0.1:9"]);
-    assert!(error.contains("--elastic-native"), "{error}");
+    assert!(error.contains("--native elastic"), "{error}");
+    let error = sluice_fails(&["demo", "--native", "sentinel"]);
+    assert!(error.contains("no Sentinel sample"), "{error}");
+    let error = sluice_fails(&["demo", "--native", "qradar"]);
+    assert!(error.contains("invalid value 'qradar'"), "{error}");
 }
 
 fn scratch(name: &str) -> std::path::PathBuf {

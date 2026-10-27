@@ -13,7 +13,7 @@ filter runs a script per record (LuaJIT), which can express what the other gener
 
 ## Decision
 
-1. **One Lua filter per source** (`sluice_fluentbit::lua_filter`, `--fluent-bit-native` for
+1. **One Lua filter per source** (`sluice_fluentbit::lua_filter`, `--native fluent-bit` for
    `analyze` and `demo`, with `--fluent-bit CMD`): the same three rules as the ingest pipeline.
    Recognition is exact and in Vector's order (leaf paths equal to a key set, discriminators
    rendered as VRL renders them), the keep-whole condition is a superset of the VRL
@@ -36,7 +36,7 @@ filter runs a script per record (LuaJIT), which can express what the other gener
 5. **Tests against the real engine** (`scripts/fluentbit-check.sh`, in `check.sh` when the image
    `fluent/fluent-bit:4.0.3` is present, and in CI): edge records through the filter lose
    exactly what they lose in Vector or stay whole, the differential test of 2,474 predicates
-   (Lua true wherever VRL is), and the demo with `--fluent-bit-native`.
+   (Lua true wherever VRL is), and the demo with `--native fluent-bit`.
 
 ## Consequences
 

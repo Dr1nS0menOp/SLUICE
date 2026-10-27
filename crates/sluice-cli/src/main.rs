@@ -11,6 +11,7 @@ mod connect;
 mod engines;
 mod input;
 mod inventory;
+mod mcp;
 mod native;
 mod output;
 mod prove;
@@ -31,6 +32,7 @@ fn main() -> ExitCode {
         Command::Rules(args) => commands::rules(&args),
         Command::Prove(args) => prove::prove(&args),
         Command::Connect(args) => connect::connect(&args),
+        Command::Mcp(args) => mcp::mcp(&args),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

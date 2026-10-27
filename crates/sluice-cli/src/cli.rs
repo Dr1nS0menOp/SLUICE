@@ -28,6 +28,38 @@ pub(crate) enum Command {
     /// Write the Microsoft Sentinel tables and data collection rules a source needs: a custom
     /// table for JSON records, or the table for summaries.
     Connect(ConnectArgs),
+    /// Serve an analysis's advice, and Sluice's proof of what an AI assistant drafts, over the
+    /// Model Context Protocol on stdin and stdout (ADR 0035). Changes nothing.
+    Mcp(McpArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct McpArgs {
+    /// The directory a `sluice analyze` or `sluice demo` wrote: its `plan.json` and the
+    /// configurations are what the assistant reads.
+    #[arg(long, default_value = "out")]
+    pub(crate) out: PathBuf,
+    /// Directory with one `<source-id>.ndjson` file per source: the sample drafts are proven on.
+    #[arg(long, requires = "sources")]
+    pub(crate) input: Option<PathBuf>,
+    /// Sources file (YAML), as for `sluice analyze`.
+    #[arg(long, requires = "input")]
+    pub(crate) sources: Option<PathBuf>,
+    /// Directory of Sigma rules (`*.yml`, `*.yaml`), searched recursively.
+    #[arg(long, requires = "input")]
+    pub(crate) rules: Option<PathBuf>,
+    /// Map the Sigma rules onto another field naming convention (`SCHEMA=PIPELINE`).
+    #[arg(long, value_name = "SCHEMA=PIPELINE", requires = "rules")]
+    pub(crate) sigma_pipeline: Vec<String>,
+    /// Directory of Sentinel rules and queries, run in the Kusto emulator (`--kusto`).
+    #[arg(long, requires = "kusto")]
+    pub(crate) sentinel_rules: Option<PathBuf>,
+    /// URL of a Kusto emulator, for the Sentinel rules and `prove_transform_kql`.
+    #[arg(long, requires_all = ["input", "sentinel_rules", "sentinel_table"])]
+    pub(crate) kusto: Option<String>,
+    /// The Sentinel table of a source's records, as `SOURCE=TABLE`. Repeatable.
+    #[arg(long, value_name = "SOURCE=TABLE", requires = "kusto")]
+    pub(crate) sentinel_table: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -72,6 +104,31 @@ pub(crate) enum ModeArg {
     Rules,
     /// Values the kind of event or another field implies.
     Implied,
+}
+
+/// An ingestion that `--native` writes and proves code for, each in its own real engine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
+pub(crate) enum NativeTarget {
+    /// A Sentinel data collection rule transformation, proven in the Kusto emulator.
+    Sentinel,
+    /// Elasticsearch ingest pipelines, proven in Elasticsearch.
+    Elastic,
+    /// Fluent Bit Lua filters, proven in Fluent Bit.
+    FluentBit,
+    /// OpenTelemetry Collector transform statements, proven in the collector.
+    Otel,
+}
+
+impl NativeTarget {
+    /// The target as `--native` spells it, for messages.
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::Sentinel => "sentinel",
+            Self::Elastic => "elastic",
+            Self::FluentBit => "fluent-bit",
+            Self::Otel => "otel",
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -217,10 +274,6 @@ pub(crate) enum RecipesCommand {
 }
 
 #[derive(Debug, Args)]
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "each is a command-line switch of its own"
-)]
 pub(crate) struct DemoArgs {
     /// Directory for the sample, `vector.yaml` and `report.html`.
     #[arg(long, default_value = "out")]
@@ -231,25 +284,20 @@ pub(crate) struct DemoArgs {
     /// Seed for the generated sample.
     #[arg(long, default_value_t = 1)]
     pub(crate) seed: u64,
-    /// An Elasticsearch, for `--elastic-native`.
-    #[arg(long, value_name = "URL", requires = "elastic_native")]
+    /// Also prove and write code for an agent's or a SIEM's own ingestion, as for `sluice analyze
+    /// --native`: `elastic`, `fluent-bit` or `otel`, separated by commas. The demo has no
+    /// Sentinel sample, so not `sentinel`.
+    #[arg(long, value_enum, value_delimiter = ',', value_name = "TARGETS")]
+    pub(crate) native: Vec<NativeTarget>,
+    /// An Elasticsearch, for `--native elastic`.
+    #[arg(long, value_name = "URL")]
     pub(crate) elasticsearch: Option<String>,
-    /// Also prove and write Elasticsearch ingest pipelines, as `sluice analyze --elastic-native`.
-    #[arg(long, requires = "elasticsearch")]
-    pub(crate) elastic_native: bool,
-    /// A command that runs Fluent Bit, for `--fluent-bit-native`.
-    #[arg(long, value_name = "CMD", requires = "fluent_bit_native")]
+    /// A command that runs Fluent Bit, for `--native fluent-bit`.
+    #[arg(long, value_name = "CMD")]
     pub(crate) fluent_bit: Option<PathBuf>,
-    /// Also prove and write Fluent Bit Lua filters, as `sluice analyze --fluent-bit-native`.
-    #[arg(long, requires = "fluent_bit")]
-    pub(crate) fluent_bit_native: bool,
-    /// A command that runs the OpenTelemetry Collector (contrib), for `--otel-native`.
-    #[arg(long, value_name = "CMD", requires = "otel_native")]
+    /// A command that runs the OpenTelemetry Collector (contrib), for `--native otel`.
+    #[arg(long, value_name = "CMD")]
     pub(crate) otel_collector: Option<PathBuf>,
-    /// Also prove and write OpenTelemetry Collector transform statements, as `sluice analyze
-    /// --otel-native`.
-    #[arg(long, requires = "otel_collector")]
-    pub(crate) otel_native: bool,
     /// The kinds of saving to make, as for `sluice analyze --mode`.
     #[arg(long, value_enum, value_delimiter = ',', default_values = ["rules", "implied"])]
     pub(crate) mode: Vec<ModeArg>,
@@ -279,51 +327,45 @@ pub(crate) struct AnalyzeArgs {
     /// `windows-security=SecurityEvent`). Repeatable.
     #[arg(long, value_name = "SOURCE=TABLE", requires = "kusto")]
     pub(crate) sentinel_table: Vec<String>,
-    /// Also prove, per `--sentinel-table` source, a data collection rule transformation that
-    /// makes the plan's field removals in Sentinel's own ingestion, in the emulator (ADR 0013).
-    /// Needs a sample read from the table, where empty and missing columns are the same.
-    #[arg(long, requires = "sentinel_table")]
-    pub(crate) sentinel_native: bool,
+    /// Also write code that makes the plan's field removals in a SIEM's or an agent's own
+    /// ingestion, each proven in its real engine first: it removes nothing Vector keeps, changes
+    /// nothing else, and the rules raise the same alerts. Separated by commas:
+    ///
+    /// `sentinel`: per `--sentinel-table` source, a data collection rule transformation, proven
+    /// in `--kusto` (ADR 0013); needs a sample read from the table, where empty and missing
+    /// columns are the same. `elastic`: per source, an Elasticsearch ingest pipeline
+    /// (`elastic/SOURCE.pipeline.json`), proven in `--elasticsearch` (ADR 0024); needs documents
+    /// as the index stores them. `fluent-bit`: per source, a Fluent Bit Lua filter
+    /// (`fluent-bit/SOURCE.lua`), proven in `--fluent-bit` (ADR 0027); needs records as the agent
+    /// reads them. `otel`: `otel/processors.yaml`, per source a `transform` processor whose
+    /// OTTL statements are proven in `--otel-collector` (ADR 0028); for records whose body is the
+    /// parsed JSON.
+    #[arg(long, value_enum, value_delimiter = ',', value_name = "TARGETS")]
+    pub(crate) native: Vec<NativeTarget>,
     /// The data collection rule (JSON, as Azure exports it) the records go through, for
-    /// `--sentinel-native`: its stream's columns are what the
+    /// `--native sentinel`: its stream's columns are what the
     /// transformation sees, and it runs after the data flow's own transformation. Sluice writes
     /// it back as `sentinel/dcr.json` with the proven transformations and an untransformed flow
     /// into an archive table per changed table (`sentinel/*.table.json`). Without it, nothing is
     /// written.
-    #[arg(long, value_name = "FILE", requires = "sentinel_native")]
+    #[arg(long, value_name = "FILE")]
     pub(crate) sentinel_dcr: Option<PathBuf>,
     /// An Elasticsearch (`scripts/elastic-check.sh` starts one): the proof then runs the
     /// `--elastic-rules` EQL and ES|QL rules themselves on full and forwarded documents (ADR
-    /// 0025), and `--elastic-native` proves its pipelines there.
+    /// 0025), and `--native elastic` proves its pipelines there.
     #[arg(long, value_name = "URL")]
     pub(crate) elasticsearch: Option<String>,
-    /// Also write, per source, an Elasticsearch ingest pipeline (`elastic/SOURCE.pipeline.json`)
-    /// that makes the plan's field removals in Elastic's own ingestion, after proving it in
-    /// `--elasticsearch` (ADR 0024): it removes nothing Vector keeps, and the rules raise the
-    /// same alerts. Needs documents as the index stores them.
-    #[arg(long, requires = "elasticsearch")]
-    pub(crate) elastic_native: bool,
-    /// A command that runs Fluent Bit: the `fluent-bit` binary, or a wrapper that runs it in a
-    /// container (`scripts/fluentbit-check.sh` writes one). It takes Fluent Bit's own arguments.
-    #[arg(long, value_name = "CMD", requires = "fluent_bit_native")]
+    /// A command that runs Fluent Bit, for `--native fluent-bit`: the `fluent-bit` binary, or a
+    /// wrapper that runs it in a container (`scripts/fluentbit-check.sh` writes one). It takes
+    /// Fluent Bit's own arguments.
+    #[arg(long, value_name = "CMD")]
     pub(crate) fluent_bit: Option<PathBuf>,
-    /// Also write, per source, a Fluent Bit Lua filter (`fluent-bit/SOURCE.lua`) that makes the
-    /// plan's field removals in the agent, after proving it in `--fluent-bit` (ADR 0027): it
-    /// removes nothing Vector keeps, changes nothing else, and the rules raise the same alerts.
-    /// Needs records as the agent reads them.
-    #[arg(long, requires = "fluent_bit")]
-    pub(crate) fluent_bit_native: bool,
-    /// A command that runs the OpenTelemetry Collector with the `filelog` receiver, `transform`
-    /// processor and `file` exporter (the contrib distribution, or a wrapper that runs it in a
-    /// container: `scripts/otel-check.sh` writes one). It takes the collector's own arguments.
-    #[arg(long, value_name = "CMD", requires = "otel_native")]
+    /// A command that runs the OpenTelemetry Collector, for `--native otel`, with the `filelog`
+    /// receiver, `transform` processor and `file` exporter (the contrib distribution, or a
+    /// wrapper that runs it in a container: `scripts/otel-check.sh` writes one). It takes the
+    /// collector's own arguments.
+    #[arg(long, value_name = "CMD")]
     pub(crate) otel_collector: Option<PathBuf>,
-    /// Also write `otel/processors.yaml`: per source, a `transform` processor whose OTTL
-    /// statements make the plan's field removals in the collector, after proving them in
-    /// `--otel-collector` (ADR 0028): they remove nothing Vector keeps, change nothing else,
-    /// and the rules raise the same alerts. For records whose body is the parsed JSON.
-    #[arg(long, requires = "otel_collector")]
-    pub(crate) otel_native: bool,
     /// Wazuh manager API (for example `https://wazuh:55000`) to spot-check reductions with its
     /// real decoders and rules through `logtest`. The password is read from
     /// `WAZUH_API_PASSWORD`.
@@ -347,7 +389,7 @@ pub(crate) struct AnalyzeArgs {
     /// recipes propose (rendered text, empty fields, counting events no rule could match),
     /// held to what every rule reads. `implied`: values the kind of event or another field
     /// implies, learned from the sample, removed only while a field holds one and put back
-    /// from `plan.json` (`remove_implied`); `--sentinel-native` also writes a function that
+    /// from `plan.json` (`remove_implied`); `--native sentinel` also writes a function that
     /// puts them back. The report shows what each saved.
     #[arg(long, value_enum, value_delimiter = ',', default_values = ["rules", "implied"])]
     pub(crate) mode: Vec<ModeArg>,

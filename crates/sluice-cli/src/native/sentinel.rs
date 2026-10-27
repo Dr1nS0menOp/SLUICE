@@ -1,4 +1,4 @@
-//! `sluice analyze --sentinel-native`: the plan's field removals as a DCR transformation per
+//! `sluice analyze --native sentinel`: the plan's field removals as a DCR transformation per
 //! Sentinel source (ADR 0013), proven in the Kusto emulator with Microsoft's rules.
 //!
 //! What is written is one data collection rule: each proven transformation in its table's data

@@ -397,39 +397,8 @@ fn problems(problems: &[Problem]) -> String {
 
 /// What a kind of problem costs, and what the reader can do about it.
 fn advice(kind: &ProblemKind) -> &'static str {
-    match kind {
-        ProblemKind::Unreadable => {
-            "Files and rules Sluice could not read. Each stands in as a rule that may read \
-             anything, which keeps every field of every event: fix it, or leave it out if your \
-             SIEM does not run it."
-        }
-        ProblemKind::UnknownFunction { .. } => FUNCTIONS,
-        ProblemKind::Unchecked => {
-            "Names Sluice could not check. Each is read as it most likely is; give Sluice a way \
-             to check them, as each problem says."
-        }
-        ProblemKind::ReadBroadly => {
-            "Parts of rules Sluice reads as broadly as they could reach, such as free text or a \
-             wildcard field name. Those rules keep more than they may need: that costs savings, \
-             not detections."
-        }
-        ProblemKind::SharedId => {
-            "Rules that share an id, so the proof cannot tell their alerts apart. Give each rule \
-             its own id."
-        }
-        ProblemKind::MissingRule => {
-            "Rules that name a rule that is not loaded. They keep every field of every event \
-             until the rule they name is given too."
-        }
-        ProblemKind::LeftOut => "Left out on purpose.",
-        ProblemKind::Recipe => "Recipes Sluice could not apply, and AI advice it did not take.",
-    }
+    super::text::problem_advice(kind.name()).expect("every kind of problem has its advice")
 }
-
-/// What a function without its source costs.
-const FUNCTIONS: &str = "Each rule that calls a function whose source Sluice does not have is \
-     read as reading every column of every record, so that data is kept whole. Give Sluice the \
-     source and it reads what the function reads.";
 
 /// One line per function the rules call without its source, with the rules that call it, and
 /// how to give the source.
@@ -472,7 +441,7 @@ fn functions(problems: &[Problem]) -> String {
         .collect();
     let mut out = format!(
         "<p>Functions your rules call whose source Sluice does not have. {}</p><ul>{}</ul>",
-        escape(FUNCTIONS),
+        escape(super::text::FUNCTIONS),
         items.concat()
     );
     if calls.keys().any(|(engine, _)| *engine == Engine::Sentinel) {

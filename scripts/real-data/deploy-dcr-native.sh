@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys what `sluice analyze --sentinel-native --sentinel-dcr RULE.json` wrote into OUT/sentinel
+# Deploys what `sluice analyze --native sentinel --sentinel-dcr RULE.json` wrote into OUT/sentinel
 # to that real data collection rule, and checks contract rule 2 in Azure: creates each archive
 # table from its `.table.json`, puts `dcr.json` in the rule, sends records read back from the
 # table, and checks that every one arrives whole in the archive table and transformed in the

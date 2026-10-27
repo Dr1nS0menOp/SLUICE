@@ -2,7 +2,7 @@
 # Checks implied values in a real data collection rule: what emptying them saves in
 # `_BilledSize`, and whether the `<Table>Full` function Sluice writes puts every one back.
 #
-# Reads the live rule, runs `sluice analyze --sentinel-native --sentinel-dcr` on it, then sends
+# Reads the live rule, runs `sluice analyze --native sentinel --sentinel-dcr` on it, then sends
 # the same records twice into SecurityEvent: first through the rule as it is (the baseline),
 # then, after putting Sluice's transformation in the rule, through that. It compares what Azure
 # billed for each record, and runs `SecurityEventFull.kql` on the second batch: every column it
@@ -79,7 +79,7 @@ with open(f"{work}/rule.json", "w") as f:
 analysis = subprocess.run([env["SLUICE"], "analyze", "--input", env["TRY_SAMPLES"],
     "--sources", env["TRY_SOURCES"], "--sentinel-rules", env["TRY_RULES"],
     "--kusto", env["KUSTO"], "--sentinel-table", "SecurityEvent=SecurityEvent",
-    "--sentinel-native", "--sentinel-dcr", f"{work}/rule.json", "--no-examples",
+    "--native sentinel", "--sentinel-dcr", f"{work}/rule.json", "--no-examples",
     "--out", f"{work}/out"], capture_output=True, text=True)
 if analysis.returncode != 0:
     raise SystemExit(f"sluice analyze failed:\n{analysis.stderr[-2000:]}")

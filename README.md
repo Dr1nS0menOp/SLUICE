@@ -257,7 +257,7 @@ The first `az monitor data-collection rule …` command installs the Azure CLI's
 az monitor data-collection rule show --resource-group my-resource-group --name my-dcr > dcr.json
 sluice analyze --input samples --sources sources.yaml --sentinel-rules sentinel-rules \
   --kusto http://127.0.0.1:8090 --sentinel-table SecurityEvent=SecurityEvent \
-  --sentinel-native --sentinel-dcr dcr.json --out out
+  --native sentinel --sentinel-dcr dcr.json --out out
 ```
 
 `out/sentinel/dcr.json` is that rule with the proven transformation, plus an untransformed flow
@@ -356,8 +356,8 @@ sluice analyze --input samples --sources sources.yaml \
 **6. Deploy.** Wazuh has no ingest-time transformation of its own, so the saving runs before the
 data reaches the manager. Use one of these:
 - Vector, with `out/vector.yaml`;
-- Fluent Bit, where it collects the logs, with `--fluent-bit-native`;
-- the OpenTelemetry Collector, where it collects the logs, with `--otel-native`.
+- Fluent Bit, where it collects the logs, with `--native fluent-bit`;
+- the OpenTelemetry Collector, where it collects the logs, with `--native otel`.
 
 Mind one thing. With Wazuh's standard ruleset, Sluice saves almost nothing on the data Wazuh
 itself receives, because generic rules such as 1002 read every line whole. The savings are on
@@ -428,7 +428,7 @@ docker run -d --name sluice-elastic -p 127.0.0.1:9201:9200 -e discovery.type=sin
   -e xpack.security.enabled=false -e ES_JAVA_OPTS="-Xms1g -Xmx1g" \
   docker.elastic.co/elasticsearch/elasticsearch:9.1.0
 sluice analyze --input samples --sources sources.yaml --elastic-rules elastic-rules \
-  --elasticsearch http://127.0.0.1:9201 --elastic-native --out out
+  --elasticsearch http://127.0.0.1:9201 --native elastic --out out
 ```
 
 **6. Deploy.** `out/elastic/windows-security.pipeline.json` is an ingest pipeline that makes the
@@ -468,10 +468,10 @@ Sluice proves each configuration in the engine it is for before it writes it:
 | Where the saving runs | What `sluice analyze` writes | Proven in |
 |---|---|---|
 | [Vector](https://vector.dev) | `vector.yaml`, always: every saving, counting included | the `vrl` crate Vector embeds; its tests let `vector test` check Vector itself |
-| Microsoft Sentinel's ingestion | with `--sentinel-native --sentinel-dcr RULE.json`: that data collection rule with a `transformKql` per table and an untransformed flow into an archive table, and `<Table>Full.kql`, which puts implied values back | the Kusto emulator |
-| Elasticsearch's ingestion | with `--elastic-native`: an ingest pipeline per source, and runtime fields that put implied values back | Elasticsearch |
-| Fluent Bit | with `--fluent-bit-native`: a Lua filter per source | Fluent Bit |
-| OpenTelemetry Collector | with `--otel-native`: `transform` statements per source | the collector |
+| Microsoft Sentinel's ingestion | with `--native sentinel --sentinel-dcr RULE.json`: that data collection rule with a `transformKql` per table and an untransformed flow into an archive table, and `<Table>Full.kql`, which puts implied values back | the Kusto emulator |
+| Elasticsearch's ingestion | with `--native elastic`: an ingest pipeline per source, and runtime fields that put implied values back | Elasticsearch |
+| Fluent Bit | with `--native fluent-bit`: a Lua filter per source | Fluent Bit |
+| OpenTelemetry Collector | with `--native otel`: `transform` statements per source | the collector |
 
 Outside Vector, only field removals run: counting needs state across events, which only a
 pipeline tool keeps. `plan.json` says for each kind of event where its saving can run.
@@ -485,8 +485,18 @@ For data you send to Sentinel yourself, `sluice connect sentinel` writes two kin
 with their data collection rules: a custom table derived from a sample (`--sample`), and a table
 for summaries with a function that counts them in (`--summary-table`).
 
-Until 2026-10-17, Sluice could also run Vector itself (`sluice up`), with a live control plane,
-archive search and replay, and an MCP server. That code was removed and stays in the Git history
+**With an AI assistant.** `sluice mcp` hands an analysis to an assistant (Claude Code, Claude
+Desktop, any MCP client) to work out further, and proves what it drafts first: a changed
+`vector.yaml` through `prove_vector`, a data collection rule's `transformKql` in the Kusto
+emulator through `prove_transform_kql`. Every tool only reads or proves; a person deploys
+([ADR 0035](docs/adr/0035-mcp-for-assistants.md)):
+
+```sh
+claude mcp add sluice -- sluice mcp --out out --input samples --sources sources.yaml --rules sigma-rules
+```
+
+Until 2026-10-17, Sluice could also run Vector itself (`sluice up`), with a live control plane and
+archive search and replay. That code was removed and stays in the Git history
 ([ADR 0030](docs/adr/0030-advice-only.md)).
 
 ## Building and testing

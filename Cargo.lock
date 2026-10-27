@@ -2427,6 +2427,7 @@ dependencies = [
  "sluice-elastic",
  "sluice-fluentbit",
  "sluice-kql",
+ "sluice-mcp",
  "sluice-otel",
  "sluice-rules",
  "sluice-sentinel",
@@ -2497,6 +2498,14 @@ dependencies = [
  "sluice-rules",
  "sluice-synth",
  "sluice-vector",
+ "thiserror",
+]
+
+[[package]]
+name = "sluice-mcp"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
  "thiserror",
 ]
 

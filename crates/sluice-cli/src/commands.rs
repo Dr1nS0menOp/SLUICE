@@ -15,7 +15,7 @@ use sluice_synth::{SynthConfig, generate};
 use sluice_vector::{Paths, vector_config};
 use sluice_wazuh::{Http as WazuhHttp, Logtest, LogtestConfig};
 
-use crate::cli::{AnalyzeArgs, DemoArgs, ModeArg, RuleSets, RulesArgs, RulesCommand};
+use crate::cli::{AnalyzeArgs, DemoArgs, ModeArg, NativeTarget, RuleSets, RulesArgs, RulesCommand};
 use crate::{ai, input, output};
 
 /// The example rules the demo runs with, built into the binary.
@@ -26,6 +26,7 @@ const EXAMPLE_SIGMA: [&str; 3] = [
 ];
 
 pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
+    let native = demo_native(args)?;
     let sample = generate(&SynthConfig {
         seed: args.seed,
         scale_percent: args.scale,
@@ -62,18 +63,7 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
             ..Settings::default()
         },
         ReportExtras::default(),
-        Native {
-            elastic: args
-                .elasticsearch
-                .as_deref()
-                .filter(|_| args.elastic_native),
-            fluent_bit: args
-                .fluent_bit
-                .as_deref()
-                .filter(|_| args.fluent_bit_native),
-            otel: args.otel_collector.as_deref().filter(|_| args.otel_native),
-            ..Native::default()
-        },
+        native,
     )?;
     println!(
         "Re-run on the same data: sluice analyze --input {} --sources {} --rules <dir>",
@@ -84,12 +74,7 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
 }
 
 pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
-    if args.elasticsearch.is_some() && args.sets.elastic_rules.is_none() && !args.elastic_native {
-        bail!(
-            "--elasticsearch runs --elastic-rules in the proof or proves --elastic-native \
-             pipelines: give one of them"
-        );
-    }
+    let native = analyze_native(args)?;
     let sources = input::sources(&args.sources)?;
     let events = input::events(&args.input, &sources)?;
     let input::Loaded {
@@ -158,27 +143,114 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
             inventory_notes,
             no_examples: args.no_examples,
         },
-        Native {
-            sentinel: args
-                .kusto
-                .as_deref()
-                .filter(|_| args.sentinel_native)
-                .map(|url| SentinelNative {
-                    url,
-                    specs: &args.sentinel_table,
-                    dcr: args.sentinel_dcr.as_deref(),
-                }),
-            elastic: args
-                .elasticsearch
-                .as_deref()
-                .filter(|_| args.elastic_native),
-            fluent_bit: args
-                .fluent_bit
-                .as_deref()
-                .filter(|_| args.fluent_bit_native),
-            otel: args.otel_collector.as_deref().filter(|_| args.otel_native),
-        },
+        native,
     )
+}
+
+/// What `sluice demo --native` asks for, with the engine each target is proven in.
+fn demo_native(args: &DemoArgs) -> Result<Native<'_>> {
+    if args.native.contains(&NativeTarget::Sentinel) {
+        bail!(
+            "the demo has no Sentinel sample: --native sentinel is for sluice analyze, with \
+             --kusto and --sentinel-table"
+        );
+    }
+    Ok(Native {
+        sentinel: None,
+        elastic: engine(
+            &args.native,
+            NativeTarget::Elastic,
+            args.elasticsearch.as_deref(),
+            "--elasticsearch URL",
+        )?,
+        fluent_bit: engine(
+            &args.native,
+            NativeTarget::FluentBit,
+            args.fluent_bit.as_deref(),
+            "--fluent-bit CMD",
+        )?,
+        otel: engine(
+            &args.native,
+            NativeTarget::Otel,
+            args.otel_collector.as_deref(),
+            "--otel-collector CMD",
+        )?,
+    })
+}
+
+/// What `sluice analyze --native` asks for, with the engine each target is proven in. Checked
+/// before anything is read, so a missing engine costs no analysis.
+fn analyze_native(args: &AnalyzeArgs) -> Result<Native<'_>> {
+    let wants = |target| args.native.contains(&target);
+    // `--elasticsearch` has a second use: running the Elastic rules in the proof.
+    if args.elasticsearch.is_some()
+        && args.sets.elastic_rules.is_none()
+        && !wants(NativeTarget::Elastic)
+    {
+        bail!(
+            "--elasticsearch runs --elastic-rules in the proof or proves --native elastic \
+             pipelines: give one of them"
+        );
+    }
+    if wants(NativeTarget::Elastic) && args.elasticsearch.is_none() {
+        bail!("--native elastic needs --elasticsearch URL");
+    }
+    if args.sentinel_dcr.is_some() && !wants(NativeTarget::Sentinel) {
+        bail!(
+            "--sentinel-dcr is only used by --native sentinel: add it, or leave --sentinel-dcr out"
+        );
+    }
+    let sentinel = match args.kusto.as_deref() {
+        Some(url) if wants(NativeTarget::Sentinel) && !args.sentinel_table.is_empty() => {
+            Some(SentinelNative {
+                url,
+                specs: &args.sentinel_table,
+                dcr: args.sentinel_dcr.as_deref(),
+            })
+        }
+        _ if wants(NativeTarget::Sentinel) => {
+            bail!("--native sentinel needs --kusto URL and --sentinel-table SOURCE=TABLE")
+        }
+        _ => None,
+    };
+    Ok(Native {
+        sentinel,
+        elastic: args
+            .elasticsearch
+            .as_deref()
+            .filter(|_| wants(NativeTarget::Elastic)),
+        fluent_bit: engine(
+            &args.native,
+            NativeTarget::FluentBit,
+            args.fluent_bit.as_deref(),
+            "--fluent-bit CMD",
+        )?,
+        otel: engine(
+            &args.native,
+            NativeTarget::Otel,
+            args.otel_collector.as_deref(),
+            "--otel-collector CMD",
+        )?,
+    })
+}
+
+/// The engine `flag` gives `target` in: needed when `--native` names the target, and refused
+/// when it does not, since nothing else would use it.
+fn engine<'a, T: ?Sized>(
+    native: &[NativeTarget],
+    target: NativeTarget,
+    given: Option<&'a T>,
+    flag: &str,
+) -> Result<Option<&'a T>> {
+    match (native.contains(&target), given) {
+        (true, Some(engine)) => Ok(Some(engine)),
+        (true, None) => bail!("--native {} needs {flag}", target.name()),
+        (false, Some(_)) => bail!(
+            "{flag} is only used by --native {}: add it, or leave the flag out",
+            target.name()
+        ),
+        (false, None) => Ok(None),
+    }
 }
 
 /// Whether rules were given and every set came from a complete `sluice rules fetch`. Sigma has
@@ -240,12 +312,12 @@ fn modes(args: &[ModeArg]) -> BTreeSet<Mode> {
 #[derive(Default)]
 struct Native<'a> {
     sentinel: Option<SentinelNative<'a>>,
-    /// `--elastic-native`: the Elasticsearch (`--elasticsearch`) to prove ingest pipelines in.
+    /// `--native elastic`: the Elasticsearch (`--elasticsearch`) to prove ingest pipelines in.
     elastic: Option<&'a str>,
-    /// `--fluent-bit-native`: the command that runs Fluent Bit (`--fluent-bit`), to prove Lua
+    /// `--native fluent-bit`: the command that runs Fluent Bit (`--fluent-bit`), to prove Lua
     /// filters in.
     fluent_bit: Option<&'a Path>,
-    /// `--otel-native`: the command that runs the collector (`--otel-collector`), to prove
+    /// `--native otel`: the command that runs the collector (`--otel-collector`), to prove
     /// transform statements in.
     otel: Option<&'a Path>,
 }
@@ -259,7 +331,7 @@ struct ReportExtras {
     no_examples: bool,
 }
 
-/// What `--sentinel-native` asks for.
+/// What `--native sentinel` asks for.
 struct SentinelNative<'a> {
     url: &'a str,
     specs: &'a [String],

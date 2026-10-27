@@ -31,3 +31,5 @@ SLUICE_KUSTO_URL="$url" cargo test --locked -p sluice-kql --lib transform -- --n
 # A JSON source in a custom table, end to end (ADR 0013), as the binary's test does too.
 SLUICE_KUSTO_URL="$url" bash scripts/sentinel-custom-check.sh
 SLUICE_KUSTO_URL="$url" cargo test --locked -p sluice-cli --test natives sentinel -- --nocapture
+# A transformation an assistant drafted, proven through `sluice mcp` (ADR 0035).
+SLUICE_KUSTO_URL="$url" cargo test --locked -p sluice-cli --test mcp kusto -- --nocapture

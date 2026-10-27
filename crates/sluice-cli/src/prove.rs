@@ -20,28 +20,6 @@ pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
     let events = input::events(&args.input, &sources)?;
     let yaml = std::fs::read_to_string(&args.config)
         .with_context(|| format!("reading {}", args.config.display()))?;
-    let deployed = sluice_vector::deployed(&yaml, &sources)
-        .with_context(|| format!("reading the reductions of {}", args.config.display()))?;
-    let unproven = deployed.unproven();
-    if !unproven.is_empty() {
-        bail!(
-            "{} runs programs this proof does not cover ({}): they are not Sluice's programs \
-             for these sources",
-            args.config.display(),
-            unproven
-                .iter()
-                .map(|p| p.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-    }
-    if deployed.unreduced.len() == sources.len() {
-        bail!(
-            "{} has no Sluice program for any of these sources",
-            args.config.display()
-        );
-    }
-
     let sigma_files = match &args.rules {
         Some(dir) => input::files(dir, &["yml", "yaml"])?,
         None => Vec::new(),
@@ -75,9 +53,10 @@ pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
     }
     let mut engines: Vec<&dyn RuleEngine> = vec![&sigma_engine];
     engines.extend(kusto.as_ref().map(|k| k as &dyn RuleEngine));
-    let proof = run_proof(&events, &Engines(engines), &deployed.reducer)?;
+    let (proof, unreduced) = proof_of(&yaml, &sources, &events, &Engines(engines))
+        .with_context(|| format!("proving {}", args.config.display()))?;
 
-    print(args, &proof, &deployed.unreduced)?;
+    print(args, &proof, &unreduced)?;
     let empty = proof.full_alerts.is_empty();
     if !args.json && empty {
         println!("  note    {EMPTY_PROOF}");
@@ -100,6 +79,69 @@ pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
     Ok(())
 }
 
+/// The proof of the Vector configuration `yaml` on `events`, with the sources it leaves
+/// unreduced. Refuses a configuration whose programs are not all Sluice's: the proof would not
+/// cover them.
+pub(crate) fn proof_of(
+    yaml: &str,
+    sources: &[sluice_core::source::Source],
+    events: &[sluice_core::event::Event],
+    engines: &Engines<'_>,
+) -> Result<(sluice_core::proof::Proof, Vec<sluice_core::ids::SourceId>)> {
+    let deployed =
+        sluice_vector::deployed(yaml, sources).context("reading the configuration's reductions")?;
+    let unproven = deployed.unproven();
+    if !unproven.is_empty() {
+        bail!(
+            "the configuration runs programs this proof does not cover ({}): they are not \
+             Sluice's programs for these sources",
+            unproven
+                .iter()
+                .map(|p| p.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    if deployed.unreduced.len() == sources.len() {
+        bail!("the configuration has no Sluice program for any of these sources");
+    }
+    let proof = run_proof(events, engines, &deployed.reducer)?;
+    Ok((proof, deployed.unreduced))
+}
+
+/// The proof and the savings as JSON, as `--json` prints them (without the file's name).
+pub(crate) fn summary(
+    proof: &sluice_core::proof::Proof,
+    unreduced: &[sluice_core::ids::SourceId],
+) -> serde_json::Value {
+    let total = proof.total;
+    json!({
+        "holds": proof.holds(),
+        "alerts_full": proof.full_alerts.len(),
+        "alerts_forwarded": proof.forwarded_alerts.len(),
+        "missing": proof.missing.iter().map(|a| format!("{} on event {}", a.rule, a.event)).collect::<Vec<_>>(),
+        "extra": proof.extra.iter().map(|a| format!("{} on event {}", a.rule, a.event)).collect::<Vec<_>>(),
+        "events": total.events,
+        "summarized": total.summarized,
+        "summaries": total.summaries,
+        "bytes_in": total.bytes_in,
+        "bytes_out": total.bytes_out,
+        "saved_percent": (saved_percent(total) * 10.0).round() / 10.0,
+        "note": proof.full_alerts.is_empty().then_some(EMPTY_PROOF),
+        "unreduced_sources": unreduced.iter().map(ToString::to_string).collect::<Vec<_>>(),
+    })
+}
+
+fn saved_percent(total: sluice_core::proof::Volume) -> f64 {
+    if total.bytes_in == 0 {
+        return 0.0;
+    }
+    #[allow(clippy::cast_precision_loss, reason = "a percentage for people")]
+    let share =
+        (total.bytes_in - total.bytes_out.min(total.bytes_in)) as f64 / total.bytes_in as f64;
+    share * 100.0
+}
+
 /// Prints the proof and the savings, as text or as JSON.
 fn print(
     args: &ProveArgs,
@@ -107,31 +149,10 @@ fn print(
     unreduced: &[sluice_core::ids::SourceId],
 ) -> Result<()> {
     let total = proof.total;
-    let saved = if total.bytes_in == 0 {
-        0.0
-    } else {
-        #[allow(clippy::cast_precision_loss, reason = "a percentage for people")]
-        let share =
-            (total.bytes_in - total.bytes_out.min(total.bytes_in)) as f64 / total.bytes_in as f64;
-        share * 100.0
-    };
+    let saved = saved_percent(total);
     if args.json {
-        let summary = json!({
-            "config": args.config.display().to_string(),
-            "holds": proof.holds(),
-            "alerts_full": proof.full_alerts.len(),
-            "alerts_forwarded": proof.forwarded_alerts.len(),
-            "missing": proof.missing.iter().map(|a| format!("{} on event {}", a.rule, a.event)).collect::<Vec<_>>(),
-            "extra": proof.extra.iter().map(|a| format!("{} on event {}", a.rule, a.event)).collect::<Vec<_>>(),
-            "events": total.events,
-            "summarized": total.summarized,
-            "summaries": total.summaries,
-            "bytes_in": total.bytes_in,
-            "bytes_out": total.bytes_out,
-            "saved_percent": (saved * 10.0).round() / 10.0,
-            "note": proof.full_alerts.is_empty().then_some(EMPTY_PROOF),
-            "unreduced_sources": unreduced.iter().map(ToString::to_string).collect::<Vec<_>>(),
-        });
+        let mut summary = summary(proof, unreduced);
+        summary["config"] = json!(args.config.display().to_string());
         println!("{}", serde_json::to_string_pretty(&summary)?);
     } else {
         println!("{}", args.config.display());

@@ -1,6 +1,5 @@
-//! `sluice analyze --sentinel-native`, `--elastic-native`, `--fluent-bit-native` and `--otel-native`: the plan's
-//! field removals in a SIEM's own ingestion or in the agent, proven in that engine before
-//! anything is written.
+//! `sluice analyze --native sentinel,elastic,fluent-bit,otel`: the plan's field removals in a
+//! SIEM's own ingestion or in the agent, proven in that engine before anything is written.
 //!
 //! The proof has two parts, both on the sample:
 //! 1. **Never more than Vector.** Every field the generated code removes from a record is one

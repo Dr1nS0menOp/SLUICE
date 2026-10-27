@@ -1,4 +1,4 @@
-//! `sluice analyze --elastic-native`: the plan's field removals as an Elasticsearch ingest
+//! `sluice analyze --native elastic`: the plan's field removals as an Elasticsearch ingest
 //! pipeline per source (ADR 0024), proven in `--elasticsearch` with the Sigma rules and, where
 //! they run there, Elastic's own (ADR 0025).
 //!

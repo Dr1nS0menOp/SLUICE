@@ -19,6 +19,11 @@ one plan, many generators.
    - `proof`: whether it holds, the alerts on full and forwarded data, the empty-proof note,
      rules per set, and on what grounds the rules count as complete (ADR 0021).
    - `total`: the sample's volume, in and as forwarded.
+   - `problems` (added 2026-10-27): what Sluice could not read or check in the rules and
+     recipes, sorted, each with its `kind` (`unreadable`, `unknown_function`, `read_broadly`,
+     `unchecked`, `shared_id`, `missing_rule`, `left_out`, `recipe`), its rule, for a missing
+     function its `function` and `engine`, and the `message` the report shows. Each was read
+     as broadly as it could reach, so it costs savings, never a detection; a tool can act on it.
    - `sources`, each with its log source, field naming convention and kinds of event (largest
      first). Per kind of event: how to recognise it (`shape`, the exact template shape a
      classifier is compiled from), its volume, `remove_fields`, `remove_empty_fields_except`,

@@ -74,6 +74,19 @@ jobs:
       - run: docker pull otel/opentelemetry-collector-contrib:0.128.0
       - run: bash scripts/otel-check.sh
 
+  mcp:
+    name: sluice mcp against the official MCP client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install uv==0.12.24
+      - run: bash scripts/mcp-check.sh
+
   sigma-differential:
     name: Rule requirements against pySigma (examples and SigmaHQ)
     runs-on: ubuntu-latest

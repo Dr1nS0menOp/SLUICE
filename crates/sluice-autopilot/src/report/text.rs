@@ -273,6 +273,45 @@ fn list<'a>(fields: impl Iterator<Item = &'a FieldPath>) -> String {
     fields.map(FieldPath::as_str).collect::<Vec<_>>().join(", ")
 }
 
+/// What a kind of problem costs, and what the reader can do about it, by the kind's name in
+/// `plan.json` (`ProblemKind::name`); `None` for a name that is no kind. The report and `sluice
+/// mcp` say the same.
+#[must_use]
+pub fn problem_advice(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "unreadable" => {
+            "Files and rules Sluice could not read. Each stands in as a rule that may read \
+             anything, which keeps every field of every event: fix it, or leave it out if your \
+             SIEM does not run it."
+        }
+        "unknown_function" => FUNCTIONS,
+        "unchecked" => {
+            "Names Sluice could not check. Each is read as it most likely is; give Sluice a way \
+             to check them, as each problem says."
+        }
+        "read_broadly" => {
+            "Parts of rules Sluice reads as broadly as they could reach, such as free text or a \
+             wildcard field name. Those rules keep more than they may need: that costs savings, \
+             not detections."
+        }
+        "shared_id" => {
+            "Rules that share an id, so the proof cannot tell their alerts apart. Give each rule \
+             its own id."
+        }
+        "missing_rule" => {
+            "Rules that name a rule that is not loaded. They keep every field of every event \
+             until the rule they name is given too."
+        }
+        "left_out" => "Left out on purpose.",
+        "recipe" => "Recipes Sluice could not apply, and AI advice it did not take.",
+        _ => return None,
+    })
+}
+
+/// What a function without its source costs.
+pub(crate) const FUNCTIONS: &str = "Each rule that calls a function whose source Sluice does not \
+     have is read as reading every column of every record, so that data is kept whole. Give \
+     Sluice the source and it reads what the function reads.";
 #[cfg(test)]
 mod tests {
     use sluice_core::predicate::Predicate;
@@ -376,5 +415,28 @@ mod tests {
             provenance(&Provenance::Learned),
             "values learned from the sample"
         );
+    }
+
+    #[test]
+    fn every_kind_of_problem_has_its_advice() {
+        use sluice_core::ids::Engine;
+        use sluice_core::problem::ProblemKind;
+        for kind in [
+            ProblemKind::Unreadable,
+            ProblemKind::UnknownFunction {
+                engine: Engine::Sentinel,
+                name: String::new(),
+            },
+            ProblemKind::ReadBroadly,
+            ProblemKind::Unchecked,
+            ProblemKind::SharedId,
+            ProblemKind::MissingRule,
+            ProblemKind::LeftOut,
+            ProblemKind::Recipe,
+        ] {
+            assert!(problem_advice(kind.name()).is_some(), "{}", kind.name());
+        }
+        assert_eq!(problem_advice("unknown_function"), Some(FUNCTIONS));
+        assert_eq!(problem_advice("nope"), None);
     }
 }
