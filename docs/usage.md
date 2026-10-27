@@ -283,7 +283,25 @@ first: its pattern and rationale come from your logs.
 You can also write recipes yourself: `sluice recipes export --out my-recipes`, edit, and pass
 `--recipes my-recipes`.
 
-## 6. Review every change in Git
+## 6. Work the advice out with an assistant
+
+`sluice mcp` hands an analysis to an AI assistant over the Model Context Protocol, so it can
+draft what your platform still needs, and has every draft proven before it proposes it
+([ADR 0035](adr/0035-mcp-for-assistants.md)). In Claude Code:
+
+```sh
+claude mcp add sluice -- sluice mcp --out out --input samples --sources sources.yaml \
+  --rules sigma/rules   # add --sentinel-rules DIR --kusto URL --sentinel-table S=T for KQL
+```
+
+The assistant reads `summary`, `source_plan`, `problems` and the files Sluice wrote, and proves
+a changed `vector.yaml` with `prove_vector` or a data collection rule's `transformKql` with
+`prove_transform_kql` (which drops no record and keeps every Sentinel alert, or does not hold).
+Every tool only reads or proves on your sample: nothing is deployed, and the sample and the report
+are not offered to read. A transformation that shapes a new source into a standard table cannot
+be proven this way yet; treat it as advisory.
+
+## 7. Review every change in Git
 
 Sluice's product is a configuration and its proof ([ADR 0022](adr/0022-configs-as-the-product.md)).
 Keep what `sluice analyze` writes in a repository, so a new analysis arrives as a reviewable

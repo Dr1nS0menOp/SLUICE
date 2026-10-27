@@ -485,8 +485,18 @@ For data you send to Sentinel yourself, `sluice connect sentinel` writes two kin
 with their data collection rules: a custom table derived from a sample (`--sample`), and a table
 for summaries with a function that counts them in (`--summary-table`).
 
-Until 2026-10-17, Sluice could also run Vector itself (`sluice up`), with a live control plane,
-archive search and replay, and an MCP server. That code was removed and stays in the Git history
+**With an AI assistant.** `sluice mcp` hands an analysis to an assistant (Claude Code, Claude
+Desktop, any MCP client) to work out further, and proves what it drafts first: a changed
+`vector.yaml` through `prove_vector`, a data collection rule's `transformKql` in the Kusto
+emulator through `prove_transform_kql`. Every tool only reads or proves; a person deploys
+([ADR 0035](docs/adr/0035-mcp-for-assistants.md)):
+
+```sh
+claude mcp add sluice -- sluice mcp --out out --input samples --sources sources.yaml --rules sigma-rules
+```
+
+Until 2026-10-17, Sluice could also run Vector itself (`sluice up`), with a live control plane and
+archive search and replay. That code was removed and stays in the Git history
 ([ADR 0030](docs/adr/0030-advice-only.md)).
 
 ## Building and testing

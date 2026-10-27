@@ -28,6 +28,38 @@ pub(crate) enum Command {
     /// Write the Microsoft Sentinel tables and data collection rules a source needs: a custom
     /// table for JSON records, or the table for summaries.
     Connect(ConnectArgs),
+    /// Serve an analysis's advice, and Sluice's proof of what an AI assistant drafts, over the
+    /// Model Context Protocol on stdin and stdout (ADR 0035). Changes nothing.
+    Mcp(McpArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct McpArgs {
+    /// The directory a `sluice analyze` or `sluice demo` wrote: its `plan.json` and the
+    /// configurations are what the assistant reads.
+    #[arg(long, default_value = "out")]
+    pub(crate) out: PathBuf,
+    /// Directory with one `<source-id>.ndjson` file per source: the sample drafts are proven on.
+    #[arg(long, requires = "sources")]
+    pub(crate) input: Option<PathBuf>,
+    /// Sources file (YAML), as for `sluice analyze`.
+    #[arg(long, requires = "input")]
+    pub(crate) sources: Option<PathBuf>,
+    /// Directory of Sigma rules (`*.yml`, `*.yaml`), searched recursively.
+    #[arg(long, requires = "input")]
+    pub(crate) rules: Option<PathBuf>,
+    /// Map the Sigma rules onto another field naming convention (`SCHEMA=PIPELINE`).
+    #[arg(long, value_name = "SCHEMA=PIPELINE", requires = "rules")]
+    pub(crate) sigma_pipeline: Vec<String>,
+    /// Directory of Sentinel rules and queries, run in the Kusto emulator (`--kusto`).
+    #[arg(long, requires = "kusto")]
+    pub(crate) sentinel_rules: Option<PathBuf>,
+    /// URL of a Kusto emulator, for the Sentinel rules and `prove_transform_kql`.
+    #[arg(long, requires_all = ["input", "sentinel_rules", "sentinel_table"])]
+    pub(crate) kusto: Option<String>,
+    /// The Sentinel table of a source's records, as `SOURCE=TABLE`. Repeatable.
+    #[arg(long, value_name = "SOURCE=TABLE", requires = "kusto")]
+    pub(crate) sentinel_table: Vec<String>,
 }
 
 #[derive(Debug, Args)]

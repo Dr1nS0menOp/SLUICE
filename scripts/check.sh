@@ -34,6 +34,13 @@ else
     printf '\n==> vector: skipped (run scripts/install-vector.sh)\n'
 fi
 
+if command -v uv >/dev/null 2>&1; then
+    step "mcp (sluice mcp against the official MCP client)"
+    bash "$(dirname "$0")/mcp-check.sh"
+else
+    printf '\n==> mcp: skipped (install uv)\n'
+fi
+
 if command -v docker >/dev/null 2>&1 \
     && docker image inspect mcr.microsoft.com/azuredataexplorer/kustainer-linux:latest >/dev/null 2>&1; then
     step "kql (differential test against the Kusto emulator)"

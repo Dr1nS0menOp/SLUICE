@@ -30,6 +30,7 @@ pub use crate::plan::{
     TemplatePlan,
 };
 pub use crate::recipes::{RecipeBook, Resolution};
+pub use crate::report::text::problem_advice;
 pub use crate::report::{
     EMPTY_PROOF, EXAMPLES_PER_SOURCE, Example, Omission, Omitted, Report, RuleRow, RuleStatus,
     SentField, SourceExamples, TemplateRow, render_html,

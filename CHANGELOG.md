@@ -6,6 +6,14 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
+- **`sluice mcp`: the advice to an AI assistant, and Sluice's proof for what it drafts**
+  ([ADR 0035](docs/adr/0035-mcp-for-assistants.md)). Over the Model Context Protocol on stdio, an
+  assistant reads an analysis (`summary`, `source_plan`, `problems`, `files`, `read_file`) and
+  proves its drafts on the sample before it proposes them: `prove_vector` (`sluice prove` on a
+  changed `vector.yaml`) and `prove_transform_kql` (a data collection rule's transformation in
+  the Kusto emulator: no record dropped, every Sentinel alert kept). Every tool is read-only, and
+  nothing is deployed. The protocol is a small crate of its own (`sluice-mcp`), tested against
+  the official Python MCP SDK (1.30.0 and 2.3.0) in the gates and CI (`scripts/mcp-check.sh`).
 - **One `--native` flag.** `--native sentinel,elastic,fluent-bit,otel` replaces `--sentinel-native`,
   `--elastic-native`, `--fluent-bit-native` and `--otel-native` (for `sluice analyze`; the demo
   takes `elastic`, `fluent-bit` and `otel`). Each target still needs the engine it is proven in,

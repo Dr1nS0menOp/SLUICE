@@ -25,7 +25,10 @@ Most of this file is the history of how it got here. After the alpha, in this or
 2. Problems in `plan.json` too, not only in the report. **Done 2026-10-27** (`problems`, ADR
    0023).
 3. One `--native` flag instead of one per target. **Done 2026-10-27.**
-4. The MCP and AI flow that drafts data collection rules and their shaping (M12).
+4. The MCP and AI flow that drafts data collection rules and their shaping (M12). **Done
+   2026-10-27** for what can be proven (ADR 0035): `sluice mcp` serves the advice and proves a
+   changed `vector.yaml` and a `transformKql` in the Kusto emulator. Shaping a new source into a
+   standard table stays advisory: there is no full side to compare the rules with.
 
 Known small limit: `sluice … | head` ends with a "Broken pipe" panic when `head` closes the
 pipe early. The files are written by then. Resetting `SIGPIPE` needs `unsafe`, which the
@@ -745,6 +748,14 @@ Its scope is planned when it starts; it includes at least:
   Sluice's proof (`sluice prove`, the Kusto emulator) before a person deploys it: AI proposes,
   the guardrails decide (contract rule 6). Sluice itself still serves and applies nothing (ADR
   0030), so the MCP server is the assistant's tool, not a control plane.
+
+  Status 2026-10-27 (ADR 0035): `sluice mcp` serves an analysis over stdio (`summary`,
+  `source_plan`, `problems`, `files`, `read_file`) and proves drafts on the sample:
+  `prove_vector` and `prove_transform_kql` (Kusto emulator: no record dropped, the same Sentinel
+  alerts). Tested against the official Python MCP SDK 1.30.0 and 2.3.0. Open: proving a
+  transformation that shapes a new source into a standard table (the rules read names the raw
+  records lack, so there is no full side yet), and protocol 2026-07-28 (stateless) once clients
+  use it on stdio.
 - The flywheel that makes recipes "Sigma for pipelines":
 
   - A recipe hub repository with CI that runs every recipe against its samples and SigmaHQ.

@@ -52,6 +52,7 @@ engine is there. CI runs all of them but `kql-check.sh`, whose emulator image is
 | `scripts/elastic-check.sh` | Generated ingest pipelines and Elastic's rules in Elasticsearch |
 | `scripts/fluentbit-check.sh` | Generated Lua filters in Fluent Bit |
 | `scripts/otel-check.sh` | Generated `transform` statements in the OpenTelemetry Collector |
+| `scripts/mcp-check.sh` | `sluice mcp` against the official Python MCP SDK (`scripts/mcp-client.py`, fetched by `uv`) |
 | `scripts/sigma-differential.sh [--sigmahq]` | Rule requirements against pySigma, on the examples or the full SigmaHQ set |
 | `scripts/bench.sh [source] [scale]` | Data plane throughput with the real Vector ([docs/notes/benchmarks.md](docs/notes/benchmarks.md)) |
 | `scripts/example-report.sh` | Writes `docs/example-report.html`, the report of OTRF's APT29 data the README links to |

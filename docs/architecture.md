@@ -256,7 +256,8 @@ Sluice is a Rust workspace with one crate per responsibility. Dependencies point
 | `sluice-sentinel` | A Sentinel workspace's analytics rules, hunting queries, functions and query log, read-only (`sluice rules fetch sentinel`). |
 | `sluice-http` | The one HTTP client the adapters use: timeouts per caller, one answer limit, certificate handling and short error excerpts. |
 | `sluice-synth` | Deterministic synthetic security logs for the demo and the tests. |
-| `sluice-cli` | The `sluice` command: arguments, files, exit codes, logging. |
+| `sluice-mcp` | The Model Context Protocol over stdio for `sluice mcp`: JSON-RPC, `initialize`, `tools/list` and `tools/call`, with the tools left to the caller (ADR 0035). |
+| `sluice-cli` | The `sluice` command: arguments, files, exit codes, logging, and `sluice mcp`'s tools. |
 
 The crates of the archived live part (`sluice-server`, `sluice-archive`, `sluice-mcp`) are in the
 Git history only; `archive/` held them until 2026-10-22 (ADR 0030).
@@ -305,6 +306,7 @@ Git history only; `archive/` held them until 2026-10-22 (ADR 0030).
 
 | Technology | What Sluice uses it for |
 |---|---|
+| Model Context Protocol (`sluice mcp`) | An assistant reads an analysis's advice and proves what it drafts (a changed `vector.yaml`, a `transformKql`) through Sluice's proof before a person deploys it; nothing is applied (ADR 0035). Tested against the official Python SDK (MIT), fetched by `uv` for the test only. |
 | Anthropic Claude, or any OpenAI-compatible API (Ollama, LM Studio) | Proposing recipes for frequent templates no community recipe covers (step B). Samples are redacted first, the answer must fit a narrow schema, and the guardrails and the proof decide as for any other recipe. AI proposes; it never decides ([notes](notes/ai.md)). |
 
 ## How Sluice checks itself
@@ -317,8 +319,10 @@ Every engine Sluice generates code for gets a test against the real engine:
 - **Elasticsearch, Fluent Bit, OpenTelemetry Collector:** `scripts/elastic-check.sh`,
   `scripts/fluentbit-check.sh` and `scripts/otel-check.sh` run the generated pipelines, filters
   and statements in the real engine, against what Vector does on the same records, and then the
-  `sluice` binary's `--…-native` options end to end (`crates/sluice-cli/tests/natives.rs`).
+  `sluice` binary's `--native` targets end to end (`crates/sluice-cli/tests/natives.rs`).
 - **Sigma:** a differential test of the requirements against pySigma over all SigmaHQ rules.
+- **MCP:** `scripts/mcp-check.sh` runs the official Python MCP SDK (1.30.0 and 2.3.0) against
+  `sluice mcp`, and `prove_transform_kql` runs in the Kusto emulator (ADR 0035).
 - **Wazuh:** findings checked with a live manager's `logtest` ([notes](notes/wazuh.md)).
 - **Azure:** generated tables, data collection rules and transformations checked in a real
   workspace.
