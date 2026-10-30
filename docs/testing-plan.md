@@ -162,6 +162,7 @@ Each was fixed with a regression test named after what it broke.
 | 27 | `sluice-ai` `prompt.rs` | A template's pattern and field names, which come from log text, were put outside the fence that marks samples as untrusted, and the pattern was not redacted | A crafted log line could address the model as an instruction, and an address in a pattern reached a cloud model (the guardrails and the proof still decide what is saved) | `c6_everything_from_the_logs_is_inside_one_fence` |
 | 28 | `sluice-vector` `connect.rs`, `live.rs` | Sentinel destinations had no batch limit. Azure's Logs Ingestion API refuses requests over 1 MB, and Vector drops a refused batch rather than splitting it (found sending real events to the test workspace with `scripts/real-data/send-sentinel.sh`) | A burst of events never reached Sentinel: 5,090 of 18,000 Windows events in one batch were dropped, unnoticed by the proof | `c3_azure_batches_stay_below_what_azure_accepts` (`sluice up` sets 900 KB when a destination has no limit and refuses one above 1 MB) |
 | 29 | `sluice-cli` `mcp/tools.rs` (before release) | `prove_transform_kql` compared the rules' alerts over only the records a draft kept, so a draft that filtered out the failed logons a rule detects lost them on both sides (found by the Kusto emulator test) | A draft that drops what a rule detects would have held: fail-open | `a_drafted_transformation_is_proven_in_the_kusto_emulator` (the full side is every record as the table stores it) |
+| 30 | `sluice-autopilot` `implied.rs` (study, 2026-10-30) | Not a bug: the learner implied a value only where it held on every event, although the value guard keeps any other value, so a value held by nine in ten is as lossless | 2 to 4 points of saving left on real data (APT29, APT3, the Windows PC) | `a_value_most_events_hold_is_implied_and_the_others_keep_theirs`, `a_value_another_field_sets_on_nine_in_ten_is_implied_with_it`, `a_value_is_dominant_when_nine_in_ten_hold_it` |
 
 Mutation testing (`cargo-mutants` 27.1.0, MIT) on `sluice-core`, 2026-10-14: 246 mutants, 214
 caught, 30 unviable, 0 timeouts, 2 missed. Both are closed:
@@ -220,6 +221,10 @@ viable and `mcp/tools.rs` 55 of 56 viable, run with the Kusto emulator (`SLUICE_
 without which the KQL proof's mutants all survive. The one left keeps the sample's record instead
 of the table's on the full side of `prove_transform_kql`: the same on a flat custom table, where
 `source` gives each record back as it came.
+The field theory's changes (2026-10-30): `implied.rs` 69 of 69 viable caught and `sluice-kql`
+`transform.rs` 88 of 88 (two more time out, an endless loop: caught), with the emulator, once tests
+held apart a value nine in ten hold from another field that sets every value, the 20 events a
+value needs, and routing from removing with and without the archive.
 
 **Give cargo-mutants a target directory of its own.** `scripts/wsl.ps1` sets
 `CARGO_TARGET_DIR`, and mutants built its copy of the tree into the shared one: the build script

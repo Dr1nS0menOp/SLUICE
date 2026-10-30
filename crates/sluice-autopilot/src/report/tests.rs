@@ -369,13 +369,14 @@ fn each_removed_field_says_why_it_may_go_and_where() {
     assert!(why("Message").starts_with("the recipe removes it"));
     assert_eq!(
         why("Keywords"),
-        "always \"0x8020000000000000\" on this kind of event; left out only on an event that \
-         holds it, and put back from the plan"
+        "\"0x8020000000000000\" on this kind of event, on at least nine in ten of its events in \
+         the sample; left out only on an event that holds it, and put back from the plan"
     );
     assert_eq!(
         why("RestrictedAdminMode"),
-        "fixed by another field: \"-\" whenever LogonType is 2 or 3; left out only in those \
-         cases, and put back as that value"
+        "set by another field: \"-\" whenever LogonType is 2 or 3, each on at least nine in ten \
+         of those events in the sample; left out only where an event holds it, and put back as \
+         that value"
     );
     assert!(why("WorkstationName").starts_with("it was empty"));
 
@@ -419,9 +420,9 @@ fn a_field_paired_with_another_is_described_by_one_pair() {
     };
     assert_eq!(
         text::why_removed(&FieldPath::new("TargetUserSid"), &recipe),
-        "fixed per value of TargetUserName: the sample has 4 pairs, such as TargetUserName = \
-         \"alice\" with TargetUserSid = \"S-1\"; left out only when an event matches its pair, \
-         and put back from that pair"
+        "set per value of TargetUserName: the sample has 4 pairs, such as TargetUserName = \
+         \"alice\" with TargetUserSid = \"S-1\", each on at least nine in ten of its events; left \
+         out only when an event matches its pair, and put back from that pair"
     );
 }
 
@@ -733,5 +734,5 @@ fn an_object_emptied_by_implied_values_saves_as_implied_and_one_with_any_other_a
     assert!(shell.why.starts_with("its fields went"), "{}", shell.why);
     let plain = removed_field(&"ecs.version".into(), one, &recipe, true, None);
     assert_eq!(plain.mode, Mode::Implied);
-    assert!(plain.why.starts_with("always"), "{}", plain.why);
+    assert!(plain.why.contains("on this kind of event"), "{}", plain.why);
 }

@@ -20,8 +20,8 @@ Most of this file is the history of how it got here. After the alpha, in this or
    `--mode rules,implied`. Also: summary records counted in what is sent, emptied objects not
    sent (ADR 0033), the report rewritten (implied explained, per-field reasons, the events the
    SIEM still receives as a table), and an example report in the repository. Measured on a
-   Windows PC (25.0 % → 42.3 %), on four machines of OTRF's APT29 (57.6 %) and of its APT3
-   (24.7 %), every alert the same ([field value study](docs/notes/field-value.md)).
+   Windows PC (25.0 % → 43.4 %), on four machines of OTRF's APT29 (59.7 %) and of its APT3
+   (28.4 %), every alert the same ([field value study](docs/notes/field-value.md)).
 2. Problems in `plan.json` too, not only in the report. **Done 2026-10-27** (`problems`, ADR
    0023).
 3. One `--native` flag instead of one per target. **Done 2026-10-27.**

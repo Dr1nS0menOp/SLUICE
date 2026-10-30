@@ -143,7 +143,8 @@ A data collection rule, an ingest pipeline, a Fluent Bit filter and the collecto
 processor see one record at a time, so they can remove fields (L1) but not count. Each recognises
 a record's template, keeps whole every record a rule could match (by a condition that matches at
 least what the VRL matches), and leaves a record that fits no template unchanged. Text templates
-and counting stay with a pipeline tool; `runs_in` in the plan says per saving where it can run.
+and counting stay with a pipeline tool, except that Sentinel's transformation keeps out of the
+analytics table the records Vector would count, since its archive flow keeps them whole (ADR 0036); `runs_in` in the plan says per saving where it can run.
 
 | Target | What Sluice writes | Proven in |
 |---|---|---|
@@ -154,7 +155,7 @@ and counting stay with a pipeline tool; `runs_in` in the plan says per saving wh
 
 Each of them, like Vector, removes an object its removals emptied and keeps one that came empty
 (ADR 0033); Sentinel's transformation removes whole columns only. The command-line tests
-(`crates/sluice-cli/tests/natives.rs`) run each `--…-native` option end to end against its real
+(`crates/sluice-cli/tests/natives.rs`) run each `--native` target end to end against its real
 engine.
 
 ## An example: one Windows firewall event, step by step

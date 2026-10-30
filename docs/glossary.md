@@ -16,6 +16,8 @@ configuration use in brackets where it differs.
 | **Summary** | A count per minute, per template and per combination of the recipe's key fields. Rules never see summaries; the originals are in the archive. |
 | **Summary record** (`sluice_count`) | What the SIEM receives for counted events: one record per summary, with the number of events it stands for. Its bytes count in what is sent, and the report gives how many there are. |
 | **MCP** (`sluice mcp`) | The Model Context Protocol: how an AI assistant calls Sluice's tools, to read an analysis's advice and to prove what it drafts before a person deploys it (ADR 0035). |
+| **Archive table** | The table of a cheap plan (Sentinel's Auxiliary, the data lake) that the data collection rule Sluice writes fills with every record whole (contract rule 2). Records no rule could match may stay there only (ADR 0036): searchable, at about 3.5 % of the analytics table's price. |
+| **Field theory** | Why a byte may go: the rules see what they read (sufficiency), nothing is lost (an implied value is a functional dependency, removed only where it holds), and every event stays searchable (the archive) ([notes](notes/field-theory.md)). |
 | **Savings plan** (`plan.json`) | Per source and kind of event, what may be removed or counted, which events keep every field, where the saving can run (`runs_in`), the proof, and the problems reading the rules. Every configuration is built from the same proven selection. |
 | **Native configuration** | A configuration in a tool's own language: a data collection rule `transformKql`, an Elasticsearch ingest pipeline, a Fluent Bit Lua filter or OpenTelemetry Collector `transform` statements. Field removals only, each proven in that tool. |
 

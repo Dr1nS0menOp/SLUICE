@@ -178,21 +178,23 @@ gives the saving of each:
 - **The report** shows per source up to 10 events as they are sent, with what was left out and
   why, and says in plain words what an implied value is.
 
-Measured with the real rules (the project's real-data runs, `scripts/real-data/run.sh`):
+Measured with the real rules (the project's real-data runs, `scripts/real-data/run.sh`), again on
+2026-10-30 after values that hold on nine in ten events were learned too ([field
+theory](field-theory.md)):
 
 | Sample and rules | Without | With implied values | Alerts, full = forwarded |
 |---|---:|---:|---|
-| Windows System, Application, PowerShell; all 3,152 SigmaHQ rules | 25.0 % | 42.3 % | 236 = 236 |
+| Windows System, Application, PowerShell; all 3,152 SigmaHQ rules | 25.0 % | 43.4 % | 236 = 236 |
 | Linux `auth.log` and `syslog`; SigmaHQ | 25.7 % | 25.7 % | 0 = 0 |
 | Sentinel `SecurityEvent` and `WindowsEvent`; the Windows Security Events solution and SigmaHQ | 0.0 % | 0.0 % | 1,706 = 1,706 |
 | Sentinel `SecurityEvent` of the test workspace; its own two rules | 4.1 % | 37.9 % | 0 = 0 |
 | `sluice demo --scale 100`; the example rules | 67.9 % | 78.5 % | 41 = 41 |
-| OTRF Security-Datasets APT29 day 1, Security and Sysmon of **four machines**; the example rules (summary records counted, 2026-10-26) | 61.2 % (the rules' share) | 77.3 % (implied 16.1 %) | 0 = 0 |
-| The same four machines; all 3,152 SigmaHQ rules (again on 2026-10-26) | 32.8 % (the rules' share) | 57.6 % (implied 24.8 %) | 29,555 = 29,555 |
-| OTRF APT3 Empire (Shire, a domain controller and three workstations), Security and Sysmon, renamed to Sigma's names; the example rules | 58.3 % (the rules' share) | 69.7 % (implied 11.4 %) | 112 = 112 |
-| The same; all 3,152 SigmaHQ rules | 0.0 % (the rules' share) | 24.7 % (implied 24.7 %) | 15,806 = 15,806 |
-| APT29 day 2, the same four machines, Security; all SigmaHQ (again on 2026-10-26) | 35.2 % (the rules' share) | 62.1 % (implied 26.9 %) | 287 = 287 |
-| APT29 day 2, Sysmon (407,265 events, 812 MB); all SigmaHQ (again on 2026-10-26, 134 s, 4.6 GB peak) | 32.6 % (the rules' share) | 57.1 % (implied 24.5 %) | 8,431 = 8,431 |
+| OTRF Security-Datasets APT29 day 1, Security and Sysmon of **four machines**; the example rules (summary records counted, 2026-10-26) | 61.2 % (the rules' share) | 78.3 % (implied 17.0 %) | 0 = 0 |
+| The same four machines; all 3,152 SigmaHQ rules (again on 2026-10-26) | 32.3 % (the rules' share) | 59.7 % (implied 27.4 %) | 29,555 = 29,555 |
+| OTRF APT3 Empire (Shire, a domain controller and three workstations), Security and Sysmon, renamed to Sigma's names; the example rules | 58.3 % (the rules' share) | 73.3 % (implied 15.0 %) | 112 = 112 |
+| The same; all 3,152 SigmaHQ rules | 0.0 % (the rules' share) | 28.4 % (implied 28.4 %) | 15,806 = 15,806 |
+| APT29 day 2, the same four machines, Security; all SigmaHQ (again on 2026-10-26) | 35.2 % (the rules' share) | 64.8 % (implied 29.6 %) | 287 = 287 |
+| APT29 day 2, Sysmon (407,265 events, 812 MB); all SigmaHQ (again on 2026-10-30, 155 s, 4.6 GB peak) | 32.2 % (the rules' share) | 57.6 % (implied 25.3 %) | 8,431 = 8,431 |
 
 - On Linux nothing changes, as predicted: its lines are text.
 - With SigmaHQ on records in Sentinel's names, SigmaHQ's rules may read any field (ADR 0018),
@@ -247,15 +249,16 @@ Measured with the real rules (the project's real-data runs, `scripts/real-data/r
   `windows-security`, from five machines, the list holds no machine name: only values the fleet
   shares (`Channel`, `Keywords`, the agent's and the OS's versions, the domain).
   On OTRF's APT29 day 1 (four real machines, 184,886 Security and Sysmon events, 2026-10-24)
-  implied values save 16.1 %, no machine name is learned as a constant (`Hostname` only as
+  implied values save 17.0 %, no machine name is learned as a constant (`Hostname` only as
   implied by another field), and the list holds only what the four share, 
 
-  there the address of the log collector. With all of SigmaHQ: 58.3 % saved, 25.5 % by implied
-  values, 29,555 = 29,555 alerts (measured again on 2026-10-26, after the identifier rule below);
+  there the name of the event collector (`wec.internal.cloudapp.net`). With all of SigmaHQ:
+  59.7 % saved, 27.4 % by implied values, 29,555 = 29,555 alerts (measured again on 2026-10-30,
+  after the identifier and network rules below and values that hold on nine in ten);
   on day 2 (a second attack) every alert the same as well.
   A second network, OTRF's APT3 Empire scenario in the Shire environment (2026-10-26: a domain
   controller and three workstations, 85,441 Security and Sysmon events in winlogbeat 6's names,
-  renamed to Sigma's before the run, values untouched): with all of SigmaHQ 24.7 % saved, all by
+  renamed to Sigma's before the run, values untouched): with all of SigmaHQ 28.4 % saved, all by
   implied values, 15,806 = 15,806 alerts. A machine's name is learned as a constant only on two
   kinds of event that only the domain controller logs, which is right; `host.name` holds the
   event collector the four share. That run also found a weakness, now closed: fields named as

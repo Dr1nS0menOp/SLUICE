@@ -39,6 +39,7 @@ fn proven(flow: &Flow) -> Proven {
             columns: BTreeSet::from(["EventData".to_owned()]),
             left_out: Vec::new(),
             implied: Vec::new(),
+            routed: BTreeSet::new(),
         },
         kql: flow.then(GENERATED),
     }

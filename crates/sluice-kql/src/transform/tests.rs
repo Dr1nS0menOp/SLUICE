@@ -721,3 +721,205 @@ fn a_function_after_a_closed_string_is_still_found() {
         "a call inside a string is text"
     );
 }
+
+fn counting(id: &str, prefilter: Predicate) -> EffectiveRecipe {
+    EffectiveRecipe {
+        route: Route::ForwardMatching {
+            prefilter,
+            summary_keys: vec!["Computer".into()],
+        },
+        ..EffectiveRecipe::passthrough(id.into())
+    }
+}
+
+fn routed(plans: &[(&Template, &EffectiveRecipe)]) -> Transformation {
+    let plans: Vec<Plan<'_>> = plans
+        .iter()
+        .map(|(template, recipe)| Plan { template, recipe })
+        .collect();
+    routed_within(
+        &Table::SecurityEvent,
+        &Table::SecurityEvent.column_names(),
+        &plans,
+        MAX_TRANSFORM_KQL,
+    )
+}
+
+#[test]
+fn c3_records_no_rule_could_match_stay_out_of_the_table_only_when_routing() {
+    let t = privileges();
+    let recipe = counting(t.id.as_str(), eq("Computer", "dc01"));
+    let out = routed(&[(&t, &recipe)]);
+    assert_eq!(out.routed, [t.id.clone()].into());
+    assert!(
+        out.kql.contains(
+            r#"| where not((tostring(['EventID']) == "4672" and __sluice_s == "1111" and __sluice_r and not("#
+        ),
+        "{}",
+        out.kql
+    );
+    assert!(
+        out.kql.contains(r#"=~ "dc01""#),
+        "what a rule could match stays: {}",
+        out.kql
+    );
+    assert!(
+        !out.left_out.iter().any(|r| r.contains("counting")),
+        "{:?}",
+        out.left_out
+    );
+    assert!(
+        !out.left_out
+            .iter()
+            .any(|r| r.contains("cannot be told apart")),
+        "{:?}",
+        out.left_out
+    );
+    // Without the archive flow, the same plan keeps every record and says why; one that also
+    // removes a column removes it and still keeps every record.
+    let plain = of(&[(&t, &recipe)]);
+    assert_eq!(plain.kql, "source", "nothing to do without routing");
+    assert!(plain.left_out.iter().any(|r| r.contains("counting")));
+    let removing = EffectiveRecipe {
+        drop_fields: paths(&["EventData"]),
+        ..recipe.clone()
+    };
+    let plain = of(&[(&t, &removing)]);
+    assert!(
+        plain.routed.is_empty() && !plain.kql.contains("| where"),
+        "{}",
+        plain.kql
+    );
+    assert!(plain.kql.contains("['EventData']"), "{}", plain.kql);
+}
+
+#[test]
+fn c3_a_group_with_a_template_that_sends_every_event_keeps_them_all() {
+    // Two templates the signature cannot tell apart: one counts, one sends everything.
+    let counted = privileges();
+    let mut sent = privileges();
+    sent.id = "SecurityEvent:4672:b".into();
+    let counts = counting(counted.id.as_str(), eq("Computer", "dc01"));
+    let sends = removing(sent.id.as_str(), &["EventData"], None);
+    let out = routed(&[(&counted, &counts), (&sent, &sends)]);
+    assert!(out.routed.is_empty(), "{:?}", out.routed);
+    assert!(!out.kql.contains("| where"), "{}", out.kql);
+    let told = out
+        .left_out
+        .iter()
+        .find(|r| r.contains("cannot be told apart"))
+        .expect("the reason");
+    assert!(told.starts_with(counted.id.as_str()), "{told}");
+    // Without routing there is nothing to say about it.
+    let plain = of(&[(&counted, &counts), (&sent, &sends)]);
+    assert!(
+        !plain
+            .left_out
+            .iter()
+            .any(|r| r.contains("cannot be told apart")),
+        "{:?}",
+        plain.left_out
+    );
+}
+
+#[test]
+fn c1_a_template_the_transformation_cannot_recognise_blocks_routing_records_like_its_own() {
+    // Its discriminator is a dynamic column, which the transformation cannot test: its records
+    // look like the counting template's, so none of them may be kept out.
+    let t = privileges();
+    let other = template(
+        "SecurityEvent:4672:unrecognised",
+        &[("EventData", "x")],
+        &[&[
+            "EventID",
+            "Computer",
+            "EventData",
+            "PrivilegeList",
+            "TenantId",
+            "TimeGenerated",
+        ]],
+    );
+    let counts = counting(t.id.as_str(), eq("Computer", "dc01"));
+    let out = routed(&[
+        (&t, &counts),
+        (&other, &EffectiveRecipe::passthrough(other.id.clone())),
+    ]);
+    assert!(out.routed.is_empty(), "{:?}\n{}", out.routed, out.kql);
+    assert!(!out.kql.contains("| where"), "{}", out.kql);
+}
+
+/// In the Kusto emulator: a routed transformation keeps out of the table exactly the records of
+/// its counting template that no rule could match. A record the rule could match, one of another
+/// kind of event, and one with an extra column (no template's) all stay.
+#[test]
+fn c3_in_the_kql_engine_only_records_no_rule_could_match_stay_out() {
+    use serde_json::{Value, json};
+    use sluice_core::event::{Event, Timestamp};
+    use sluice_core::ids::{EventId, SourceId};
+
+    let Ok(url) = std::env::var("SLUICE_KUSTO_URL") else {
+        return;
+    };
+    let t = template(
+        "SecurityEvent:4672:a",
+        &[("EventID", "4672")],
+        &[&[
+            "EventID",
+            "Activity",
+            "Computer",
+            "EventData",
+            "PrivilegeList",
+        ]],
+    );
+    let recipe = counting(t.id.as_str(), eq("Computer", "dc01"));
+    let plans = [Plan {
+        template: &t,
+        recipe: &recipe,
+    }];
+    let out = routed_within(
+        &Table::SecurityEvent,
+        &Table::SecurityEvent.column_names(),
+        &plans,
+        MAX_TRANSFORM_KQL,
+    );
+    let base =
+        json!({"EventID": 4672, "Computer": "ws1", "EventData": "<xml/>", "PrivilegeList": "SeX"});
+    let record = |label: &str, change: &dyn Fn(&mut Value)| {
+        let mut fields = base.clone();
+        fields["Activity"] = json!(label);
+        change(&mut fields);
+        Event {
+            id: EventId(0),
+            timestamp: Timestamp(0),
+            source: SourceId::new("SecurityEvent"),
+            fields: fields.as_object().expect("an object").clone(),
+        }
+    };
+    let events = [
+        record("counted", &|_| {}),
+        record("a rule could match", &|f| f["Computer"] = json!("DC01")),
+        record("other event", &|f| f["EventID"] = json!(4798)),
+        record("extra column", &|f| f["SubjectUserName"] = json!("alice")),
+    ];
+    let client = crate::engine::Client::new(&url);
+    let database = crate::engine::Database::create(&client, &[]).expect("a database");
+    database
+        .load(&Table::SecurityEvent, &events.iter().collect::<Vec<_>>())
+        .expect("loads");
+    let query = out.kql.replacen("source", "SecurityEvent", 1) + "\n| project Activity";
+    let rows = database.query(&query).expect("the transformation runs");
+    let mut kept: Vec<String> = rows
+        .iter()
+        .map(|row| {
+            let row: Value = serde_json::from_str(row).expect("a row");
+            row[1][0].as_str().expect("a label").to_owned()
+        })
+        .collect();
+    kept.sort();
+    assert_eq!(
+        kept,
+        ["a rule could match", "extra column", "other event"],
+        "{}",
+        out.kql
+    );
+}
