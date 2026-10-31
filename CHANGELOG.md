@@ -6,6 +6,9 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
+- **How Sluice saves** ([docs/how-sluice-saves.md](docs/how-sluice-saves.md)): the algorithm in one
+  paragraph, its six steps, and each way of saving two or three levels deep, with one APT29 event
+  followed through all of them.
 - **Why a byte may go: the field theory** ([notes](docs/notes/field-theory.md)). Three guarantees
   carry every saving: the rules see what they read (sufficiency), nothing is lost (an implied
   value is a functional dependency, removed only where it holds), and every event stays searchable

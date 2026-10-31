@@ -26,10 +26,11 @@ in `P(r)`, and keep events of a stateful rule's pre-filter whole.
 `P(r)`, then `r(T(E)) = r(E)` for every sample `E`.
 
 *Why.* `r` decides each event from the fields it reads, so on `P(r)` it sees the same values. Off
-`P(r)` it matched nothing before; it could match something after only if removing a field made
-an event match (a test for a field's absence). That is the one case the claim does not cover,
-which is why Sluice also runs the rules on the full and the forwarded sample (the proof, contract
-rule 5) instead of trusting the claim alone. In statistics this is *sufficiency*: what is sent is
+`P(r)` it matched nothing before, and it cannot match after: a test for a field's absence (`not`,
+`null`, `exists: false`) is widened to `every event` in the pre-filter, so such a rule's `P(r)`
+covers every event and protects its fields everywhere; what remains of a pre-filter only gets
+harder to pass when fields go. Sluice still runs the rules on the full and the forwarded sample
+(the proof, contract rule 5), because the claim rests on reading every rule right. In statistics this is *sufficiency*: what is sent is
 a sufficient statistic of the data for the rules.
 
 ### 2. Nothing is lost (reconstruction)

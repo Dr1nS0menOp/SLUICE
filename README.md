@@ -520,6 +520,8 @@ On Windows, run the same commands in WSL2. macOS is not supported: use a Linux V
 - [Architecture and technologies](docs/architecture.md): diagrams of the analysis and of what
   each configuration does, one event followed step by step, the parts, and what each is built on
 - [Glossary](docs/glossary.md): the terms Sluice uses
+- [How Sluice saves](docs/how-sluice-saves.md): the algorithm, step by step and each way of
+  saving in depth
 - [Field theory](docs/notes/field-theory.md): why a byte may go, what keeps every event's value,
   and the measurements behind both
 - [Architecture decisions](docs/adr/)
