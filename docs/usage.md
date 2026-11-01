@@ -5,7 +5,8 @@ that carry out the savings in the tools you run. Each section is a complete path
 The [README](../README.md) has a short guide per SIEM (Microsoft Sentinel, Wazuh, Elastic
 Security), with the read-only account each needs; this page goes into more depth. For every
 command and file, see the [user guide](guide.md); for how it works inside, see
-[architecture](architecture.md).
+[architecture](architecture.md). To try it on a live SIEM over days of real data, with a
+baseline and the way back, follow [the field test](field-test.md).
 
 Sluice reads and writes files. It never sits in your data path and changes nothing in your
 environment: you deploy what it writes ([ADR 0030](adr/0030-advice-only.md)).
@@ -318,7 +319,7 @@ sluice prove --config sluice/vector.yaml --input samples/ --sources sources.yaml
 On GitHub:
 
 ```yaml
-- uses: Dr1nS0menOp/SLUICE@v0.1.0
+- uses: Dr1nS0menOp/SLUICE@v0.2.0
   with:
     config: sluice/vector.yaml
     input: samples

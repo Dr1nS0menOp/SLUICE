@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use sluice_kql::{SLUICE_PART, SLUICE_PART_END, Table};
 
 use super::Proven;
+use crate::stdout::out;
 
 /// The top-level keys of a data collection rule as a resource; the rest of the rule sits under
 /// `properties`.
@@ -177,7 +178,7 @@ pub(super) fn write(rule: Value, proven: &[(Proven, Flow)], dir: &Path) -> Resul
         {
             let path = dir.join(format!("{table}Full.kql"));
             crate::output::write(&path, &function)?;
-            println!(
+            out!(
                 "  native  wrote {}: save it in the workspace as the function {table}Full, which \
                  puts back the {} implied value(s) the rule empties",
                 path.display(),
@@ -188,7 +189,7 @@ pub(super) fn write(rule: Value, proven: &[(Proven, Flow)], dir: &Path) -> Resul
     let path = dir.join("dcr.json");
     crate::output::write(&path, &(serde_json::to_string_pretty(&rule)? + "\n"))?;
     let tables: Vec<String> = proven.iter().map(|(one, _)| archive(&one.table)).collect();
-    println!(
+    out!(
         "  native  wrote {}: first create {} from the .table.json next to it (Auxiliary plan, \
          every record kept whole), then update the rule with it",
         path.display(),

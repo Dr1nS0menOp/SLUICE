@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::Path;
 
+use crate::stdout::out;
 use anyhow::{Context, Result};
 use serde::Serialize;
 use sluice_autopilot::Report;
@@ -40,7 +41,7 @@ pub(crate) fn sources(path: &Path, sources: &[Source]) -> Result<()> {
 
 pub(crate) fn summary(report: &Report, templates: usize, sources: usize) {
     let t = &report.total;
-    println!(
+    out!(
         "{} events from {sources} sources, {templates} templates",
         group(t.events)
     );
@@ -49,7 +50,7 @@ pub(crate) fn summary(report: &Report, templates: usize, sources: usize) {
     } else {
         format!(" into {} records", group(t.summaries))
     };
-    println!(
+    out!(
         "  ingest  {} → {}  ({:.1}% saved, {} events summarized{records})",
         mb(t.bytes_in),
         mb(t.bytes_out),
@@ -66,29 +67,30 @@ pub(crate) fn summary(report: &Report, templates: usize, sources: usize) {
             }
         })
         .collect();
-    println!("  modes   {}", modes.join(", "));
+    out!("  modes   {}", modes.join(", "));
     let verdict = if report.proven {
         "✓ no detection changed"
     } else {
         "✗ DETECTIONS CHANGED"
     };
-    println!(
+    out!(
         "  proof   {} alerts on full data, {} on forwarded data  {verdict}",
-        report.alerts_full, report.alerts_forwarded
+        report.alerts_full,
+        report.alerts_forwarded
     );
     let rules: Vec<String> = report
         .rules
         .iter()
         .map(|(e, n)| format!("{n} {e}"))
         .collect();
-    println!("  rules   {}", rules.join(", "));
-    println!("          {}", report.rules_verdict());
-    println!("          {}", report.rules_basis.describe());
+    out!("  rules   {}", rules.join(", "));
+    out!("          {}", report.rules_verdict());
+    out!("          {}", report.rules_basis.describe());
     if let Some(note) = report.proof_note() {
-        println!("  note    {note}");
+        out!("  note    {note}");
     }
     if let Some(check) = &report.spot_check {
-        println!(
+        out!(
             "  siem    logtest compared {} events ({} fired a rule), rolled back {} templates",
             check.checked,
             check.fired,
@@ -96,16 +98,16 @@ pub(crate) fn summary(report: &Report, templates: usize, sources: usize) {
         );
     }
     for hint in &report.scope_hints {
-        println!("  hint    {hint}");
+        out!("  hint    {hint}");
     }
     if !report.coverage_gaps.is_empty() {
-        println!(
+        out!(
             "  gaps    {} rules see no data in this sample",
             report.coverage_gaps.len()
         );
     }
     if !report.problems.is_empty() {
-        println!("  issues  {} (see report)", report.problems.len());
+        out!("  issues  {} (see report)", report.problems.len());
     }
 }
 

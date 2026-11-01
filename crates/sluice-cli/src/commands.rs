@@ -16,6 +16,7 @@ use sluice_vector::{Paths, vector_config};
 use sluice_wazuh::{Http as WazuhHttp, Logtest, LogtestConfig};
 
 use crate::cli::{AnalyzeArgs, DemoArgs, ModeArg, NativeTarget, RuleSets, RulesArgs, RulesCommand};
+use crate::stdout::out;
 use crate::{ai, input, output};
 
 /// The example rules the demo runs with, built into the binary.
@@ -36,9 +37,10 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
     output::samples(&samples, &sample.sources, &sample.events)?;
     output::sources(&args.out.join("sluice.yaml"), &sample.sources)?;
     let sigma = SigmaRules::parse(EXAMPLE_SIGMA)?;
-    println!(
+    out!(
         "Sluice demo: synthetic sample (seed {}, scale {}%)",
-        args.seed, args.scale
+        args.seed,
+        args.scale
     );
     let advisor = ai::advisor(&args.ai)?;
     run(
@@ -65,7 +67,7 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
         ReportExtras::default(),
         native,
     )?;
-    println!(
+    out!(
         "Re-run on the same data: sluice analyze --input {} --sources {} --rules <dir>",
         samples.display(),
         args.out.join("sluice.yaml").display()
@@ -294,7 +296,7 @@ pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
     for problem in problems {
         eprintln!("warning: {problem}");
     }
-    println!("{}", serde_json::to_string_pretty(&loaded.requirements())?);
+    out!("{}", serde_json::to_string_pretty(&loaded.requirements())?);
     Ok(())
 }
 
@@ -388,14 +390,14 @@ fn run(
 
     output::summary(&report, analysis.discovery.templates.len(), sources.len());
     if !contributions.is_empty() {
-        println!(
+        out!(
             "  wrote   {} recipe(s) the AI proposed and the proof kept in {}: share them with \
              `sluice recipes contribute`",
             contributions.len(),
             out.join("ai-recipes").display()
         );
     }
-    println!(
+    out!(
         "  wrote   {} (the advice), {} (the savings plan), {} and {} (every rule)",
         out.join("report.html").display(),
         out.join("plan.json").display(),

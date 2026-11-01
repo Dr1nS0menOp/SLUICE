@@ -18,6 +18,7 @@ use sluice_core::alert::{Engines, RuleEngine};
 use sluice_elastic::{Rebuild, ingest_pipeline, rebuild, rebuilt, simulate};
 
 use super::Generated;
+use crate::stdout::out;
 
 /// Proves an ingest pipeline for every source whose plan removes fields, and writes each one
 /// that removes something to `out/elastic/SOURCE.pipeline.json`.
@@ -77,7 +78,7 @@ pub(crate) fn elastic(analysis: &Analysis, input: Input<'_>, url: &str, out: &Pa
         runtime_fields(url, source, rebuild, &documents, &after, out)?;
     }
     if let Some(first) = written.first() {
-        println!(
+        out!(
             "  elastic wrote {} pipeline(s) in {}: install each with PUT _ingest/pipeline/sluice-SOURCE \
              and call it last, from the `<type>-<dataset>@custom` pipeline of the data stream",
             written.len(),
@@ -125,7 +126,7 @@ fn runtime_fields(
         ),
     };
     if fields.is_empty() {
-        println!("  elastic {source}: no implied value put back at query time{left}");
+        out!("  elastic {source}: no implied value put back at query time{left}");
         return Ok(());
     }
     let path = out.join("elastic").join(format!("{source}.runtime.json"));
@@ -133,7 +134,7 @@ fn runtime_fields(
         &path,
         &(serde_json::to_string_pretty(&rebuild.runtime_mappings())? + "\n"),
     )?;
-    println!(
+    out!(
         "  elastic {source}: {} implied field(s) put back at query time by {} (a search's \
          `runtime_mappings`, or runtime fields of a Kibana data view), proven on the sample{left}",
         fields.len(),

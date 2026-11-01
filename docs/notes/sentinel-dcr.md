@@ -349,3 +349,14 @@ invalid and cannot be executed`, and a request id: a call to a function that doe
 tell Sluice which lower-case names are KQL's own functions; a fetched workspace can, since
 `sluice rules fetch sentinel` reads every function in it (ADR 0031). `.show functions` lists only
 functions created in the emulator's database, and `.show plugins` the `evaluate` plugins.
+
+## A large answer is cut off, with the error among its rows (2026-11-01)
+
+A query whose result passes 64 MB or 500,000 records still answers HTTP 200 on `/v1/rest/query`:
+the first table holds the rows that fit, and then one more "row" that is an object,
+`{"Exceptions": ["Query execution has exceeded the allowed limits (80DA0003): The results of
+this query exceed the set limit of 64 MB …"]}` (`E_QUERY_RESULT_SET_TOO_LARGE`). Found with
+30,000 APT29 Sysmon events (62.5 MB) run through two transformations in one `union`. Sluice's
+queries start with `set notruncation;`, which lifts both limits in the emulator (70,000 rows of
+1 KB come back whole in its test), and any row with `Exceptions` makes the answer an error
+(kustainer-linux, engine 1.0.9779.30528).

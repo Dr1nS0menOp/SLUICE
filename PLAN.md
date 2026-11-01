@@ -2,7 +2,7 @@
 
 [CLAUDE.md](CLAUDE.md) has the conventions and [docs/adr/](docs/adr/) has the decisions.
 
-**Where the project stands (2026-10-22): v0.1.0, the first release, an alpha.** Sluice advises
+**Where the project stands (2026-11-01): v0.2.0, an alpha; next a field test** ([docs/field-test.md](docs/field-test.md)). v0.1.0 was the first release (2026-10-23). Sluice advises
 only (ADR 0030). The README's guides were checked against Microsoft Sentinel (end to end, on a
 live workspace), Elastic Security and Wazuh; rules read from files are experimental. Splunk was
 removed on 2026-10-27 (ADR 0034).
@@ -30,10 +30,11 @@ Most of this file is the history of how it got here. After the alpha, in this or
    changed `vector.yaml` and a `transformKql` in the Kusto emulator. Shaping a new source into a
    standard table stays advisory: there is no full side to compare the rules with.
 
-Known small limit: `sluice … | head` ends with a "Broken pipe" panic when `head` closes the
-pipe early. The files are written by then. Resetting `SIGPIPE` needs `unsafe`, which the
-workspace forbids; the fix is to print through writes that stop quietly on a closed pipe instead
-of `println!`.
+**Next: a field test (2026-11-01).** The features are done; what is left is trying Sluice on a
+real SIEM over days of live data, as [docs/field-test.md](docs/field-test.md) describes: a
+baseline, analysis on one day and proof on the next, a deployment with the way back saved, and a
+week of ingest and alerts compared. Fixed before it: `sluice … | head` no longer panics, and a
+Kusto answer over 64 MB is no longer cut off (testing plan, bugs 31 and 32).
 
 **Decisions on 2026-10-09:**
 

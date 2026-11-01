@@ -21,6 +21,7 @@ use sluice_kql::{
 
 use self::dcr::{Flow, write};
 use super::{is_empty, list, megabytes, saved, size};
+use crate::stdout::out;
 
 /// Proves a transformation for each `SOURCE=TABLE` in `specs`, and writes those that remove
 /// something into `dcr`, the data collection rule the records go through.
@@ -55,7 +56,7 @@ pub(crate) fn sentinel(
         return Ok(());
     }
     let Some(rule) = rule else {
-        println!(
+        out!(
             "  native  proven, not written: give the data collection rule the records go through \
              (--sentinel-dcr RULE.json), and Sluice writes it with the transformation and an \
              untransformed flow into an archive table (ADR 0013, contract rule 2)"
@@ -86,7 +87,7 @@ fn prove(
 ) -> Result<Option<Proven>> {
     let events = super::source_events(input, source);
     if let Some(event) = events.iter().find(|e| e.fields.values().any(is_empty)) {
-        println!(
+        out!(
             "  native  {source}: not generated: event {} has an empty field, so its kinds of event \
              were not discovered on records as {} stores them (where empty and missing are the \
              same). Read the sample from the workspace (scripts/real-data/collect-sentinel.sh).",
@@ -114,7 +115,7 @@ fn prove(
     }
     let kql = flow.then(&generated.kql);
     if kql.len() > MAX_TRANSFORM_KQL {
-        println!(
+        out!(
             "  native  {source}: not written: with the data flow's own transformation it would be \
              {} characters, more than the {MAX_TRANSFORM_KQL} a data collection rule takes",
             kql.len()
@@ -284,7 +285,7 @@ fn summary(proven: &Proven, records: &[Stored], alerts: Option<usize>) {
     let kept: usize = records.iter().flat_map(|(_, after)| after).map(size).sum();
     let outside = records.iter().filter(|(_, after)| after.is_none()).count();
     let generated = &proven.generated;
-    println!(
+    out!(
         "  native  {} → {}: {} kinds of event, columns {}; {} → {} ({}), every emptied column \
          also removed by Vector{}",
         proven.source,
@@ -300,13 +301,13 @@ fn summary(proven: &Proven, records: &[Stored], alerts: Option<usize>) {
         ),
     );
     if outside > 0 {
-        println!(
+        out!(
             "          {outside} records no rule could match stay out of the table, as Vector counts \
              them instead of sending them; the archive flow keeps them whole (ADR 0036)"
         );
     }
     if alerts == Some(0) {
-        println!("          {}", sluice_autopilot::EMPTY_PROOF);
+        out!("          {}", sluice_autopilot::EMPTY_PROOF);
     }
     super::print_left_out(&generated.left_out);
 }

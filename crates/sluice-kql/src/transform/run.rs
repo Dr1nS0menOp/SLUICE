@@ -77,7 +77,13 @@ pub fn run_transformations(
             serde_json::from_str(&row).map_err(|e| crate::KustoError::Response(e.to_string()))?;
         let run = number(&row, RUN)
             .filter(|n| *n < kqls.len())
-            .ok_or_else(|| crate::KustoError::Response("a row of no run".to_owned()))?;
+            .ok_or_else(|| {
+                let row = row.to_string();
+                crate::KustoError::Response(format!(
+                    "a row of no run: {}",
+                    row.chars().take(300).collect::<String>()
+                ))
+            })?;
         let n = number(&row, ROW)
             .filter(|n| *n < events.len())
             .ok_or_else(|| {

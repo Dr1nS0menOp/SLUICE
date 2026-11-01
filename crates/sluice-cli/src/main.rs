@@ -1,8 +1,8 @@
 //! `sluice`: finds what a SIEM can stop ingesting without changing a detection, and writes the
 //! configuration that does it.
 
-// Printing to the terminal is this binary's job.
-#![allow(clippy::print_stdout, clippy::print_stderr)]
+// Printing to the terminal is this binary's job; standard output goes through `stdout::out!`.
+#![allow(clippy::print_stderr)]
 
 mod ai;
 mod cli;
@@ -16,6 +16,7 @@ mod native;
 mod output;
 mod prove;
 mod recipes;
+mod stdout;
 
 use std::process::ExitCode;
 

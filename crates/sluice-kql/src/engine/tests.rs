@@ -425,3 +425,51 @@ fn the_counts_function_reads_the_summary_table() {
         "{result:?}"
     );
 }
+
+#[test]
+fn a_result_comes_back_row_by_row_with_its_column_names() {
+    let answer = json!({"Tables": [{
+        "Columns": [{"ColumnName": "A"}, {"ColumnName": "B"}],
+        "Rows": [[1, "x"], [2, "y"]]
+    }]});
+    assert_eq!(
+        primary_rows(&answer).expect("rows"),
+        [r#"[["A","B"],[1,"x"]]"#, r#"[["A","B"],[2,"y"]]"#]
+    );
+}
+
+/// Kusto answers a query that hit a limit with the rows it had and the error among them.
+#[test]
+fn c5_a_result_cut_off_part_way_is_an_error_not_fewer_rows() {
+    let answer = json!({"Tables": [{
+        "Columns": [{"ColumnName": "A"}],
+        "Rows": [[1], {"Exceptions": ["Query execution has exceeded the allowed limits (80DA0003)\nmore"]}]
+    }]});
+    let error = primary_rows(&answer).expect_err("cut off");
+    assert!(
+        error
+            .to_string()
+            .contains("failed part way: Query execution has exceeded"),
+        "{error}"
+    );
+    assert!(primary_rows(&json!({})).is_err(), "no table");
+    assert!(
+        primary_rows(&json!({"Tables": [{"Columns": []}]})).is_err(),
+        "no rows"
+    );
+}
+
+/// In the Kusto emulator (`SLUICE_KUSTO_URL`): a result over Kusto's 64 MB limit comes back
+/// whole, so a large sample's records are all compared.
+#[test]
+fn c5_in_the_kql_engine_a_result_over_the_size_limit_comes_back_whole() {
+    let Ok(url) = std::env::var("SLUICE_KUSTO_URL") else {
+        return;
+    };
+    let client = Client::new(&url);
+    let database = Database::create(&client, &[]).expect("a database");
+    let rows = database
+        .query("range i from 1 to 70000 step 1 | extend s = strrep('x', 1000)")
+        .expect("no limit cuts it off");
+    assert_eq!(rows.len(), 70_000);
+}

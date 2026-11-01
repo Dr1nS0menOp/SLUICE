@@ -9,6 +9,7 @@ use sluice_vector::CustomTable;
 use sluice_vector::summary_table::{SUMMARY_COUNTS, SUMMARY_TABLE, summary_dcr, summary_table};
 
 use crate::cli::{ConnectArgs, ConnectTarget};
+use crate::stdout::out;
 
 pub(crate) fn connect(args: &ConnectArgs) -> Result<()> {
     let ConnectTarget::Sentinel = args.target;
@@ -16,7 +17,7 @@ pub(crate) fn connect(args: &ConnectArgs) -> Result<()> {
         .with_context(|| format!("creating {}", args.out.display()))?;
     let mut wrote = false;
     if let Some(table) = custom_table(args)? {
-        println!(
+        out!(
             "Create the table {} from {}, then the data collection rule from {} ({} columns).",
             table.table_name(),
             args.out
@@ -55,7 +56,7 @@ fn write_summary_table(args: &ConnectArgs) -> Result<()> {
         &summary_dcr(&args.location, workspace(args)),
     )?;
     crate::output::write(&out.join("SluiceCounts.kql"), SUMMARY_COUNTS)?;
-    println!(
+    out!(
         "Summaries: create {SUMMARY_TABLE} from {0}/{SUMMARY_TABLE}.table.json and the rule \
          from {0}/SluiceSummary.dcr.json, and save {0}/SluiceCounts.kql as the workspace \
          function SluiceCounts (ADR 0029).",
