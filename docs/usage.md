@@ -319,7 +319,7 @@ sluice prove --config sluice/vector.yaml --input samples/ --sources sources.yaml
 On GitHub:
 
 ```yaml
-- uses: Dr1nS0menOp/SLUICE@v0.1.0
+- uses: Dr1nS0menOp/SLUICE@v0.2.0
   with:
     config: sluice/vector.yaml
     input: samples

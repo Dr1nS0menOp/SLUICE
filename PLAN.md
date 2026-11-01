@@ -2,7 +2,7 @@
 
 [CLAUDE.md](CLAUDE.md) has the conventions and [docs/adr/](docs/adr/) has the decisions.
 
-**Where the project stands (2026-10-22): v0.1.0, the first release, an alpha.** Sluice advises
+**Where the project stands (2026-11-01): v0.2.0, an alpha; next a field test** ([docs/field-test.md](docs/field-test.md)). v0.1.0 was the first release (2026-10-23). Sluice advises
 only (ADR 0030). The README's guides were checked against Microsoft Sentinel (end to end, on a
 live workspace), Elastic Security and Wazuh; rules read from files are experimental. Splunk was
 removed on 2026-10-27 (ADR 0034).

@@ -100,7 +100,7 @@ with no dependencies. This is an alpha: see
 binary per architecture and its SHA-256 sum:
 
 ```sh
-version=0.1.0
+version=0.2.0
 file=sluice-$version-$(uname -m)-unknown-linux-musl
 curl -fLO "https://github.com/Dr1nS0menOp/SLUICE/releases/download/v$version/$file"
 curl -fLO "https://github.com/Dr1nS0menOp/SLUICE/releases/download/v$version/$file.sha256"

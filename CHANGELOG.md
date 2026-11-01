@@ -6,6 +6,30 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-01
+
+Still an alpha, now ready for a field test on a live SIEM ([docs/field-test.md](docs/field-test.md)).
+Linux only (x86_64 and aarch64), including WSL2.
+
+### What changed since 0.1.0
+
+- **More is saved, nothing more is lost.** *Implied values*: a field whose value follows from the
+  kind of event or from another field, on at least nine in ten of its events, is left out where it
+  holds and put back exactly (`plan.json`, `<Table>Full` in Sentinel, runtime fields in
+  Elasticsearch). Counted events now count their summary records as sent, and objects the savings
+  empty are not sent. On OTRF's APT29 the example report saves 78.1 %, every alert the same.
+- **Why it is safe, written down**: [how Sluice saves](docs/how-sluice-saves.md) and the
+  [field theory](docs/notes/field-theory.md).
+- **Sentinel keeps every event searchable for less**: events no rule could match stay in the
+  Auxiliary archive table only (ADR 0036).
+- **`sluice mcp`**: an AI assistant reads the advice and has its drafts proven before it
+  proposes them (ADR 0035).
+- **Breaking:** one `--native sentinel,elastic,fluent-bit,otel` flag replaces the four
+  `--*-native` flags; Splunk support is removed (ADR 0034); `plan.json` carries `problems`.
+- Fixed: a Sentinel proof on a sample over 64 MB, and `sluice … | head`.
+
+### Changes in detail
+
 - **Testing Sluice on your own SIEM** ([docs/field-test.md](docs/field-test.md)): a field test
   step by step: a week's baseline of ingest and alerts, a sample of two days (analyzed on the
   first, proven on the second with `sluice prove`), the deployment with the way back saved, what
@@ -643,5 +667,6 @@ marks a change between two development states.
   alert; hostile field names, values and text lines always compile and keep every alert; no
   rule, decoder, recipe, condition or time input makes a parser panic.
 
-[Unreleased]: https://github.com/Dr1nS0menOp/SLUICE/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Dr1nS0menOp/SLUICE/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Dr1nS0menOp/SLUICE/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Dr1nS0menOp/SLUICE/releases/tag/v0.1.0
