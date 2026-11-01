@@ -8,6 +8,7 @@ use anyhow::{Context, Result, bail};
 use sluice_core::inventory::{Inventory, MANIFEST_FILE, Manifest, is_safe_relative_path};
 
 use crate::cli::{FetchArgs, FetchTarget};
+use crate::stdout::out;
 
 pub(crate) fn fetch(args: &FetchArgs) -> Result<()> {
     let Some(out) = &args.out else {
@@ -75,18 +76,18 @@ pub(crate) fn fetch(args: &FetchArgs) -> Result<()> {
         .iter()
         .map(|(kind, n)| format!("{n} {kind}"))
         .collect();
-    println!(
+    out!(
         "fetched from {}: {}",
         inventory.manifest.from,
         counts.join(", ")
     );
     for note in &inventory.manifest.not_modeled {
-        println!("  note: {note}");
+        out!("  note: {note}");
     }
     if inventory.manifest.complete {
-        println!("wrote {} (complete); use {next}", out.display());
+        out!("wrote {} (complete); use {next}", out.display());
     } else {
-        println!(
+        out!(
             "wrote {} (NOT complete: see the notes); use {next}",
             out.display()
         );

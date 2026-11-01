@@ -17,6 +17,7 @@ use sluice_core::event::Event;
 use sluice_otel::{Collector, processor, transform};
 
 use super::Generated;
+use crate::stdout::out;
 
 /// Proves transform statements for every source whose plan removes fields, and writes the
 /// processors of those that remove something to `out/otel/processors.yaml`.
@@ -80,7 +81,7 @@ pub(crate) fn otel(
     if !written.is_empty() {
         let path = out.join("otel").join("processors.yaml");
         crate::output::write(&path, &format!("processors:\n{}", written.concat()))?;
-        println!(
+        out!(
             "  otel    wrote {} processor(s) in {}: add each to the logs pipeline of its source, \
              whose filelog receiver parses JSON into the body (`json_parser` with `parse_to: \
              body`)",

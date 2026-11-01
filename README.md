@@ -522,6 +522,8 @@ On Windows, run the same commands in WSL2. macOS is not supported: use a Linux V
 - [Glossary](docs/glossary.md): the terms Sluice uses
 - [How Sluice saves](docs/how-sluice-saves.md): the algorithm, step by step and each way of
   saving in depth
+- [Testing Sluice on your own SIEM](docs/field-test.md): a field test step by step, with a
+  baseline, a second day to prove on, the way back, and what to report
 - [Field theory](docs/notes/field-theory.md): why a byte may go, what keeps every event's value,
   and the measurements behind both
 - [Architecture decisions](docs/adr/)

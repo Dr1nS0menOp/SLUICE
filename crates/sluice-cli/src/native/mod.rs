@@ -14,6 +14,7 @@ pub(crate) mod sentinel;
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::stdout::out;
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 use sluice_autopilot::{Analysis, Input};
@@ -153,7 +154,7 @@ fn leaf_values(record: &Map<String, Value>) -> BTreeMap<String, Value> {
 /// Prints why `place` removes nothing for `source`: the first reason, and how many more.
 fn print_nothing_removed(label: &str, source: &str, place: &str, left_out: &[String]) {
     if let Some(reason) = left_out.first() {
-        println!(
+        out!(
             "  {label} {source}: nothing removed in {place}: {reason}{}",
             match left_out.len() {
                 1 => String::new(),
@@ -180,7 +181,7 @@ fn print_summary(
     (before, after): (usize, usize),
     alerts: usize,
 ) {
-    println!(
+    out!(
         "  {label} {source}: {} kinds of event, fields {}{}; {} → {} ({}), every removed field \
          also removed by Vector, {alerts} = {alerts} alerts",
         generated.templates,
@@ -195,7 +196,7 @@ fn print_summary(
         saved(before, after),
     );
     if alerts == 0 {
-        println!("          {}", sluice_autopilot::EMPTY_PROOF);
+        out!("          {}", sluice_autopilot::EMPTY_PROOF);
     }
     print_left_out(generated.left_out);
 }
@@ -203,10 +204,10 @@ fn print_summary(
 /// Prints the first five parts of the plan left to a pipeline tool, and how many more.
 fn print_left_out(left_out: &[String]) {
     for reason in left_out.iter().take(5) {
-        println!("          left to a pipeline tool: {reason}");
+        out!("          left to a pipeline tool: {reason}");
     }
     if left_out.len() > 5 {
-        println!("          … and {} more", left_out.len() - 5);
+        out!("          … and {} more", left_out.len() - 5);
     }
 }
 

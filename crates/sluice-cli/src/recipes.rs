@@ -6,16 +6,17 @@ use anyhow::{Context, Result, bail};
 use sluice_autopilot::RecipeBook;
 
 use crate::cli::{RecipesArgs, RecipesCommand};
+use crate::stdout::out;
 use crate::{input, output};
 
 pub(crate) fn recipes(args: &RecipesArgs) -> Result<()> {
     match &args.command {
         None => {
             for (id, description) in RecipeBook::embedded()?.entries() {
-                println!("{id:<60} {description}");
+                out!("{id:<60} {description}");
             }
         }
-        Some(RecipesCommand::Schema) => print!("{}", RecipeBook::json_schema()),
+        Some(RecipesCommand::Schema) => crate::stdout::text(&RecipeBook::json_schema()),
         Some(RecipesCommand::Contribute { from, into }) => contribute(from, into)?,
         Some(RecipesCommand::Export { out }) => {
             if out.read_dir().is_ok_and(|mut d| d.next().is_some()) {
@@ -29,7 +30,7 @@ pub(crate) fn recipes(args: &RecipesArgs) -> Result<()> {
                 output::write(&out.join(path), yaml)?;
             }
             output::write(&out.join(SCHEMA_FILE), &RecipeBook::json_schema())?;
-            println!(
+            out!(
                 "exported {} recipes and {SCHEMA_FILE} to {}; edit them and pass `--recipes {}`",
                 files.len(),
                 out.display(),
@@ -63,9 +64,9 @@ fn contribute(from: &Path, into: &Path) -> Result<()> {
             bail!("{} exists; nothing was copied after it", target.display());
         }
         output::write(&target, text)?;
-        println!("  wrote {}", target.display());
+        out!("  wrote {}", target.display());
     }
-    println!(
+    out!(
         "Review each recipe (its pattern and rationale come from your logs), then commit them \
          and open a pull request."
     );

@@ -17,6 +17,7 @@ use sluice_core::event::Event;
 use sluice_fluentbit::{FluentBit, filter_section, lua_filter};
 
 use super::Generated;
+use crate::stdout::out;
 
 /// Proves a Lua filter for every source whose plan removes fields, and writes each one that
 /// removes something to `out/fluent-bit/SOURCE.lua`.
@@ -85,7 +86,7 @@ pub(crate) fn fluent_bit(
             .collect();
         let conf = out.join("fluent-bit").join("filters.conf");
         crate::output::write(&conf, &sections)?;
-        println!(
+        out!(
             "  fluent-bit wrote {} filter(s) and {}: add each section to the agent's \
              configuration, with `Match` set to the tag of that source's input",
             written.len(),

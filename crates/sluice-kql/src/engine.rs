@@ -305,31 +305,53 @@ impl<'c> Database<'c> {
     }
 
     /// The rows of the query's primary result, each as JSON with its column names.
+    ///
+    /// The query runs without Kusto's result limits (64 MB, 500,000 records): a cut-off result
+    /// would silently lose records or alerts, and so would hide what a reduction changed.
     pub(crate) fn query(&self, query: &str) -> Result<Vec<String>, KustoError> {
-        let answer = self.client.query(&self.name, query)?;
-        let table = answer
-            .get("Tables")
-            .and_then(|tables| tables.get(0))
-            .ok_or_else(|| KustoError::Response("no result table".to_owned()))?;
-        let columns: Vec<&str> = table
-            .get("Columns")
-            .and_then(Value::as_array)
-            .map(|columns| {
-                columns
-                    .iter()
-                    .filter_map(|c| c.get("ColumnName").and_then(Value::as_str))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let rows = table
-            .get("Rows")
-            .and_then(Value::as_array)
-            .ok_or_else(|| KustoError::Response("result table without rows".to_owned()))?;
-        Ok(rows
-            .iter()
-            .map(|row| json!([columns, row]).to_string())
-            .collect())
+        let answer = self
+            .client
+            .query(&self.name, &format!("set notruncation;\n{query}"))?;
+        primary_rows(&answer)
     }
+}
+
+/// The rows of the first table of a v1 answer, each as JSON with its column names. A query that
+/// fails part way still answers, with the error in among the rows (`{"Exceptions": […]}`); that
+/// answer is an error, never a shorter result.
+fn primary_rows(answer: &Value) -> Result<Vec<String>, KustoError> {
+    let table = answer
+        .get("Tables")
+        .and_then(|tables| tables.get(0))
+        .ok_or_else(|| KustoError::Response("no result table".to_owned()))?;
+    let columns: Vec<&str> = table
+        .get("Columns")
+        .and_then(Value::as_array)
+        .map(|columns| {
+            columns
+                .iter()
+                .filter_map(|c| c.get("ColumnName").and_then(Value::as_str))
+                .collect()
+        })
+        .unwrap_or_default();
+    let rows = table
+        .get("Rows")
+        .and_then(Value::as_array)
+        .ok_or_else(|| KustoError::Response("result table without rows".to_owned()))?;
+    if let Some(failure) = rows.iter().find_map(|row| row.get("Exceptions")) {
+        let first = failure
+            .get(0)
+            .and_then(Value::as_str)
+            .and_then(|e| e.lines().next())
+            .unwrap_or("no reason given");
+        return Err(KustoError::Response(format!(
+            "the query failed part way: {first}"
+        )));
+    }
+    Ok(rows
+        .iter()
+        .map(|row| json!([columns, row]).to_string())
+        .collect())
 }
 
 impl Drop for Database<'_> {

@@ -6,6 +6,17 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
+- **Testing Sluice on your own SIEM** ([docs/field-test.md](docs/field-test.md)): a field test
+  step by step: a week's baseline of ingest and alerts, a sample of two days (analyzed on the
+  first, proven on the second with `sluice prove`), the deployment with the way back saved, what
+  to measure a week later, the known limits to watch, and what to report.
+- **Fixed: a large sample failed the Sentinel proof** with "a row of no run". Kusto returns at
+  most 64 MB or 500,000 records and puts the error in among the rows; Sluice's queries now run
+  with `set notruncation`, and an answer with an error in it is an error, never a shorter result,
+  so a rule's alerts can never be cut off unseen. Found on 30,000 APT29 Sysmon events in a custom
+  table.
+- **Fixed: `sluice … | head` ended with a "Broken pipe" panic.** Once the reader has gone,
+  Sluice stops printing and finishes its work, so every file is still written.
 - **How Sluice saves** ([docs/how-sluice-saves.md](docs/how-sluice-saves.md)): the algorithm in one
   paragraph, its six steps, and each way of saving two or three levels deep, with one APT29 event
   followed through all of them.

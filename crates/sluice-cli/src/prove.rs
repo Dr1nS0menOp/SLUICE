@@ -14,6 +14,7 @@ use sluice_rules::SigmaRules;
 
 use crate::cli::ProveArgs;
 use crate::input;
+use crate::stdout::out;
 
 pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
     let sources = input::sources(&args.sources)?;
@@ -59,7 +60,7 @@ pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
     print(args, &proof, &unreduced)?;
     let empty = proof.full_alerts.is_empty();
     if !args.json && empty {
-        println!("  note    {EMPTY_PROOF}");
+        out!("  note    {EMPTY_PROOF}");
     }
     if !proof.holds() {
         bail!(
@@ -74,7 +75,7 @@ pub(crate) fn prove(args: &ProveArgs) -> Result<()> {
         );
     }
     if !args.json {
-        println!("  ✓ no detection changed");
+        out!("  ✓ no detection changed");
     }
     Ok(())
 }
@@ -153,28 +154,31 @@ fn print(
     if args.json {
         let mut summary = summary(proof, unreduced);
         summary["config"] = json!(args.config.display().to_string());
-        println!("{}", serde_json::to_string_pretty(&summary)?);
+        out!("{}", serde_json::to_string_pretty(&summary)?);
     } else {
-        println!("{}", args.config.display());
+        out!("{}", args.config.display());
         let records = if total.summarized == 0 {
             String::new()
         } else {
             format!(" into {} records", total.summaries)
         };
-        println!(
+        out!(
             "  ingest  {} → {} bytes ({saved:.1}% saved, {} of {} events summarized{records})",
-            total.bytes_in, total.bytes_out, total.summarized, total.events
+            total.bytes_in,
+            total.bytes_out,
+            total.summarized,
+            total.events
         );
-        println!(
+        out!(
             "  proof   {} alerts on full data, {} on forwarded data",
             proof.full_alerts.len(),
             proof.forwarded_alerts.len()
         );
         for alert in &proof.missing {
-            println!("  missing {} on event {}", alert.rule, alert.event);
+            out!("  missing {} on event {}", alert.rule, alert.event);
         }
         for alert in &proof.extra {
-            println!("  extra   {} on event {}", alert.rule, alert.event);
+            out!("  extra   {} on event {}", alert.rule, alert.event);
         }
     }
     Ok(())
