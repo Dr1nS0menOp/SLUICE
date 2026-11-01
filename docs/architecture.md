@@ -44,6 +44,8 @@ takes in Vector. The terms are explained in the [glossary](glossary.md).
 
 ## The analysis: how Sluice decides
 
+([How Sluice saves](how-sluice-saves.md) explains each step and each way of saving in more depth.)
+
 `sluice analyze` takes these steps once, on the sample. `sluice demo` does the same on
 synthetic data.
 
@@ -60,8 +62,8 @@ synthetic data.
   optionally, an AI advisor propose reductions per template: drop fields or empty fields (L1),
   forward what rules could match and summarize the rest (L2), or summarize a template no rule
   covers (L3). A proposal is never trusted. Sluice also learns *implied values* from the sample
-  itself: a field that always holds one value on a kind of event, or one value whenever another
-  field holds a given one. Such a field may be removed (L1) only while it holds exactly that value,
+  itself: a field that holds one value on at least nine in ten events of a kind, or does so
+  whenever another field holds a given one. Such a field may be removed (L1) only while it holds exactly that value,
   so it can be put back (ADR 0032). A field that implies another must be a category (2 to 32
   values, 20 events each, no new value late in the sample), and a field named as an identifier
   (a thread, a process, an agent's run) is never implied by another, since its value changes at
@@ -143,7 +145,8 @@ A data collection rule, an ingest pipeline, a Fluent Bit filter and the collecto
 processor see one record at a time, so they can remove fields (L1) but not count. Each recognises
 a record's template, keeps whole every record a rule could match (by a condition that matches at
 least what the VRL matches), and leaves a record that fits no template unchanged. Text templates
-and counting stay with a pipeline tool; `runs_in` in the plan says per saving where it can run.
+and counting stay with a pipeline tool, except that Sentinel's transformation keeps out of the
+analytics table the records Vector would count, since its archive flow keeps them whole (ADR 0036); `runs_in` in the plan says per saving where it can run.
 
 | Target | What Sluice writes | Proven in |
 |---|---|---|
@@ -154,7 +157,7 @@ and counting stay with a pipeline tool; `runs_in` in the plan says per saving wh
 
 Each of them, like Vector, removes an object its removals emptied and keeps one that came empty
 (ADR 0033); Sentinel's transformation removes whole columns only. The command-line tests
-(`crates/sluice-cli/tests/natives.rs`) run each `--…-native` option end to end against its real
+(`crates/sluice-cli/tests/natives.rs`) run each `--native` target end to end against its real
 engine.
 
 ## An example: one Windows firewall event, step by step

@@ -23,6 +23,11 @@ use sluice_discover::Discovery;
 const MIN_SUPPORT: usize = 20;
 /// Distinct values a field may have to imply another; more would not be a category.
 const MAX_IMPLYING_VALUES: usize = 32;
+/// A value is implied where it holds on at least this many tenths of the events it is learned on.
+/// The removal is lossless whatever the share, since a value guard leaves every other value in
+/// place; the share only says how much it saves. Nine in ten keeps most of what a lower share
+/// saves on the sample, and more of it lasts on a later one (docs/notes/field-theory.md).
+const MIN_SHARE_TENTHS: usize = 9;
 /// Implied values per kind of event, largest saving first: each is one test per event.
 const MAX_PER_TEMPLATE: usize = 64;
 
@@ -162,30 +167,35 @@ fn learn_template(
     out
 }
 
-/// `field`'s implied values: one value on every event, or, for the field that covers the most
-/// bytes, one value per value of another field.
+/// `field`'s implied values, whichever saves the most bytes: the value the kind of event
+/// implies alone, or one value per value of another field, each held by at least nine in ten of
+/// the events it is learned on.
 fn candidate<'a>(
     field: &'a FieldPath,
     column: &[Literal],
     columns: &'a BTreeMap<&'a FieldPath, Vec<Literal>>,
 ) -> Option<Candidate<'a>> {
-    let distinct: BTreeSet<&Literal> = column.iter().collect();
-    if let (1, Some(value)) = (distinct.len(), distinct.first()) {
-        return Some(Candidate {
-            bytes: column.iter().map(|v| size(field, v)).sum(),
-            field,
-            implying: None,
-            values: vec![ImpliedValue {
-                field: field.clone(),
-                value: (*value).clone(),
-                when: None,
-            }],
-        });
+    let found = dominant(column.iter());
+    let alone = found.map(|(value, held)| Candidate {
+        bytes: held * size(field, value),
+        field,
+        implying: None,
+        values: vec![ImpliedValue {
+            field: field.clone(),
+            value: value.clone(),
+            when: None,
+        }],
+    });
+    // A value that holds on every event needs no other field to say when.
+    if found.is_some_and(|(_, held)| held == column.len()) {
+        return alone;
     }
     columns
         .iter()
         .filter(|(on, _)| *on != &field)
         .filter_map(|(on, implying)| implied_by(field, column, on, implying))
+        .chain(alone)
+        // The most bytes; of equal ones, the kind of event alone (`None`), then the first field.
         .max_by(|a, b| a.bytes.cmp(&b.bytes).then(b.implying.cmp(&a.implying)))
 }
 
@@ -201,11 +211,9 @@ fn implied_by<'a>(
     on: &'a FieldPath,
     implying: &[Literal],
 ) -> Option<Candidate<'a>> {
-    let mut groups: BTreeMap<&Literal, BTreeSet<&Literal>> = BTreeMap::new();
-    let mut counts: BTreeMap<&Literal, usize> = BTreeMap::new();
+    let mut groups: BTreeMap<&Literal, Vec<&Literal>> = BTreeMap::new();
     for (key, value) in implying.iter().zip(column) {
-        groups.entry(key).or_default().insert(value);
-        *counts.entry(key).or_default() += 1;
+        groups.entry(key).or_default().push(value);
     }
     if !(2..=MAX_IMPLYING_VALUES).contains(&groups.len())
         || !closed(implying)
@@ -217,11 +225,10 @@ fn implied_by<'a>(
     let mut values = Vec::new();
     let mut bytes = 0;
     for (key, held) in &groups {
-        let [value] = held.iter().collect::<Vec<_>>()[..] else {
+        if held.len() < MIN_SUPPORT {
             continue;
-        };
-        let events = counts.get(key).copied().unwrap_or_default();
-        if events >= MIN_SUPPORT {
+        }
+        if let Some((value, events)) = dominant(held.iter().copied()) {
             bytes += events * size(field, value);
             values.push(ImpliedValue {
                 field: field.clone(),
@@ -236,6 +243,21 @@ fn implied_by<'a>(
         implying: Some(on),
         values,
     })
+}
+
+/// The value `values` hold most often, and on how many, if that is at least [`MIN_SHARE_TENTHS`]
+/// of them; of values held equally often, the least, so the choice does not depend on order.
+fn dominant<'a>(values: impl Iterator<Item = &'a Literal>) -> Option<(&'a Literal, usize)> {
+    let mut counts: BTreeMap<&Literal, usize> = BTreeMap::new();
+    let mut total = 0;
+    for value in values {
+        *counts.entry(value).or_default() += 1;
+        total += 1;
+    }
+    let (value, held) = counts
+        .into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(a.0)))?;
+    (held * 10 >= total * MIN_SHARE_TENTHS).then_some((value, held))
 }
 
 /// The value at `path` in an event, following nested objects.

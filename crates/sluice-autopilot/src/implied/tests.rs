@@ -520,3 +520,101 @@ fn an_address_or_a_port_is_never_implied_nor_implies_another() {
         "not every value"
     );
 }
+
+#[test]
+fn a_value_is_dominant_when_nine_in_ten_hold_it() {
+    let column = |held: usize, other: usize| -> Vec<Literal> {
+        std::iter::repeat_n(text("a"), held)
+            .chain(std::iter::repeat_n(text("b"), other))
+            .collect()
+    };
+    assert_eq!(dominant(column(10, 0).iter()), Some((&text("a"), 10)));
+    assert_eq!(dominant(column(9, 1).iter()), Some((&text("a"), 9)));
+    assert_eq!(dominant(column(8, 2).iter()), None);
+    assert_eq!(dominant(column(18, 2).iter()), Some((&text("a"), 18)));
+    assert_eq!(dominant(std::iter::empty()), None);
+    // Of values held equally often, the least: here neither reaches nine in ten.
+    assert_eq!(dominant(column(5, 5).iter()), None);
+}
+
+#[test]
+fn a_value_most_events_hold_is_implied_and_the_others_keep_theirs() {
+    // One logon in ten carries other Keywords: the value is still implied, and the value guard
+    // leaves that event's own value in place.
+    let mut events = logons(30);
+    for event in events.iter_mut().step_by(10) {
+        event.insert("Keywords".into(), json!("0x8010000000000000"));
+    }
+    let values = learned(&events);
+    assert!(values.contains(&ImpliedValue {
+        field: field("Keywords"),
+        value: text("0x8020000000000000"),
+        when: None,
+    }));
+    // Two in ten is too many: nothing is implied for the field.
+    for event in events.iter_mut().skip(5).step_by(10) {
+        event.insert("Keywords".into(), json!("0x8010000000000000"));
+    }
+    assert!(
+        !learned(&events)
+            .iter()
+            .any(|v| v.field == field("Keywords"))
+    );
+}
+
+#[test]
+fn a_value_another_field_sets_on_nine_in_ten_is_implied_with_it() {
+    // `RestrictedAdminMode` is `-` on type 2 and 3 logons except one in ten type 2 ones.
+    let mut events = logons(40);
+    let mut type2 = 0;
+    for event in &mut events {
+        if event["LogonType"] == json!(2) {
+            type2 += 1;
+            if type2 % 10 == 0 {
+                event.insert("RestrictedAdminMode".into(), json!("No"));
+            }
+        }
+    }
+    let values = learned(&events);
+    assert!(
+        values.contains(&ImpliedValue {
+            field: field("RestrictedAdminMode"),
+            value: text("-"),
+            when: Some((field("LogonType"), Literal::Integer(2))),
+        }),
+        "{values:?}"
+    );
+}
+
+#[test]
+fn another_field_that_sets_every_value_beats_a_value_held_by_nine_in_ten() {
+    // 400 logons of type 2 with `-` and exactly 20 of type 10 with `No`: `-` alone holds on
+    // nine in ten, but `LogonType` sets every one of them, which saves more.
+    let events: Vec<Map<String, Value>> = (0..420)
+        .map(|i| {
+            let (logon_type, admin) = if i % 21 == 0 { (10, "No") } else { (2, "-") };
+            let json = json!({
+                "EventID": 4624, "Keywords": "0x8020000000000000", "LogonType": logon_type,
+                "RestrictedAdminMode": admin, "TargetUserName": format!("user{i}"),
+            });
+            json.as_object().expect("an object").clone()
+        })
+        .collect();
+    let values = learned(&events);
+    for (value, logon_type) in [("-", 2), ("No", 10)] {
+        assert!(
+            values.contains(&ImpliedValue {
+                field: field("RestrictedAdminMode"),
+                value: text(value),
+                when: Some((field("LogonType"), Literal::Integer(logon_type))),
+            }),
+            "{values:?}"
+        );
+    }
+    assert!(
+        !values
+            .iter()
+            .any(|v| v.field == field("RestrictedAdminMode") && v.when.is_none()),
+        "{values:?}"
+    );
+}

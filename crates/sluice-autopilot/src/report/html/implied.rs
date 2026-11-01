@@ -45,8 +45,10 @@ pub(super) fn explain(report: &Report) -> String {
          keeps every event whole.</p>\
          <p><b>How Sluice finds them.</b> It learns them from this sample, and only on kinds of \
          event frequent enough to be reduced at all: a rare kind of event is always sent \
-         whole. A value the kind of event fixes must be the same on every event of that kind \
-         in the sample. A field that fixes another must behave as a category: 2 to 32 distinct \
+         whole. A value the kind of event fixes must be held by at least nine in ten events \
+         of that kind in the sample, and a value another field fixes by nine in ten of the \
+         events with that field's value: the tenth keeps its own value and is sent as it is, \
+         so nothing is lost either way. A field that fixes another must behave as a category: 2 to 32 distinct \
          values, no value in the second half of the sample that the first half lacked, and a \
          name that is not an identifier's (ending in <code>Id</code> or <code>Guid</code>, \
          such as a logon ID). Each of its values needs at least 20 events before Sluice learns \
@@ -206,7 +208,7 @@ mod tests {
             bytes: 45_000,
             mode: Mode::Implied,
             constant: None,
-            why: "always \"0x8020000000000000\" on this kind of event".into(),
+            why: "\"0x8020000000000000\" on this kind of event".into(),
             runs_in: String::new(),
         }];
         report.templates = vec![row];

@@ -20,11 +20,12 @@ are.
    Proposals come from the community recipes in [`recipes/`](../recipes/), your own recipes
    (`--recipes DIR`), or an AI model (`--llm`). None of them is trusted.
 
-   Sluice also proposes **implied values** itself (L1): per kind of event, a field that always
-   holds one value (Windows' `Channel`, `Keywords`), or holds one value whenever another field
-   holds a given one (4624's `RestrictedAdminMode` is `-` unless `LogonType` is 10). Such a
-   field is removed only while it holds that value, so every removed value can be put back from
-   `plan.json`. They are learned from the sample, only from fields that are categories, and a
+   Sluice also proposes **implied values** itself (L1): per kind of event, a field that holds one
+   value on at least nine in ten of its events (Windows' `Channel`, `Keywords`), or does so
+   whenever another field holds a given one (4624's `RestrictedAdminMode` is `-` unless
+   `LogonType` is 10). Such a field is removed only while it holds that value, so every removed
+   value can be put back from `plan.json`, and an event with another value keeps its own: why that
+   loses nothing is in the [field theory](notes/field-theory.md). They are learned from the sample, only from fields that are categories, and a
    field named as an identifier (`ExecutionThreadID`, `agent.ephemeral_id`) is never implied by
    another field: its value changes at the next restart. Vector removes them, and so does the
    data collection rule of `--native sentinel`, which also writes `sentinel/<Table>Full.kql`: a
@@ -161,7 +162,7 @@ line`); a keyword rule is matched against the line as it is.
 | `rules.json` | That list of rules, for tools. |
 | `plan.json` | The savings plan (`sluice.plan/1`): per source and kind of event what may be removed or counted, the implied values (`remove_implied`: a field absent from a forwarded event holds the value given), which events keep every field, where the saving can run (`runs_in`), the proof, and what Sluice could not read or check in the rules (`problems`, each with its `kind` and the rule; ADR 0023). |
 | `vector.yaml` | A Vector configuration that carries out the whole plan, with Vector unit tests drawn from the sample. Per source it reads a file and has three sinks: the archive, what is forwarded, and the summaries. |
-| `sentinel/` | With `--native sentinel --sentinel-dcr RULE.json`: `dcr.json`, that rule with each proven `transformKql` and an untransformed flow into an Auxiliary archive table; the archive tables (`*.table.json`); each transformation (`*.transform.kql`); and, where the rule empties implied values, `<Table>Full.kql`, a function to save in the workspace that puts them back. |
+| `sentinel/` | With `--native sentinel --sentinel-dcr RULE.json`: `dcr.json`, that rule with each proven `transformKql` and an untransformed flow into an Auxiliary archive table, where records Vector would count stay instead of in the table (ADR 0036); the archive tables (`*.table.json`); each transformation (`*.transform.kql`); and, where the rule empties implied values, `<Table>Full.kql`, a function to save in the workspace that puts them back. |
 | `elastic/SOURCE.pipeline.json` | With `--native elastic`: an ingest pipeline per source. |
 | `elastic/SOURCE.runtime.json` | With `--native elastic`, where the pipeline removes implied values: runtime fields that put them back when a query runs, each shadowing the field of its name. Use them as a search's `runtime_mappings` or as runtime fields of a Kibana data view, and query the field itself (`Mode`, not `Mode.keyword`). Proven on the sample: they read every forwarded document as they read the full one. Each has the type of its values: `keyword`, `long` or `boolean`. |
 | `fluent-bit/SOURCE.lua`, `fluent-bit/filters.conf` | With `--native fluent-bit`: a Lua filter per source, and the filter sections to add to the agent's configuration. |

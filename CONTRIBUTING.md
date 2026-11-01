@@ -52,6 +52,7 @@ engine is there. CI runs all of them but `kql-check.sh`, whose emulator image is
 | `scripts/elastic-check.sh` | Generated ingest pipelines and Elastic's rules in Elasticsearch |
 | `scripts/fluentbit-check.sh` | Generated Lua filters in Fluent Bit |
 | `scripts/otel-check.sh` | Generated `transform` statements in the OpenTelemetry Collector |
+| `scripts/research/fields.py`, `tiers.py` | The field theory's measurements: where a sample's bytes go and how long a learned value lasts, and what a plan costs in Sentinel's table plans ([notes](docs/notes/field-theory.md)) |
 | `scripts/mcp-check.sh` | `sluice mcp` against the official Python MCP SDK (`scripts/mcp-client.py`, fetched by `uv`) |
 | `scripts/sigma-differential.sh [--sigmahq]` | Rule requirements against pySigma, on the examples or the full SigmaHQ set |
 | `scripts/bench.sh [source] [scale]` | Data plane throughput with the real Vector ([docs/notes/benchmarks.md](docs/notes/benchmarks.md)) |

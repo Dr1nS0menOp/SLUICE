@@ -93,6 +93,9 @@ pub struct Transformation {
     pub left_out: Vec<String>,
     /// The implied values it empties: what the table's rebuilding function puts back.
     pub implied: Vec<Rebuilt>,
+    /// The templates whose records no rule could match it keeps out of the table (`where`):
+    /// only with [`routed_within`], for a data collection rule whose archive flow keeps them.
+    pub routed: BTreeSet<TemplateId>,
 }
 
 /// Records the transformation cannot tell apart: one signature and its discriminator values.
@@ -104,6 +107,13 @@ struct Group {
     /// The implied values every template of the group removes.
     implied: Option<BTreeSet<Rebuilt>>,
     keep_whole: Vec<Predicate>,
+    /// Whether every template of the group counts instead of sending what no rule could match:
+    /// only then may its records outside `forward` stay out of the table.
+    routable: Option<bool>,
+    /// What a rule could match, per template of the group that counts: these records stay.
+    forward: Vec<Predicate>,
+    /// The templates of the group that count instead of sending.
+    counting: BTreeSet<TemplateId>,
     /// Two templates with this signature test different discriminator fields: a record could
     /// fit both, so neither is recognised.
     conflict: bool,
@@ -140,6 +150,36 @@ pub fn transformation_within(
     transformation_on_within(table.name(), &columns, stream, plans, budget)
 }
 
+/// As [`transformation_within`], and also keeping out of the table the records of templates that
+/// count instead of sending, where no rule could match them (ADR 0036). Only for a data
+/// collection rule whose archive flow takes the stream whole (contract rule 2): there those
+/// records stay, in a table of a cheaper plan.
+#[must_use]
+pub fn routed_within(
+    table: &Table,
+    stream: &[&str],
+    plans: &[Plan<'_>],
+    budget: usize,
+) -> Transformation {
+    let columns: Vec<(&str, &str)> = table
+        .own_columns()
+        .filter(|(name, _)| stream.contains(name))
+        .collect();
+    build(table.name(), &columns, stream, plans, budget, true)
+}
+
+/// As [`transformation_on_within`], routing as [`routed_within`] does.
+#[must_use]
+pub fn routed_on_within(
+    table: &str,
+    columns: &[(&str, &str)],
+    stream: &[&str],
+    plans: &[Plan<'_>],
+    budget: usize,
+) -> Transformation {
+    build(table, columns, stream, plans, budget, true)
+}
+
 /// As [`transformation`], on `columns` (name and type, among `stream`) as they are where the
 /// transformation runs: a stream's, when it runs before the data flow's own transformation
 /// renames any. `table` only names the place in what is left out.
@@ -162,6 +202,17 @@ pub fn transformation_on_within(
     plans: &[Plan<'_>],
     budget: usize,
 ) -> Transformation {
+    build(table, columns, stream, plans, budget, false)
+}
+
+fn build(
+    table: &str,
+    columns: &[(&str, &str)],
+    stream: &[&str],
+    plans: &[Plan<'_>],
+    budget: usize,
+    route: bool,
+) -> Transformation {
     let columns: Vec<(&str, &str)> = columns
         .iter()
         .copied()
@@ -181,6 +232,7 @@ pub fn transformation_on_within(
                  removed"
             )],
             implied: Vec::new(),
+            routed: BTreeSet::new(),
         };
     }
     let types: BTreeMap<&str, &str> = columns.iter().copied().collect();
@@ -210,7 +262,7 @@ pub fn transformation_on_within(
     let mut groups = Groups::new();
     for (plan, recognition) in &recognised {
         let id = &plan.template.id;
-        if plan.recipe.route != Route::ForwardAll {
+        if plan.recipe.route != Route::ForwardAll && !route {
             left_out.push(format!(
                 "{id}: counting instead of sending needs a pipeline tool"
             ));
@@ -234,8 +286,8 @@ pub fn transformation_on_within(
     for template in &unrecognised {
         block(template, &signed, &rest, &mut groups);
     }
-    let kept = separable(groups, &mut left_out);
-    let mut transformation = fitting(&signed, &rest, stream, &kept, &left_out, budget);
+    let kept = separable(groups, route, &mut left_out);
+    let mut transformation = fitting(&signed, &rest, stream, &kept, &left_out, budget, route);
     if transformation.kql.len() > budget {
         transformation.left_out.push(format!(
             "the transformation would be {} characters, more than the {budget} left of what a \
@@ -245,6 +297,7 @@ pub fn transformation_on_within(
         "source".clone_into(&mut transformation.kql);
         transformation.templates.clear();
         transformation.columns.clear();
+        transformation.routed.clear();
     }
     transformation
 }
@@ -284,6 +337,15 @@ fn add(
             Some(before) => before.intersection(implied).cloned().collect(),
         });
         group.keep_whole.extend(plan.recipe.keep_whole_when.clone());
+        let counting = match &plan.recipe.route {
+            Route::ForwardAll => None,
+            Route::ForwardMatching { prefilter, .. } => Some(prefilter),
+        };
+        group.routable = Some(group.routable.unwrap_or(true) && counting.is_some());
+        if let Some(prefilter) = counting {
+            group.forward.push(prefilter.clone());
+            group.counting.insert(plan.template.id.clone());
+        }
     }
 }
 
@@ -324,13 +386,14 @@ fn block(template: &Template, signed: &[(&str, &str)], rest: &[(&str, &str)], gr
         group.templates.insert(template.id.clone());
         group.removes = Some(BTreeSet::new());
         group.implied = Some(BTreeSet::new());
+        group.routable = Some(false);
     }
 }
 
 /// The groups a record can be placed in without doubt that remove something. Under one
 /// signature, groups must test the same discriminator fields with different values; otherwise
 /// one record could fit two of them, and none of them is used.
-fn separable(mut groups: Groups, left_out: &mut Vec<String>) -> Vec<(String, Group)> {
+fn separable(mut groups: Groups, route: bool, left_out: &mut Vec<String>) -> Vec<(String, Group)> {
     for by_values in groups.values_mut() {
         let fields: BTreeSet<Vec<&String>> = by_values
             .values()
@@ -356,14 +419,36 @@ fn separable(mut groups: Groups, left_out: &mut Vec<String>) -> Vec<(String, Gro
                         .collect::<Vec<_>>()
                         .join(", ")
                 ));
-            } else if group.removes.as_ref().is_some_and(|r| !r.is_empty())
-                || group.implied.as_ref().is_some_and(|i| !i.is_empty())
-            {
-                kept.push((signature.clone(), group));
+            } else {
+                if route && group.routable == Some(false) && !group.counting.is_empty() {
+                    left_out.push(format!(
+                        "{}: their records cannot be told apart from those of a template that \
+                         sends every event, so all of them are sent",
+                        names(&group.counting)
+                    ));
+                }
+                if changes(&group, route) {
+                    kept.push((signature.clone(), group));
+                }
             }
         }
     }
     kept
+}
+
+/// Whether `group` changes anything: it empties a column, or keeps records out (`route`).
+fn changes(group: &Group, route: bool) -> bool {
+    group.removes.as_ref().is_some_and(|r| !r.is_empty())
+        || group.implied.as_ref().is_some_and(|i| !i.is_empty())
+        || (route && group.routable == Some(true))
+}
+
+fn names(templates: &BTreeSet<TemplateId>) -> String {
+    templates
+        .iter()
+        .map(TemplateId::as_str)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The columns a plan removes that the transformation can empty: whole columns of the table,
@@ -480,6 +565,7 @@ fn fitting(
     groups: &[(String, Group)],
     left_out: &[String],
     budget: usize,
+    route: bool,
 ) -> Transformation {
     let mut ranked: Vec<&Rebuilt> = groups
         .iter()
@@ -503,12 +589,9 @@ fn fitting(
                     .map(|values| values.into_iter().filter(|v| allowed.contains(v)).collect());
                 (signature.clone(), group)
             })
-            .filter(|(_, group)| {
-                group.removes.as_ref().is_some_and(|r| !r.is_empty())
-                    || group.implied.as_ref().is_some_and(|i| !i.is_empty())
-            })
+            .filter(|(_, group)| changes(group, route))
             .collect();
-        render(signed, rest, stream, &limited, left_out.to_vec())
+        render(signed, rest, stream, &limited, left_out.to_vec(), route)
     };
     let all = with(ranked.len());
     if all.kql.len() <= budget || ranked.is_empty() {
@@ -542,6 +625,7 @@ fn render(
     stream: &[&str],
     groups: &[(String, Group)],
     left_out: Vec<String>,
+    route: bool,
 ) -> Transformation {
     let mut transformation = Transformation {
         kql: "source".to_owned(),
@@ -549,26 +633,14 @@ fn render(
         columns: BTreeSet::new(),
         left_out,
         implied: Vec::new(),
+        routed: BTreeSet::new(),
     };
     if groups.is_empty() {
         return transformation;
     }
     let types: BTreeMap<&str, &str> = signed.iter().chain(rest).copied().collect();
-    let bits: Vec<String> = signed
-        .iter()
-        .map(|(name, kind)| format!(r#"iff({}, "0", "1")"#, empty(&column(name), kind)))
-        .collect();
-    // A dynamic `{}` counts as text here, so a record holding one keeps every column.
-    let rest_empty = if rest.is_empty() {
-        "true".to_owned()
-    } else {
-        let texts: Vec<String> = rest
-            .iter()
-            .map(|(name, _)| format!("tostring({})", column(name)))
-            .collect();
-        format!("isempty({})", strcat(&texts))
-    };
     let mut cases = Vec::new();
+    let mut outside = Vec::new();
     let mut removed: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut implied: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut rebuilt: BTreeSet<Rebuilt> = BTreeSet::new();
@@ -584,6 +656,14 @@ fn render(
             })
             .collect();
         tests.push(format!("__sluice_s == \"{signature}\" and __sluice_r"));
+        // A record of a group that only counts, which no rule could match: Vector counts it
+        // instead of sending it, and here it stays out of the table, kept by the archive flow.
+        // `forward` matches at least what Vector's does, so no record Vector sends is left out.
+        if route && group.routable == Some(true) {
+            let forward = compile_known(&Predicate::any(group.forward.clone()), stream);
+            outside.push(format!("({} and not({forward}))", tests.join(" and ")));
+            transformation.routed.extend(group.counting.iter().cloned());
+        }
         // A record a protecting rule could match gets no label, so nothing is removed from it.
         // Tested once here, on the record as it came, rather than again in every column's test:
         // that kept the transformation within the size a data collection rule takes.
@@ -612,31 +692,20 @@ fn render(
     }
     let mut lines = vec![
         "source".to_owned(),
-        format!(
-            "{SLUICE_PART} = {}, __sluice_r = {rest_empty}",
-            strcat(&bits)
-        ),
+        signature_line(signed, rest),
         format!("| extend __sluice_t = case({}, \"\")", cases.join(", ")),
     ];
-    for (name, conditions) in &removed {
-        let quoted = column(name);
-        lines.push(format!(
-            "| extend {quoted} = iff({}, {}, {})",
-            conditions.join(" or "),
-            empty_value(types.get(name.as_str()).copied().unwrap_or("string"))
-                .expect("removable keeps only columns whose type has a null"),
-            quoted
-        ));
-        transformation.columns.insert(name.clone());
+    if !outside.is_empty() {
+        lines.push(format!("| where not({})", outside.join(" or ")));
     }
-    // Last, as in Vector: a column that implies another is tested as it is sent.
-    for (name, conditions) in &implied {
+    for (name, conditions) in removed.iter().chain(&implied) {
+        // Last, as in Vector: a column that implies another is tested as it is sent.
         let quoted = column(name);
         lines.push(format!(
             "| extend {quoted} = iff({}, {}, {})",
             conditions.join(" or "),
             empty_value(types.get(name.as_str()).copied().unwrap_or("string"))
-                .expect("rebuild::implied keeps only columns whose type has a null"),
+                .expect("removable and rebuild::implied keep only columns whose type has a null"),
             quoted
         ));
         transformation.columns.insert(name.clone());
@@ -645,6 +714,29 @@ fn render(
     lines.push(SLUICE_PART_END.to_owned());
     transformation.kql = lines.join("\n");
     transformation
+}
+
+/// The line that sets the record's signature (`__sluice_s`, one bit per column of `signed`) and
+/// whether every other column is empty (`__sluice_r`).
+fn signature_line(signed: &[(&str, &str)], rest: &[(&str, &str)]) -> String {
+    let bits: Vec<String> = signed
+        .iter()
+        .map(|(name, kind)| format!(r#"iff({}, "0", "1")"#, empty(&column(name), kind)))
+        .collect();
+    // A dynamic `{}` counts as text here, so a record holding one keeps every column.
+    let rest_empty = if rest.is_empty() {
+        "true".to_owned()
+    } else {
+        let texts: Vec<String> = rest
+            .iter()
+            .map(|(name, _)| format!("tostring({})", column(name)))
+            .collect();
+        format!("isempty({})", strcat(&texts))
+    };
+    format!(
+        "{SLUICE_PART} = {}, __sluice_r = {rest_empty}",
+        strcat(&bits)
+    )
 }
 
 /// A column, read or as the target of `extend`.

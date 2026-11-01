@@ -13,11 +13,11 @@ runs.**
 [`docs/example-report.html`](docs/example-report.html) is the report Sluice writes for real
 attack data: [OTRF](https://github.com/OTRF/Security-Datasets)'s APT29 emulation on four Windows
 machines, 184,886 Security and Sysmon events, with eight detection rules written for that attack.
-Sluice sends 77.2 % less (357.3 MB → 81.6 MB) and every one of the 987 alerts stays the same.
+Sluice sends 78.1 % less (357.3 MB → 78.1 MB) and every one of the 987 alerts stays the same.
 Download the file and open it in a browser (GitHub shows an HTML file as its source). It shows
 each saving at work:
 - the rendered `Message` text and empty fields left out;
-- implied values, such as `SignatureStatus`, which is `Valid` whenever `Signed` is `true`,
+- implied values, such as `Signed`, which is `true` whenever `SignatureStatus` is `Valid`,
   left out only while they hold and put back exactly;
 - 39,278 routine LSASS accesses counted into 2,489 summary records, while the 5 the
   credential-dumping rule could match are sent whole;
@@ -457,7 +457,7 @@ Records in another field convention than Sigma's need the pipeline your SIEM con
 such as `--sigma-pipeline ecs=ecs_windows`. [Using Sluice](docs/usage.md) has the details.
 
 On this project's development machine, with all 3,152 SigmaHQ rules declared complete:
-- Windows System, Application and PowerShell logs (42,335 events): 42.3 % less ingest, 18.0 %
+- Windows System, Application and PowerShell logs (42,335 events): 43.4 % less ingest, 19.1 %
   of it by implied values, with 236 = 236 alerts.
 - A Linux server's `auth.log` and `syslog` (166,665 lines): 25.7 % less.
 
@@ -468,7 +468,7 @@ Sluice proves each configuration in the engine it is for before it writes it:
 | Where the saving runs | What `sluice analyze` writes | Proven in |
 |---|---|---|
 | [Vector](https://vector.dev) | `vector.yaml`, always: every saving, counting included | the `vrl` crate Vector embeds; its tests let `vector test` check Vector itself |
-| Microsoft Sentinel's ingestion | with `--native sentinel --sentinel-dcr RULE.json`: that data collection rule with a `transformKql` per table and an untransformed flow into an archive table, and `<Table>Full.kql`, which puts implied values back | the Kusto emulator |
+| Microsoft Sentinel's ingestion | with `--native sentinel --sentinel-dcr RULE.json`: that data collection rule with a `transformKql` per table and an untransformed flow into an archive table, and `<Table>Full.kql`, which puts implied values back; records Vector would count stay in the archive table only (ADR 0036) | the Kusto emulator |
 | Elasticsearch's ingestion | with `--native elastic`: an ingest pipeline per source, and runtime fields that put implied values back | Elasticsearch |
 | Fluent Bit | with `--native fluent-bit`: a Lua filter per source | Fluent Bit |
 | OpenTelemetry Collector | with `--native otel`: `transform` statements per source | the collector |
@@ -520,6 +520,10 @@ On Windows, run the same commands in WSL2. macOS is not supported: use a Linux V
 - [Architecture and technologies](docs/architecture.md): diagrams of the analysis and of what
   each configuration does, one event followed step by step, the parts, and what each is built on
 - [Glossary](docs/glossary.md): the terms Sluice uses
+- [How Sluice saves](docs/how-sluice-saves.md): the algorithm, step by step and each way of
+  saving in depth
+- [Field theory](docs/notes/field-theory.md): why a byte may go, what keeps every event's value,
+  and the measurements behind both
 - [Architecture decisions](docs/adr/)
 - [Compatibility](docs/compatibility.md)
 - [Credits](docs/credits.md): the people and research Sluice builds on

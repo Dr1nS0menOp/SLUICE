@@ -80,8 +80,8 @@ pub(crate) fn why_removed(path: &FieldPath, recipe: &EffectiveRecipe) -> String 
     }
     if let Some(value) = constant {
         return format!(
-            "always {value} on this kind of event; left out only on an event that holds it, and \
-             put back from the plan"
+            "{value} on this kind of event, on at least nine in ten of its events in the sample; \
+             left out only on an event that holds it, and put back from the plan"
         );
     }
     if by_value.len() > MANY_VALUES {
@@ -101,8 +101,9 @@ pub(crate) fn why_removed(path: &FieldPath, recipe: &EffectiveRecipe) -> String 
             .next()
             .expect("every value has a field implying it");
         return format!(
-            "fixed per value of {}: the sample has {} pairs, such as {first} = {} with {path} = \
-             {value}; left out only when an event matches its pair, and put back from that pair",
+            "set per value of {}: the sample has {} pairs, such as {first} = {} with {path} = \
+             {value}, each on at least nine in ten of its events; left out only when an event \
+             matches its pair, and put back from that pair",
             list(on.into_iter()),
             by_value.len(),
             whens.join(" or ")
@@ -119,7 +120,8 @@ pub(crate) fn why_removed(path: &FieldPath, recipe: &EffectiveRecipe) -> String 
         })
         .collect();
     format!(
-        "fixed by another field: {}; left out only in those cases, and put back as that value",
+        "set by another field: {}, each on at least nine in ten of those events in the sample; \
+         left out only where an event holds it, and put back as that value",
         parts.join("; ")
     )
 }
@@ -374,11 +376,11 @@ mod tests {
             ..recipe()
         };
         let three = why_removed(&"Sid".into(), &pairs(3));
-        assert!(three.starts_with("fixed by another field: \"S-0\" whenever Name is \"n0\";"));
+        assert!(three.starts_with("set by another field: \"S-0\" whenever Name is \"n0\";"));
         assert!(three.contains("\"S-2\" whenever Name is \"n2\""), "{three}");
         let four = why_removed(&"Sid".into(), &pairs(4));
         assert!(
-            four.starts_with("fixed per value of Name: the sample has 4 pairs"),
+            four.starts_with("set per value of Name: the sample has 4 pairs"),
             "{four}"
         );
     }

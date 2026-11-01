@@ -27,6 +27,10 @@ Where a recipe or a decision rests on one of these sources, it links here or to 
 | Drain, ICWS 2017 | Pinjia He, Jieming Zhu, Zibin Zheng, Michael R. Lyu | Sluice's template discovery for text logs ([notes](notes/drain.md)). |
 | Logzip, ASE 2019 | Jinyang Liu, Jieming Zhu, Shilin He, Pinjia He, Zibin Zheng, Michael R. Lyu | A template's text is a constant of the template. |
 | CLP, OSDI 2021 | Kirk Rodrigues, Yu Luo, Ding Yuan | Template plus variables, for archives. |
+| *Approximate inference of functional dependencies from relations* (1995) | Jyrki Kivinen, Heikki Mannila | An implied value as a functional dependency that may hold approximately ([field theory](notes/field-theory.md)). |
+| TANE, The Computer Journal 1999 | Ykä Huhtala, Juha Kärkkäinen, Pasi Porkka, Hannu Toivonen | Finding exact and approximate dependencies per attribute set. |
+| *A Mathematical Theory of Communication* (1948) | Claude E. Shannon | Conditional entropy: a field that tells nothing given the others. |
+| *On the mathematical foundations of theoretical statistics* (1922) | Ronald A. Fisher | Sufficiency: what is sent must be enough for the rules. |
 
 Links to each source are in the [field value study](notes/field-value.md).
 

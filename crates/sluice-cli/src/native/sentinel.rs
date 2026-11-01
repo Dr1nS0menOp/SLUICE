@@ -15,8 +15,8 @@ use sluice_autopilot::{Analysis, Input};
 use sluice_core::event::Event;
 use sluice_core::reduce::{Outcome, Reducer};
 use sluice_kql::{
-    MAX_TRANSFORM_KQL, Table, Transformation, disallowed_functions, run_transformations,
-    transformation_on_within, transformation_within,
+    MAX_TRANSFORM_KQL, Table, Transformation, disallowed_functions, routed_on_within,
+    routed_within, run_transformations,
 };
 
 use self::dcr::{Flow, write};
@@ -99,10 +99,12 @@ fn prove(
     let stream: Vec<&str> = flow.stream.iter().map(|(name, _)| name.as_str()).collect();
     // The data flow's own transformation takes part of what a rule allows.
     let budget = MAX_TRANSFORM_KQL.saturating_sub(flow.before.len() + 1);
+    // The rule Sluice writes always has the archive flow next to this one (contract rule 2), so
+    // records no rule could match may stay out of the table (ADR 0036).
     let generated = if flow.first {
-        transformation_on_within(table.name(), &flow.declared(), &stream, &plans, budget)
+        routed_on_within(table.name(), &flow.declared(), &stream, &plans, budget)
     } else {
-        transformation_within(&table, &stream, &plans, budget)
+        routed_within(&table, &stream, &plans, budget)
     };
     let unsupported = disallowed_functions(&generated.kql);
     if !unsupported.is_empty() {
@@ -121,12 +123,10 @@ fn prove(
     }
     // The rules on the records as the table gets them, without Sluice's part and with it.
     let kept = through_flow(analysis, url, source, flow, (&generated.kql, &kql), &events)?;
-    let stored: Vec<&Event> = kept.iter().map(|(event, _)| event).collect();
-    let reduced: Vec<Map<String, Value>> = kept.iter().map(|(_, record)| record.clone()).collect();
     let alerts = input
         .sentinel
         .and_then(|s| s.engine)
-        .map(|engine| super::same_alerts(engine, source, &stored, &reduced))
+        .map(|engine| same_alerts(engine, source, &kept))
         .transpose()?;
     let proven = Proven {
         source: source.to_owned(),
@@ -138,10 +138,45 @@ fn prove(
     Ok(Some(proven))
 }
 
+/// The alerts the Sentinel rules raise on every record as the table stores it without Sluice's
+/// part, if they raise the same on what the part leaves in the table.
+fn same_alerts(
+    engine: &dyn sluice_core::alert::RuleEngine,
+    source: &str,
+    records: &[Stored],
+) -> Result<usize> {
+    let stored: Vec<&Event> = records.iter().map(|(event, _)| event).collect();
+    let left: Vec<Event> = records
+        .iter()
+        .filter_map(|(event, after)| {
+            after.as_ref().map(|fields| Event {
+                fields: fields.clone(),
+                ..event.clone()
+            })
+        })
+        .collect();
+    let full = engine
+        .alerts_refs(&stored)
+        .context("rules on the full records")?;
+    let reduced = engine
+        .alerts(&left)
+        .context("rules on the reduced records")?;
+    if full != reduced {
+        bail!(
+            "{source}: the generated code changes detections ({} alerts on full records, {} on \
+             reduced ones); nothing was written",
+            full.len(),
+            reduced.len()
+        );
+    }
+    Ok(full.len())
+}
+
 /// Runs the flow with and without Sluice's part (`kqls`: the part, and the whole
-/// `transformKql`) on `events` in the emulator, and returns each event the table gets: as
-/// stored without the part, and with it. Refuses a part that drops an event the flow keeps,
-/// makes the flow keep one it drops, or empties a column Vector keeps.
+/// `transformKql`) on `events` in the emulator, and returns each event the table gets without
+/// the part, with its record as stored and, unless the part keeps it out, as the part leaves it.
+/// Refuses a part that keeps out an event Vector sends (it may only keep out what Vector counts
+/// instead: ADR 0036), makes the flow keep one it drops, or empties a column Vector keeps.
 fn through_flow(
     analysis: &Analysis,
     url: &str,
@@ -149,7 +184,7 @@ fn through_flow(
     flow: &Flow,
     (part, whole): (&str, &str),
     events: &[&Event],
-) -> Result<Vec<(Event, Map<String, Value>)>> {
+) -> Result<Vec<Stored>> {
     let declared = flow.declared();
     // Both in one query: the flow's own transformation may read the clock (`now()`). Where
     // Sluice's part runs first, the columns have the stream's names there: it also runs alone,
@@ -174,14 +209,24 @@ fn through_flow(
         (Some(loaded), Some(alone)) => (loaded, alone),
         _ => (&untouched, &after),
     };
-    if let Some(n) = dropped(given, left).or_else(|| dropped(&untouched, &after)) {
-        bail!(
-            "{source}: the transformation drops event {}, which the data flow keeps; nothing was \
-             written",
-            events[n].id
-        );
+    for n in dropped(given, left)
+        .into_iter()
+        .chain(dropped(&untouched, &after))
+    {
+        let event = events[n];
+        let reduced = analysis
+            .data_plane
+            .reduce(event)
+            .with_context(|| format!("the data plane on event {}", event.id))?;
+        if matches!(reduced.outcome, Outcome::Forwarded(_)) {
+            bail!(
+                "{source}: the transformation keeps event {} out of the table, which Vector sends; \
+                 nothing was written",
+                event.id
+            );
+        }
     }
-    if let Some(n) = dropped(&after, &untouched) {
+    if let Some(&n) = dropped(&after, &untouched).first() {
         bail!(
             "{source}: with the transformation the data flow keeps event {}, which it drops \
              otherwise; nothing was written",
@@ -200,15 +245,16 @@ fn through_flow(
     Ok(events
         .iter()
         .zip(untouched.iter().zip(&after))
-        .filter_map(|(event, records)| match records {
-            (Some(untouched), Some(after)) => Some((
-                Event {
-                    fields: untouched.clone(),
-                    ..(*event).clone()
-                },
-                after.clone(),
-            )),
-            _ => None,
+        .filter_map(|(event, (untouched, after))| {
+            untouched.as_ref().map(|untouched| {
+                (
+                    Event {
+                        fields: untouched.clone(),
+                        ..(*event).clone()
+                    },
+                    after.clone(),
+                )
+            })
         })
         .collect())
 }
@@ -216,19 +262,27 @@ fn through_flow(
 /// An event's record after a transformation, if it kept the event.
 type Record = Option<Map<String, Value>>;
 
-/// The first event whose record `before` holds and `after` does not: one dropped in between.
-fn dropped(before: &[Record], after: &[Record]) -> Option<usize> {
+/// An event as the table stores it without Sluice's part, and its record with the part, unless the
+/// part keeps it out of the table.
+type Stored = (Event, Record);
+
+/// The events whose record `before` holds and `after` does not: those dropped in between.
+fn dropped(before: &[Record], after: &[Record]) -> Vec<usize> {
     before
         .iter()
         .zip(after)
-        .position(|(before, after)| before.is_some() && after.is_none())
+        .enumerate()
+        .filter(|(_, (before, after))| before.is_some() && after.is_none())
+        .map(|(n, _)| n)
+        .collect()
 }
 
 /// Prints what the transformation saves on the records the table gets: each event as stored
 /// without Sluice's part, and with it.
-fn summary(proven: &Proven, records: &[(Event, Map<String, Value>)], alerts: Option<usize>) {
+fn summary(proven: &Proven, records: &[Stored], alerts: Option<usize>) {
     let before: usize = records.iter().map(|(event, _)| size(&event.fields)).sum();
-    let kept: usize = records.iter().map(|(_, after)| size(after)).sum();
+    let kept: usize = records.iter().flat_map(|(_, after)| after).map(size).sum();
+    let outside = records.iter().filter(|(_, after)| after.is_none()).count();
     let generated = &proven.generated;
     println!(
         "  native  {} → {}: {} kinds of event, columns {}; {} → {} ({}), every emptied column \
@@ -245,6 +299,12 @@ fn summary(proven: &Proven, records: &[(Event, Map<String, Value>)], alerts: Opt
             |n| format!(", {n} = {n} alerts")
         ),
     );
+    if outside > 0 {
+        println!(
+            "          {outside} records no rule could match stay out of the table, as Vector counts \
+             them instead of sending them; the archive flow keeps them whole (ADR 0036)"
+        );
+    }
     if alerts == Some(0) {
         println!("          {}", sluice_autopilot::EMPTY_PROOF);
     }

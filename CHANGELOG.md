@@ -6,6 +6,26 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
+- **How Sluice saves** ([docs/how-sluice-saves.md](docs/how-sluice-saves.md)): the algorithm in one
+  paragraph, its six steps, and each way of saving two or three levels deep, with one APT29 event
+  followed through all of them.
+- **Why a byte may go: the field theory** ([notes](docs/notes/field-theory.md)). Three guarantees
+  carry every saving: the rules see what they read (sufficiency), nothing is lost (an implied
+  value is a functional dependency, removed only where it holds), and every event stays searchable
+  (the archive). Measured on OTRF's APT29 and APT3 and on a real Windows PC with
+  `scripts/research/fields.py`: the rendered `Message` is 26 to 44 % of the bytes and, on
+  System and APT29, mostly provably a fixed text of the event's own values; keeping every event
+  whole in Sentinel's data lake costs 2 to 4 points of the saving (`scripts/research/tiers.py`).
+- **Values that hold on nine in ten events are implied too**, not only those that hold on all of
+  them. As lossless (the value guard leaves any other value in place) and more saved, most of it
+  lasting on a later day: APT29 with all of SigmaHQ 57.6 % → 59.7 %, APT3 24.7 % → 28.4 %, the
+  Windows PC 42.3 % → 43.4 %, the example report 77.2 % → 78.1 %; every alert the same. The report
+  says `on at least nine in ten of its events` instead of `always`.
+- **In Sentinel, events no rule could match stay in the archive table only**
+  ([ADR 0036](docs/adr/0036-route-to-the-archive.md)). Where Vector counts them, `--native
+  sentinel` now keeps them out of the analytics table's flow with `where`; the archive flow keeps
+  them whole on the Auxiliary plan. Proven in the Kusto emulator; on the Sentinel samples at hand
+  Sluice counts nothing yet, so nothing is routed there.
 - **`sluice mcp`: the advice to an AI assistant, and Sluice's proof for what it drafts**
   ([ADR 0035](docs/adr/0035-mcp-for-assistants.md)). Over the Model Context Protocol on stdio, an
   assistant reads an analysis (`summary`, `source_plan`, `problems`, `files`, `read_file`) and

@@ -26,7 +26,10 @@ removal must lose nothing, and a reader of the forwarded data must be able to se
 2. **Learned from the sample.** The autopilot learns them per frequent JSON kind of event, over
    fields every key set of it carries, never a field that names the kind of event or a column a
    Sentinel workspace adds itself. A value is learned when the kind of event alone implies it, or
-   when another field implies it. That other field must be a category: 2 to 32 values, 20 events
+   when another field implies it: since 2026-10-30, when it holds on at least nine in ten of the
+   events it is learned on, not only on all of them. That is as lossless, since the value guard
+   leaves any other value in place, and saves more, most of it lasting on a later sample
+   (docs/notes/field-theory.md). That other field must be a category: 2 to 32 values, 20 events
    each, no new value late in the sample, and no name that marks an identifier. A field named as
    an identifier is implied by the kind of event alone, never by another field (added
    2026-10-26: a thread or an agent's run one machine kept through a sample changes at its next
@@ -53,10 +56,11 @@ removal must lose nothing, and a reader of the forwarded data must be able to se
 ## Consequences
 
 - Measured savings with implied values:
-  - a Windows PC with all of SigmaHQ: 25.0 % → 42.3 %;
-  - four machines of OTRF's APT29 data with all of SigmaHQ: 57.6 % saved on day 1, 24.8 % by
+  - a Windows PC with all of SigmaHQ: 25.0 % → 43.4 % (42.3 % before values that hold on nine in
+    ten were learned too, 2026-10-30);
+  - four machines of OTRF's APT29 data with all of SigmaHQ: 59.7 % saved on day 1, 27.4 % by
     implied values, and about as much on day 2;
-  - four machines of a second network (OTRF's APT3) with all of SigmaHQ: 24.7 %, all of it by
+  - four machines of a second network (OTRF's APT3) with all of SigmaHQ: 28.4 %, all of it by
     implied values;
   - every alert the same in each run (measured again on 2026-10-26).
   - In a Sentinel workspace, Azure billed 30.7 % less on 100 records, as predicted. On the Azure

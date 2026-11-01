@@ -236,7 +236,9 @@ untransformed flow into an Auxiliary archive table, defined in
 Without `--sentinel-dcr`, Sluice proves the transformation but writes nothing. Where the rule
 empties implied values, `out/sentinel/<Table>Full.kql` is a workspace function that puts them
 back: save it in the workspace, and query `<Table>Full` instead of the table to read every
-value as before (ADR 0032).
+value as before (ADR 0032). Where Vector would count a kind of event's records that no rule could
+match, the transformation keeps them out of the table instead: the archive flow keeps them whole,
+so search the archive table for them ([ADR 0036](adr/0036-route-to-the-archive.md)).
 
 ### Tables and rules for your own data
 
