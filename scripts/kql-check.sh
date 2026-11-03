@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests against the real KQL engine (Kusto emulator): the KQL backend's differential test (ADR 0013)
-# and the proof on Sentinel analytics rules (ADR 0015). Starts the emulator in Docker if it is not
-# running, then runs both tests.
+# and the proof on Sentinel analytics rules (ADR 0015). Uses the emulator answering on localhost
+# port SLUICE_KUSTO_PORT (default 8090), or starts one there in Docker, then runs both tests.
+# WSL2 distros share one network, so a port another distro holds needs SLUICE_KUSTO_PORT.
 # The image is about 4.5 GB; check.sh runs this only when the image is already present.
 set -euo pipefail
 
@@ -17,7 +18,8 @@ ready() {
 
 if ! ready; then
     docker rm -f "$name" >/dev/null 2>&1 || true
-    docker run -d --name "$name" -e ACCEPT_EULA=Y -m 4G -p "127.0.0.1:${port}:8080" "$image" >/dev/null
+    docker run -d --name "$name" -e ACCEPT_EULA=Y -m 4G -p "127.0.0.1:${port}:8080" "$image" >/dev/null \
+        || { echo "cannot start the Kusto emulator on port $port: set SLUICE_KUSTO_PORT" >&2; exit 1; }
     for _ in $(seq 1 90); do
         ready && break
         sleep 2

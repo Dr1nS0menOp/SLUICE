@@ -360,3 +360,22 @@ this query exceed the set limit of 64 MB …"]}` (`E_QUERY_RESULT_SET_TOO_LARGE`
 queries start with `set notruncation;`, which lifts both limits in the emulator (70,000 rows of
 1 KB come back whole in its test), and any row with `Exceptions` makes the answer an error
 (kustainer-linux, engine 1.0.9779.30528).
+
+## Now and then a request gets no answer (2026-11-02)
+
+Twice in about six full runs of `scripts/kql-check.sh`, each on a freshly started emulator, a
+request got no answer: the emulator closed the connection (`io: Peer disconnected` from ureq),
+once in `sentinel-custom-check.sh` and once in the `sluice mcp` test. Both runs were on a WSL2 VM
+with little free memory (15 of 21 GB in use, most of it by other containers). It did not come
+back in isolation: 0 of over 30,000 requests failed in Sluice's
+pattern (create a volatile database and tables, ingest 500 rows of up to 4 KB inline, query,
+drop), over a kept connection and over fresh ones, right after a start or minutes later. The
+emulator keeps an idle connection open for about 130 seconds (Kestrel's default), and ureq 3
+probes a pooled connection before it reuses one and drops it after 15 idle seconds, so a stale
+connection does not explain it.
+
+Sluice does not repeat such a request. An `.ingest` whose answer was lost may still have run,
+and loading records twice can change the alerts, in the worst case hiding a missing one. The
+error names the request the answer was lost on (`unreachable (mgmt .ingest inline into table
+…)`), so the next occurrence says where. Rerun the check; if it keeps failing, give the emulator
+more memory or stop other containers (kustainer-linux, engine 1.0.9779.30528).

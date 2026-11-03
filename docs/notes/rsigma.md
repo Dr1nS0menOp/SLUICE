@@ -82,8 +82,11 @@ compared, because pySigma converts rules to queries and does not evaluate them.
 Result on 2026-10-09: the full SigmaHQ `rules/` tree (3152 rules, cloned at runtime because of
 the DRL license) shows no unsafe difference; Sluice requires more fields than pySigma for 4
 rules, which is the safe direction. A deliberately broken requirements file is caught.
-Locally, without root: `uv venv ~/.cache/sluice-pysigma && uv pip install pysigma` and
-`PYTHON=~/.cache/sluice-pysigma/bin/python`.
+Locally, the script uses `python3` when it has pySigma and otherwise lets `uv` fetch pySigma 2.0.0
+into its cache (`PYTHON` overrides both). `pip install pysigma` into a distribution's Python
+fails: Ubuntu 24.04 refuses it outside a virtual environment, and with
+`--break-system-packages` pip cannot replace Debian's PyYAML, which has no `RECORD` file
+(seen 2026-11-01).
 
 ## Pre-filter widening rules (verified 2026-10-10 on the SigmaHQ set)
 

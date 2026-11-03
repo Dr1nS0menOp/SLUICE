@@ -6,6 +6,21 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `scripts/elastic-check.sh` takes `SLUICE_ELASTIC_PORT` (default 9201), as `kql-check.sh` takes
+  `SLUICE_KUSTO_PORT`, and uses an Elasticsearch already answering there. WSL2 distros share one
+  network, so a second distro failed on the port the first one held. Both scripts now name the
+  variable when Docker cannot bind the port.
+- When the Kusto emulator drops a connection without answering, the error names the request it
+  was lost on (`unreachable (mgmt .ingest inline into table …)`). Such a request is still never
+  repeated: an ingest whose answer was lost may have run, and records loaded twice can change the
+  alerts. Seen twice on a VM short of memory, never in isolation
+  ([notes](docs/notes/sentinel-dcr.md)).
+- The `sluice mcp` Kusto test shows the whole answer when a tool fails, not `null`.
+- `scripts/sigma-differential.sh` lets `uv` fetch pySigma 2.0.0 when `python3` lacks it:
+  `pip install` into Ubuntu 24.04's own Python fails.
+
 ## [0.2.0] - 2026-11-01
 
 Still an alpha, now ready for a field test on a live SIEM ([docs/field-test.md](docs/field-test.md)).

@@ -54,9 +54,13 @@ engine is there. CI runs all of them but `kql-check.sh`, whose emulator image is
 | `scripts/otel-check.sh` | Generated `transform` statements in the OpenTelemetry Collector |
 | `scripts/research/fields.py`, `tiers.py` | The field theory's measurements: where a sample's bytes go and how long a learned value lasts, and what a plan costs in Sentinel's table plans ([notes](docs/notes/field-theory.md)) |
 | `scripts/mcp-check.sh` | `sluice mcp` against the official Python MCP SDK (`scripts/mcp-client.py`, fetched by `uv`) |
-| `scripts/sigma-differential.sh [--sigmahq]` | Rule requirements against pySigma, on the examples or the full SigmaHQ set |
+| `scripts/sigma-differential.sh [--sigmahq]` | Rule requirements against pySigma, on the examples or the full SigmaHQ set (pySigma from `python3`, or fetched by `uv`) |
 | `scripts/bench.sh [source] [scale]` | Data plane throughput with the real Vector ([docs/notes/benchmarks.md](docs/notes/benchmarks.md)) |
 | `scripts/example-report.sh` | Writes `docs/example-report.html`, the report of OTRF's APT29 data the README links to |
+
+`kql-check.sh` and `elastic-check.sh` use the engine already answering on their localhost port
+(8090 and 9201), or start one there in Docker. WSL2 distros share one network, so when another
+distro holds the port, pick a free one with `SLUICE_KUSTO_PORT` or `SLUICE_ELASTIC_PORT`.
 
 `scripts/real-data/` takes samples from real systems (`collect-sentinel.sh`, `collect-elastic.sh`,
 `collect-linux.sh`, `collect-windows.ps1`) and repeats the real-data runs of
