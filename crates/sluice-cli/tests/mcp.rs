@@ -315,8 +315,9 @@ fn a_drafted_transformation_is_proven_in_the_kusto_emulator() {
             ),
         ],
     );
+    // On a tool error there is no structured content: show the whole answer, which names it.
     let kept = &answers[0]["result"]["structuredContent"];
-    assert_eq!(kept["holds"], true, "{kept}");
+    assert_eq!(kept["holds"], true, "{}", answers[0]);
     assert!(kept["alerts_full"].as_u64() > Some(0), "{kept}");
     assert!(
         kept["emptied_columns"]["Message"].as_u64() > Some(0),
@@ -327,10 +328,10 @@ fn a_drafted_transformation_is_proven_in_the_kusto_emulator() {
         "{kept}"
     );
     let dropped = &answers[1]["result"]["structuredContent"];
-    assert_eq!(dropped["holds"], false, "{dropped}");
+    assert_eq!(dropped["holds"], false, "{}", answers[1]);
     assert!(dropped["dropped"].as_u64() > Some(0), "{dropped}");
     assert!(dropped["missing_alerts"].as_u64() > Some(0), "{dropped}");
     let clock = &answers[2]["result"]["structuredContent"];
-    assert_eq!(clock["holds"], true, "{clock}");
+    assert_eq!(clock["holds"], true, "{}", answers[2]);
     assert_eq!(clock["unverified_functions"], json!(["now"]), "{clock}");
 }

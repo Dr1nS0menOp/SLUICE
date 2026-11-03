@@ -33,11 +33,14 @@ const DEFAULT_DB: &str = "NetDefaultDB";
 /// The emulator could not be used.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum KustoError {
-    /// No answer from the emulator.
-    #[error("Kusto emulator at {url} unreachable: {reason}")]
+    /// No answer from the emulator. Never repeated: a command whose answer was lost may still
+    /// have run, and loading the same records twice would change the alerts.
+    #[error("Kusto emulator at {url} unreachable ({request}): {reason}")]
     Unreachable {
         /// The emulator's base URL.
         url: String,
+        /// The request the answer was lost on, so that a dropped connection can be traced.
+        request: String,
         /// The transport error.
         reason: String,
     },
@@ -399,6 +402,7 @@ impl Client {
             )
             .map_err(|e| KustoError::Unreachable {
                 url: self.url.clone(),
+                request: request_of(kind, csl),
                 reason: e.reason,
             })?;
         if !answer.is_success() {
@@ -409,6 +413,17 @@ impl Client {
         }
         serde_json::from_str(&answer.body).map_err(|e| KustoError::Response(e.to_string()))
     }
+}
+
+/// A request as an error names it: the endpoint and the first line of the command that is not
+/// a `set` statement, shortened. Records being loaded stay out of it.
+fn request_of(kind: &str, csl: &str) -> String {
+    let line = csl
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with("set "))
+        .unwrap_or_default();
+    format!("{kind} {}", sluice_http::excerpt(line))
 }
 
 #[cfg(test)]

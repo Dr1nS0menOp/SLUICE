@@ -82,7 +82,8 @@ fn the_reason_a_rule_is_set_aside_is_its_first_line() {
 /// One request the emulator got: the endpoint (`mgmt` or `query`), the database and the text.
 type Sent = Arc<Mutex<Vec<(String, String, String)>>>;
 
-/// An emulator that answers each request with `answer(endpoint, csl)` (status and body).
+/// An emulator that answers each request with `answer(endpoint, csl)` (status and body). Status 0
+/// closes the connection without an answer, as the real emulator now and then did.
 fn emulator(answer: fn(&str, &str) -> (u16, String)) -> (String, Sent) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
     let url = format!("http://{}", listener.local_addr().expect("bound"));
@@ -100,6 +101,9 @@ fn emulator(answer: fn(&str, &str) -> (u16, String)) -> (String, Sent) {
                 seen.lock()
                     .expect("not poisoned")
                     .push((endpoint, db.to_owned(), csl.to_owned()));
+                if status == 0 {
+                    break;
+                }
                 let response = format!(
                     "HTTP/1.1 {status} X\r\nContent-Length: {}\r\n\r\n{text}",
                     text.len()
@@ -258,6 +262,52 @@ fn an_emulator_that_is_down_or_answers_nonsense_is_an_error() {
             status: 500,
             message: "busy".to_owned()
         }
+    );
+}
+
+/// Loading records loses its answer; everything else succeeds.
+fn ingest_lost(endpoint: &str, csl: &str) -> (u16, String) {
+    if csl.starts_with(".ingest") {
+        (0, String::new())
+    } else {
+        usual(endpoint, csl)
+    }
+}
+
+#[test]
+fn c5_an_answer_lost_on_the_way_is_an_error_that_names_the_request_and_is_not_repeated() {
+    let (url, sent) = emulator(ingest_lost);
+    let tables = BTreeMap::from([(SourceId::new("win"), Table::SecurityEvent)]);
+    let engine = KustoEngine::connect(&url, &rules(&["SecurityEvent"]), tables).expect("connects");
+    let events = [event(
+        1,
+        "win",
+        &json!({"EventID": 4625, "Account": "secret-ish"}),
+    )];
+    let error = engine.alerts(&events).unwrap_err().to_string();
+    assert!(
+        error.contains("(mgmt .ingest inline into table SecurityEvent"),
+        "{error}"
+    );
+    assert!(!error.contains("secret-ish"), "records stay out: {error}");
+    let ingests = sent
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, _, c)| c.starts_with(".ingest"))
+        .count();
+    assert_eq!(
+        ingests, 1,
+        "a load whose answer was lost may have run: never twice"
+    );
+
+    // A query is named by its first line after the `set` statements.
+    assert_eq!(
+        request_of(
+            "query",
+            "set notruncation;\nWin_CL\n| where EventID == 4625"
+        ),
+        "query Win_CL"
     );
 }
 
