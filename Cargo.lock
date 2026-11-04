@@ -2431,6 +2431,7 @@ dependencies = [
  "sluice-otel",
  "sluice-rules",
  "sluice-sentinel",
+ "sluice-splunk",
  "sluice-synth",
  "sluice-vector",
  "sluice-wazuh",
@@ -2545,6 +2546,17 @@ dependencies = [
  "serde_json",
  "sluice-core",
  "sluice-http",
+ "thiserror",
+]
+
+[[package]]
+name = "sluice-splunk"
+version = "0.2.0"
+dependencies = [
+ "serde_json",
+ "sluice-core",
+ "sluice-http",
+ "sluice-rules",
  "thiserror",
 ]
 

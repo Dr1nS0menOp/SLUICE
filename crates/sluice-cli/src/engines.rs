@@ -1,5 +1,5 @@
 //! The real engines the proof runs SIEM rules in: Elasticsearch for Elastic's rules, the Kusto
-//! emulator for Sentinel's.
+//! emulator for Sentinel's, a Splunk for Splunk's searches.
 
 use anyhow::{Context, Result};
 use sluice_core::event::Event;
@@ -61,6 +61,51 @@ pub(crate) fn elasticsearch(
     for (n, example) in reasons.iter().take(3) {
         let example: String = example.chars().take(140).collect();
         eprintln!("  {n:>5} refused, such as: {example}");
+    }
+    Ok(engine)
+}
+
+/// The Splunk at `url` (`--splunk`), running the searches of `rules` on every source, whatever
+/// index or sourcetype they name (ADR 0037).
+pub(crate) fn splunk(
+    url: &str,
+    hec: Option<&str>,
+    insecure: bool,
+    rules: &sluice_rules::SplunkRules,
+) -> Result<sluice_splunk::SplunkEngine> {
+    let auth = crate::inventory::splunk_proof_auth().context("--splunk needs credentials")?;
+    let proof = sluice_splunk::Proof {
+        url,
+        hec,
+        auth: &auth,
+        insecure,
+    };
+    let engine = sluice_splunk::SplunkEngine::connect(&proof, rules.queries())
+        .with_context(|| format!("connecting to Splunk at {url}"))?;
+    eprintln!(
+        "Splunk {}: {} searches run there; {} it cannot run are covered by their requirements \
+         only",
+        engine.version(),
+        engine.searches().count(),
+        engine.skipped().len(),
+    );
+    let mut reasons: std::collections::BTreeMap<String, (usize, &str)> =
+        std::collections::BTreeMap::new();
+    for (_, reason) in engine.skipped() {
+        // Alike reasons count together: the part before what they name (`'x'`, `[x]`).
+        let kind = reason
+            .split(['\'', '[', '`'])
+            .next()
+            .unwrap_or(reason)
+            .trim()
+            .to_owned();
+        reasons.entry(kind).or_insert((0, reason)).0 += 1;
+    }
+    let mut reasons: Vec<(usize, &str)> = reasons.into_values().collect();
+    reasons.sort_by_key(|(n, _)| std::cmp::Reverse(*n));
+    for (n, example) in reasons.iter().take(3) {
+        let example: String = example.chars().take(140).collect();
+        eprintln!("  {n:>5} set aside, such as: {example}");
     }
     Ok(engine)
 }

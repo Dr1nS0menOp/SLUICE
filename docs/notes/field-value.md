@@ -227,7 +227,9 @@ theory](field-theory.md)):
     to an index" is not licensed volume
     ([license implications](https://help.splunk.com/en/data-management/perform-basic-data-processing/license-implications)).
     The page says nothing on fields removed from an event that is indexed, so whether a
-    smaller event costs less was not measured (Sluice does not support Splunk, ADR 0034).
+    smaller event costs less was not measured (Splunk was not supported from 2026-10-27, ADR
+    0034, to 2026-11-03, ADR 0037; the proof's Splunk runs a trial licence, which meters what
+    is indexed, not what is billed).
   - Wazuh is self-hosted: nothing is billed per byte, only disk and the indexer's load.
 - **Versions.** `Version`, `Task` and `Keywords` can change between Windows builds. A
   value-guarded removal stays exact; only the savings vary. Microsoft's page on 4624 (read

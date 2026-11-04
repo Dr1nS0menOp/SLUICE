@@ -68,6 +68,10 @@ pub(crate) fn fetch(args: &FetchArgs) -> Result<()> {
                 sluice_elastic::inventory::fetch(kibana, &auth, space.as_deref(), &fetched_at)?;
             (inventory, format!("--elastic-rules {}", out.display()))
         }
+        FetchTarget::Splunk { api, insecure } => (
+            splunk(api, *insecure, &fetched_at)?,
+            format!("--splunk-rules {}", out.display()),
+        ),
     };
     write(&inventory, out)?;
     let counts: Vec<String> = inventory
@@ -93,6 +97,43 @@ pub(crate) fn fetch(args: &FetchArgs) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Splunk's saved searches and macros, with `SPLUNK_TOKEN` or `SPLUNK_USER` and
+/// `SPLUNK_PASSWORD`.
+fn splunk(api: &str, insecure: bool, fetched_at: &str) -> Result<Inventory> {
+    use sluice_splunk::Auth;
+    let auth = match token_or_login("SPLUNK_TOKEN", "SPLUNK_USER", "SPLUNK_PASSWORD")? {
+        Credential::Token(token) => Auth::Token(token),
+        Credential::Login { user, password } => Auth::Basic { user, password },
+    };
+    let target = sluice_splunk::inventory::Target {
+        url: api,
+        auth: &auth,
+        insecure,
+    };
+    Ok(sluice_splunk::inventory::fetch(&target, fetched_at)?)
+}
+
+/// The credentials of the Splunk the proof runs in (`--splunk`): `SPLUNK_PROOF_TOKEN`, or
+/// `SPLUNK_PROOF_PASSWORD` for `SPLUNK_PROOF_USER` (`admin` by default). Variables of their own,
+/// so that the read-only account the fetch uses never goes to the proof's Splunk, nor the
+/// proof's account to the SIEM.
+pub(crate) fn splunk_proof_auth() -> Result<sluice_splunk::Auth> {
+    use sluice_splunk::Auth;
+    if let Some(token) = var("SPLUNK_PROOF_TOKEN") {
+        return Ok(Auth::Token(token));
+    }
+    let Some(password) = var("SPLUNK_PROOF_PASSWORD") else {
+        bail!(
+            "set SPLUNK_PROOF_PASSWORD (the password of the proof's Splunk, for \
+             SPLUNK_PROOF_USER, `admin` by default) or SPLUNK_PROOF_TOKEN"
+        );
+    };
+    Ok(Auth::Basic {
+        user: var("SPLUNK_PROOF_USER").unwrap_or_else(|| "admin".to_owned()),
+        password,
+    })
 }
 
 /// Writes `inventory` to `out`: a new or empty directory, or an earlier fetch, which is

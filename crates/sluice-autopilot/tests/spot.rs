@@ -66,6 +66,7 @@ fn analyze_with(rules: &dyn EventRules) -> sluice_autopilot::Analysis {
         wazuh: None,
         sentinel: None,
         elastic: None,
+        splunk: None,
     };
     let helpers = Helpers {
         event_rules: Some(rules),
@@ -111,6 +112,7 @@ fn a_recipe_the_siem_disagrees_with_is_rolled_back() {
         wazuh: None,
         sentinel: None,
         elastic: None,
+        splunk: None,
     };
     let helpers = Helpers {
         event_rules: Some(&MessageRule),

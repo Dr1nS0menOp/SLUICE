@@ -76,6 +76,7 @@ fn eager_advice_is_guarded_and_proven() {
         wazuh: None,
         sentinel: None,
         elastic: None,
+        splunk: None,
     };
     let book = RecipeBook::embedded().expect("recipes");
     let advisor = Eager::default();
@@ -136,6 +137,7 @@ fn a_failing_advisor_is_reported_not_fatal() {
         wazuh: None,
         sentinel: None,
         elastic: None,
+        splunk: None,
     };
     let book = RecipeBook::embedded().expect("recipes");
     let analysis = analyze(
@@ -200,6 +202,7 @@ fn advice_the_proof_kept_becomes_recipes_to_contribute() {
         wazuh: None,
         sentinel: None,
         elastic: None,
+        splunk: None,
     };
     // No built-in recipes: every frequent template is asked.
     let book = RecipeBook::parse(std::iter::empty()).expect("an empty book");

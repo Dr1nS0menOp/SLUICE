@@ -263,12 +263,21 @@ tests; it has tests of its own now (89 %, the rest branches VRL's types rule out
 | sluice-cli | 55.1 % | 72.2 % |  |  | 70 % |
 | sluice-synth | 100 % | 100 % |  |  | 70 % |
 | sluice-elastic (2026-10-17) | 88.4 % | 88.4 % | 91.2 % | 91.3 % | 85 % |
+| sluice-splunk (2026-10-17, the fetch only) | 63.7 % | 96.8 % |  |  | 85 % |
 | sluice-fluentbit (2026-10-17) | 93.0 % | 95.2 % | 96.7 % | 96.8 % | 85 % |
 | sluice-otel (2026-10-17) | 95.9 % | 95.9 % | 96.6 % | 96.7 % | 85 % |
 
-sluice-rules with its Elastic and Splunk extractors: 95.6 % (2026-10-17; Splunk and its crate `sluice-splunk` were removed on 2026-10-27, ADR 0034). The engine-backed
+sluice-rules with its Elastic and Splunk extractors: 95.6 % (2026-10-17). Splunk and its crate
+`sluice-splunk` were removed on 2026-10-27 (ADR 0034) and came back on 2026-11-03 with the proof's
+engine (ADR 0037), whose coverage is not measured yet. Its tests: unit tests of the scope rewrite,
+the answers, the collector and the client (31), four against a real Splunk
+(`crates/sluice-splunk/tests/splunk.rs`: alerts on full, trimmed and fewer events, a time Splunk
+cannot search, a field past Splunk's 10,240 extracted characters, the fetch) and `sluice analyze
+--splunk` end to end (`crates/sluice-cli/tests/splunk.rs`); ten runs in a row passed after the
+proof stopped adding an index per evaluation. The engine-backed
 tests count only with their engines set (`SLUICE_ELASTIC_URL`, `SLUICE_KUSTO_URL`,
-`SLUICE_FLUENT_BIT`, `SLUICE_OTEL_COLLECTOR`, as the `*-check.sh` scripts set them). Run
+`SLUICE_FLUENT_BIT`, `SLUICE_OTEL_COLLECTOR`, `SLUICE_SPLUNK_URL`, as the `*-check.sh` scripts
+set them). Run
 `cargo llvm-cov clean --workspace` before measuring: profile data of earlier builds stays behind
 and counts their copies of the code as not run (it showed `sentinel/extract.rs` at 50 %).
 

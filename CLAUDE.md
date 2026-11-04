@@ -50,8 +50,12 @@ the example report's check (`scripts/example-report.sh --check`), cargo-deny and
 That step runs `vector validate` and `vector test` on a generated config, so the real Vector
 binary must reproduce what the `vrl` crate computed. When the Kusto emulator image is present
 (`docker pull mcr.microsoft.com/azuredataexplorer/kustainer-linux`), `scripts/kql-check.sh` runs
-the generated KQL in it and checks it matches at least what the VRL matches. CI
-(`.github/workflows/ci.yml`) runs the same gates.
+the generated KQL in it and checks it matches at least what the VRL matches. When the Splunk
+image is present (`docker pull splunk/splunk:10.6.1.1`), `scripts/splunk-check.sh` runs Splunk's
+saved searches in a real Splunk (ADR 0037). It starts Splunk only when the person running it has
+set `SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com`: a script never accepts a licence
+on anyone's behalf. CI (`.github/workflows/ci.yml`) runs the same gates, except the Kusto
+emulator and Splunk, whose images are too large to pull on every run.
 
 - Every engine Sluice generates code for gets a differential test against the real engine
   (Vector, Kusto); generated code that cannot be checked that way ships as advisory only.
@@ -69,7 +73,8 @@ freshly built binaries. Run everything in WSL:
 
 - The target dir lives on the Linux filesystem (`~/.cache/sluice-target`).
 - PowerShell 5.1 mangles quotes passed to `wsl.exe`. Put anything with pipes, quotes or regexes
-  in a `.sh` file and run it with `./scripts/wsl.ps1 bash <file>`.
+  in a `.sh` file and run it with `./scripts/wsl.ps1 bash <file>`. It also drops a bare `--`:
+  quote it, as in `./scripts/wsl.ps1 cargo clippy --workspace '--' -D warnings`.
 - The gates use `--locked`. After adding a dependency, update the lockfile first, for example
   with `cargo metadata --format-version 1`.
 - Don't pipe gate output through `tail` without `PIPESTATUS`, because the exit code is lost.

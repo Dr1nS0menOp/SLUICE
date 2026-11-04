@@ -5,7 +5,8 @@
 **Where the project stands (2026-11-01): v0.2.0, an alpha; next a field test** ([docs/field-test.md](docs/field-test.md)). v0.1.0 was the first release (2026-10-23). Sluice advises
 only (ADR 0030). The README's guides were checked against Microsoft Sentinel (end to end, on a
 live workspace), Elastic Security and Wazuh; rules read from files are experimental. Splunk was
-removed on 2026-10-27 (ADR 0034).
+removed on 2026-10-27 (ADR 0034) and is back since 2026-11-03, with its saved searches run in a
+real Splunk for the proof (ADR 0037).
 Most of this file is the history of how it got here. After the alpha, in this order:
 
 1. **What each field is worth, beyond the rules** (on a branch of its own first): per field of
@@ -730,7 +731,12 @@ Its scope is planned when it starts; it includes at least:
   2026-10-17 (confirmed 2026-10-18): a Splunk engine for the proof and a Splunk generator, which
   need the Splunk General Terms accepted. `sluice rules fetch splunk` was tested against a
   stand-in only, never a real Splunk. **Removed on 2026-10-27 (ADR 0034):** Sluice does not
-  support Splunk; the code is in the Git history.
+  support Splunk; the code is in the Git history. **Back on 2026-11-03 (ADR 0037):** the
+  maintainer accepted the Splunk General Terms for the proof. `--splunk URL` runs the saved
+  searches in Splunk Enterprise 10.6 (Docker), on every source, through the HTTP Event
+  Collector; the fetch is tested against it. Open: a Splunk generator (ingest actions or
+  `INGEST_EVAL`), running data-model searches (`tstats`) with the CIM add-on in the proof's
+  Splunk, and events an add-on parses (`XmlWinEventLog`).
 - The rest of M10 for every SIEM: inventories over Elastic (detection rules, ingest pipelines)
   and Chronicle; workbook and
   dashboard queries; `sluice up` reloading the inventory (done 2026-10-17: `--reload-rules`,
