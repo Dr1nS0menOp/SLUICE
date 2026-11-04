@@ -47,8 +47,9 @@ are.
    0009). Nothing is saved on rare templates, and nothing at all without an archive.
 4. **Proof.** Sluice runs your rules over the sample twice, on the full events and on what the
    reduced pipeline would forward: Sigma rules always, Microsoft Sentinel's analytics rules in
-   the Kusto emulator when `--kusto` is given, and Elastic's detection rules in Elasticsearch
-   when `--elasticsearch` is given. Only if both raise exactly the same alerts is a recipe kept;
+   the Kusto emulator when `--kusto` is given, Elastic's detection rules in Elasticsearch
+   when `--elasticsearch` is given, and Splunk's saved searches in a Splunk of the proof's own
+   when `--splunk` is given. Only if both raise exactly the same alerts is a recipe kept;
    otherwise it is rolled back, per template. The proof runs the same VRL code Vector will run,
    and counts in bytes what would be sent: the forwarded events and the summary records that
    counted events become (one per minute per summary group).
@@ -110,8 +111,9 @@ which names its records follow, with `schema`:
 | `schema` | The records use |
 |---|---|
 | `sigma` | The names Sigma rules use: Windows event data (`Image`, `TargetUserName`) and whatever names your own rules were written against. |
-| `ecs`, `asim`, `ocsf`, `udm` | Elastic's, Sentinel's ASIM, OCSF's or Google's names. |
+| `ecs`, `cim`, `asim`, `ocsf`, `udm` | Elastic's, Splunk's Common Information Model's, Sentinel's ASIM, OCSF's or Google's names. |
 | `sentinel` | The columns of a Sentinel table that is not ASIM (`Syslog`, `CommonSecurityLog`). |
+| `splunk` | The fields as Splunk extracts them at search time: a JSON event's key paths (`a.b.c`, with `KV_MODE = json`). |
 | (left out) | Not declared. |
 
 A Sigma rule is compared with a source whose `schema` is `sigma`, or one for which you load a
@@ -132,8 +134,10 @@ every field of every event, so no field it could read is removed from that sourc
 `sigma` for records that use other names is not: a rule would then look as if it read nothing,
 and Sluice would remove what it reads. The same holds for a pipeline other than the SIEM's.
 Elastic's detection rules name ECS fields, so they are compared with sources that declare `ecs`,
-and on any other source read as reading every field of every event (ADR 0025). Wazuh and Sentinel rules relate their
-own field names to the data and are not affected.
+and on any other source read as reading every field of every event (ADR 0025). Splunk's saved
+searches name fields as Splunk extracts them, so they are compared with sources that declare
+`splunk` (ADR 0026). Wazuh and Sentinel rules relate their own field names to the data and are
+not affected.
 
 Text sources have no field names until the SIEM parses the line. A Sigma rule that tests a named
 field therefore keeps every line of its log source whole (`fields the SIEM parses out of the
@@ -144,13 +148,13 @@ line`); a keyword rule is matched against the line as it is.
 | Command | What it does |
 |---------|--------------|
 | `sluice demo` | Generates an hour of synthetic traffic with planted attacks and runs the whole analysis on it. `--native elastic,fluent-bit,otel` (with their engines), `--llm` and `--mode` as for `analyze`. |
-| `sluice analyze --input DIR --sources FILE --rules DIR` | Runs the analysis on your sample (`DIR/<source>.ndjson`) and writes the files below. `--wazuh-rules` (with `--wazuh-decoders` to bound them), `--wazuh-api` (logtest spot check), `--sentinel-rules` with `--kusto` and `--sentinel-table` (proof in the Kusto emulator; add `--native sentinel` for a proven DCR `transformKql` per table, and `--sentinel-dcr RULE.json` to have it written into that rule together with an untransformed flow into an Auxiliary archive table, ADR 0013), `--elasticsearch URL` (runs the Elastic rules in the proof, ADR 0025) with `--native elastic` (an ingest pipeline per source, proven there, ADR 0024), `--fluent-bit CMD --native fluent-bit` (a Fluent Bit Lua filter per source, proven in Fluent Bit, ADR 0027), `--otel-collector CMD --native otel` (OpenTelemetry Collector transform statements per source, proven in the collector, ADR 0028), `--elastic-rules DIR` (Elastic Security detection rules as Kibana exports them, ADR 0025), `--sigma-pipeline`, `--recipes`, `--llm` are optional, and `--mode` picks the kinds of saving (`rules`, `implied` or both, the default), and `--no-examples` leaves the sample's events out of the report. Summaries need a complete rule set: fetched, or `--rules-complete`. |
+| `sluice analyze --input DIR --sources FILE --rules DIR` | Runs the analysis on your sample (`DIR/<source>.ndjson`) and writes the files below. `--wazuh-rules` (with `--wazuh-decoders` to bound them), `--wazuh-api` (logtest spot check), `--sentinel-rules` with `--kusto` and `--sentinel-table` (proof in the Kusto emulator; add `--native sentinel` for a proven DCR `transformKql` per table, and `--sentinel-dcr RULE.json` to have it written into that rule together with an untransformed flow into an Auxiliary archive table, ADR 0013), `--elasticsearch URL` (runs the Elastic rules in the proof, ADR 0025) with `--native elastic` (an ingest pipeline per source, proven there, ADR 0024), `--fluent-bit CMD --native fluent-bit` (a Fluent Bit Lua filter per source, proven in Fluent Bit, ADR 0027), `--otel-collector CMD --native otel` (OpenTelemetry Collector transform statements per source, proven in the collector, ADR 0028), `--elastic-rules DIR` (Elastic Security detection rules as Kibana exports them, ADR 0025), `--splunk-rules DIR` (Splunk's saved searches and macros, ADR 0026) with `--splunk URL` (runs them in a Splunk of the proof's own; `--splunk-hec`, `--splunk-insecure`, credentials in `SPLUNK_PROOF_PASSWORD` or `SPLUNK_PROOF_TOKEN`, ADR 0037), `--sigma-pipeline`, `--recipes`, `--llm` are optional, and `--mode` picks the kinds of saving (`rules`, `implied` or both, the default), and `--no-examples` leaves the sample's events out of the report. Summaries need a complete rule set: fetched, or `--rules-complete`. |
 | `sluice prove --config FILE --input DIR --sources FILE --rules DIR` | Proves a Vector configuration as it is, on a sample: exit 1 when the rules' alerts on what it forwards differ from those on the full sample, or when the sample raises no alert (`--allow-no-alerts` accepts that). `--json` for CI; `--sentinel-rules`, `--kusto` and `--sentinel-table` as for `analyze` (ADR 0022). |
 | `sluice connect sentinel --out DIR …` | Writes Sentinel tables and data collection rules as files; it changes nothing in Azure. `--sample FILE --table NAME` (with `--time-field F` for `TimeGenerated`) derives a custom table `NAME_CL` and its rule; `--summary-table` writes the table `SluiceSummary_CL`, its rule and the function `SluiceCounts.kql` (ADR 0029). `--workspace ID` and `--location` fill in the rules. |
 | `sluice recipes [schema \| export --out DIR \| contribute --from DIR --into REPO]` | Lists the built-in recipes, prints their JSON Schema, exports them to edit, or copies the recipes an AI proposed and the proof kept (`OUT/ai-recipes` from `analyze --llm`) into a recipe repository, checked. |
-| `sluice rules fetch --out DIR sentinel\|wazuh\|elastic …` | Reads the rules a SIEM runs from its API, read-only, into `DIR` with an `inventory.json` that marks them complete (ADR 0021). For Sentinel also every workspace function, and `tables.json`, the tables the workspace has: a rule reads nothing through any other (ADR 0031). Fetching again replaces the directory. |
+| `sluice rules fetch --out DIR sentinel\|wazuh\|elastic\|splunk …` | Reads the rules a SIEM runs from its API, read-only, into `DIR` with an `inventory.json` that marks them complete (ADR 0021). For Sentinel also every workspace function, and `tables.json`, the tables the workspace has: a rule reads nothing through any other (ADR 0031). For Splunk the saved searches, macros, `props` and `transforms` of every app (`--api URL`, `SPLUNK_TOKEN` or `SPLUNK_USER` and `SPLUNK_PASSWORD`). Fetching again replaces the directory. |
 | `sluice mcp --out DIR [--input DIR --sources FILE --rules DIR]` | Serves the analysis in `DIR` to an AI assistant over the Model Context Protocol (stdio): `summary`, `source_plan`, `problems`, `files`, `read_file`, and with a sample `prove_vector` and (with `--kusto`, `--sentinel-rules`, `--sentinel-table`) `prove_transform_kql`, so what the assistant drafts passes the proof first. Read-only; it changes nothing (ADR 0035). |
-| `sluice rules requirements --rules DIR` | Prints, as JSON, what each rule needs: log source, fields, raw text, state. Also for Wazuh (`--wazuh-rules`), Sentinel (`--sentinel-rules`) and Elastic (`--elastic-rules`) rules. |
+| `sluice rules requirements --rules DIR` | Prints, as JSON, what each rule needs: log source, fields, raw text, state. Also for Wazuh (`--wazuh-rules`), Sentinel (`--sentinel-rules`), Elastic (`--elastic-rules`) and Splunk (`--splunk-rules`) rules. |
 
 ## What Sluice writes
 
@@ -181,7 +185,26 @@ With `--sentinel-rules DIR --kusto URL --sentinel-table SOURCE=TABLE` (a Kusto e
 full and forwarded, into the emulator as that table's records and runs every rule's query on
 both. Any difference in the result rows fails the proof. Rules that cannot run in the emulator
 are listed. Without `--kusto`, their requirements still constrain every saving, but the proof
-runs only the other engines (Sigma, and Elastic's rules with `--elasticsearch`).
+runs only the other engines (Sigma, Elastic's rules with `--elasticsearch`, Splunk's searches
+with `--splunk`).
+
+## Splunk's searches in the proof
+
+With `--splunk-rules DIR --splunk URL` (a Splunk of the proof's own; `scripts/splunk-check.sh`
+starts one in Docker once you accept the Splunk General Terms), the proof creates an index in that
+Splunk, sends the full and the forwarded events to it through the HTTP Event Collector, each body
+as its JSON, and runs every saved search on both (ADR 0037). A search runs on every source,
+whatever index, sourcetype, source, event type or time range it names, as Sluice reads it. Each
+result row is an alert: an event by its id, a count or a table by its content. Any difference
+fails the proof. Searches Splunk refuses, generating ones (`| tstats`) and ones that write or
+send (`collect`, `outputlookup`, `sendemail`, …) are not run; `sluice analyze` prints how many,
+and their requirements still constrain every saving. Without `--splunk`, every search's
+requirements constrain the savings, but no proof runs them.
+
+The proof's Splunk is never the production one: the sample counts against its licence. Its
+credentials are `SPLUNK_PROOF_PASSWORD` (for `SPLUNK_PROOF_USER`, `admin` by default) or
+`SPLUNK_PROOF_TOKEN`, not the fetch's. `--splunk-hec URL` names its collector when Docker maps
+the port, and `--splunk-insecure` accepts its self-signed certificates.
 
 Point `--sentinel-rules` at the rules your workspace actually runs: a rule that reads
 `EventData` on every event keeps it on every event. Include the ASIM parsers

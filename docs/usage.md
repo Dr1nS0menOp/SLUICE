@@ -3,7 +3,7 @@
 This page walks through what you can do with Sluice, from a first look to the configurations
 that carry out the savings in the tools you run. Each section is a complete path you can follow.
 The [README](../README.md) has a short guide per SIEM (Microsoft Sentinel, Wazuh, Elastic
-Security), with the read-only account each needs; this page goes into more depth. For every
+Security, Splunk), with the read-only account each needs; this page goes into more depth. For every
 command and file, see the [user guide](guide.md); for how it works inside, see
 [architecture](architecture.md). To try it on a live SIEM over days of real data, with a
 baseline and the way back, follow [the field test](field-test.md).
@@ -93,11 +93,16 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
    # Elastic Security: the detection rules of a Kibana space (KIBANA_API_KEY, or KIBANA_USER
    # and KIBANA_PASSWORD)
    sluice rules fetch --out inventory/elastic elastic --kibana https://kibana:5601
+   # Splunk: the saved searches, macros, props and transforms of every app (SPLUNK_TOKEN, or
+   # SPLUNK_USER and SPLUNK_PASSWORD)
+   sluice rules fetch --out inventory/splunk splunk --api https://splunk:8089
    ```
 
    Then pass `--wazuh-rules inventory/wazuh/rules --wazuh-decoders inventory/wazuh/decoders`,
-   `--sentinel-rules inventory/sentinel` or `--elastic-rules inventory/elastic` (with
-   `--elasticsearch URL` the proof runs them too). Sigma
+   `--sentinel-rules inventory/sentinel`, `--elastic-rules inventory/elastic` (with
+   `--elasticsearch URL` the proof runs them too) or `--splunk-rules inventory/splunk` (with
+   `--splunk URL`, a Splunk of the proof's own, the proof runs the searches in Splunk; see
+   [below](#splunks-searches-in-splunk)). Sigma
    rules have no SIEM API to read them from: pass `--rules-complete` when the directory holds
    every Sigma rule your SIEM runs. Without either, Sluice makes only savings that keep every
    event, and says so (ADR 0021).
@@ -124,6 +129,29 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
 
 If you run Wazuh, `--wazuh-api https://manager:55000` additionally checks single events with the
 manager's own `logtest`, the exact engine your detections run on.
+
+### Splunk's searches in Splunk
+
+With `--splunk https://127.0.0.1:18089`, the proof runs the `--splunk-rules` searches in a
+Splunk of its own (ADR 0037): it creates an index there, sends the sample to it through the HTTP
+Event Collector, runs every search on the full and on the forwarded events, and removes the index
+afterwards. Give it a throwaway Splunk, never your production one: the sample counts against that
+Splunk's licence. The README's Splunk guide starts one in Docker; starting Splunk's image means
+you accept the Splunk General Terms.
+
+- **Credentials of its own:** `SPLUNK_PROOF_PASSWORD` (for `SPLUNK_PROOF_USER`, `admin` by
+  default) or `SPLUNK_PROOF_TOKEN`, so the fetch's read-only account never goes there.
+  `--splunk-insecure` accepts its self-signed certificates, and `--splunk-hec URL` names its
+  collector when the port is mapped (Docker's `-p 127.0.0.1:18088:8088`).
+- **On every source:** a search runs whatever index, sourcetype, source, event type or time range
+  it names, as Sluice reads it. Each result row is an alert: an event by its id, a count or a
+  table by its content.
+- **Set aside, with the reason:** searches Splunk refuses on no events (a lookup or data model it
+  does not have), generating ones (`| tstats`), and any with a command that writes or sends
+  (`collect`, `outputlookup`, `sendemail`, `map`, …). `sluice analyze` prints how many, and what
+  they read is kept anyway.
+- **Records as Splunk sees them:** declare the source `schema: splunk` when its records are the
+  JSON events Splunk receives, whose key paths are the fields its searches name.
 
 Keep the rules current. A rule added in the SIEM protects its data from the next `sluice rules
 fetch` and analysis on; until then, a configuration you deployed earlier knows nothing of it.

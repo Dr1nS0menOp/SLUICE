@@ -457,6 +457,14 @@ fn functions(problems: &[Problem]) -> String {
             escape(example)
         );
     }
+    if calls.keys().any(|(engine, _)| *engine == Engine::Splunk) {
+        out.push_str(
+            "<p class=\"muted\">For Splunk, these are search macros: run <code>sluice rules \
+             fetch splunk</code>, which reads the macros of every app, or put each app's \
+             <code>macros.conf</code> (its <code>default</code> and <code>local</code>) next \
+             to <code>savedsearches.conf</code>.</p>",
+        );
+    }
     out
 }
 

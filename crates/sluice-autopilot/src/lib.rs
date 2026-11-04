@@ -19,7 +19,7 @@ mod report;
 mod spot;
 
 pub use crate::analyze::{
-    Analysis, Elastic, Helpers, Input, Sentinel, Settings, analyze, analyze_proposals,
+    Analysis, Elastic, Helpers, Input, Sentinel, Settings, Splunk, analyze, analyze_proposals,
 };
 pub use crate::basis::RulesBasis;
 pub use crate::contribute::{Contribution, ai_recipes};

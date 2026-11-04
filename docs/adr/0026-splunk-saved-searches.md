@@ -1,7 +1,8 @@
 # ADR 0026: Splunk saved searches as requirements
 
-- Status: Superseded by [ADR 0034](0034-no-splunk.md) (2026-10-27: Splunk is removed; the code
-  below is in the Git history)
+- Status: Accepted again by [ADR 0037](0037-splunk-proven-in-splunk.md) (2026-11-03), which
+  replaces point 9: the proof now runs the searches in a real Splunk. Superseded from 2026-10-27
+  to 2026-11-03 by [ADR 0034](0034-no-splunk.md), which removed Splunk.
 - Date: 2026-10-17
 
 ## Context
@@ -67,7 +68,8 @@ Terms accepted; that is the maintainer's decision and not taken. Reading them ne
    copy (`name (app)`), and a macro the apps define differently makes every search calling it
    one that may read anything, as which definition applies depends on the search's app.
 9. **No proof runs them.** Their requirements constrain the guardrails only, like Wazuh rules
-   without `logtest`. A Splunk engine for the proof waits on the licence decision.
+   without `logtest`. A Splunk engine for the proof waits on the licence decision. (Replaced by
+   ADR 0037: with `--splunk`, the proof runs them in a real Splunk.)
 
 ## Consequences
 
@@ -84,4 +86,5 @@ Terms accepted; that is the maintainer's decision and not taken. Reading them ne
   pass `macros.conf` (or `admin/macros`) along.
 - A Splunk destination's `sluice_rules` may name `splunk` (`sluice up`).
 - The fetch was tried against a stand-in that answers as the REST API documents (paging,
-  bearer token), not against a real Splunk, whose image needs the licence decision.
+  bearer token), not against a real Splunk, whose image needs the licence decision. (Since
+  2026-11-03, ADR 0037, it is tested against Splunk Enterprise 10.6.1.1.)

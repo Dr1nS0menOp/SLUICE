@@ -57,6 +57,14 @@ else
     printf '\n==> elastic: skipped (docker pull docker.elastic.co/elasticsearch/elasticsearch:9.1.0)\n'
 fi
 
+if [[ -n ${SLUICE_SPLUNK_URL:-} ]] || { command -v docker >/dev/null 2>&1 \
+    && docker image inspect splunk/splunk:10.6.1.1 >/dev/null 2>&1; }; then
+    step "splunk (Splunk's searches run in a real Splunk for the proof)"
+    bash "$(dirname "$0")/splunk-check.sh"
+else
+    printf '\n==> splunk: skipped (docker pull splunk/splunk:10.6.1.1; see scripts/splunk-check.sh)\n'
+fi
+
 if command -v docker >/dev/null 2>&1 \
     && docker image inspect fluent/fluent-bit:4.0.3 >/dev/null 2>&1; then
     step "fluent-bit (Lua filters and their differential test against Fluent Bit)"

@@ -1,6 +1,7 @@
 # ADR 0034: Splunk is removed
 
-- Status: Accepted
+- Status: Superseded by [ADR 0037](0037-splunk-proven-in-splunk.md) (2026-11-03: the licence
+  decision was taken, and Splunk is back with a Splunk engine for the proof)
 - Date: 2026-10-27
 - Supersedes: [ADR 0026](0026-splunk-saved-searches.md)
 

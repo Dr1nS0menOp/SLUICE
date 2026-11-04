@@ -14,7 +14,7 @@ use sluice_core::rules::RuleRequirements;
 use sluice_core::source::Source;
 use sluice_core::template::{LineHeader, Template, TemplateShape};
 use sluice_discover::{DiscoverConfig, Discovery, discover};
-use sluice_rules::{ElasticRules, SentinelRules, SigmaRules, WazuhRules};
+use sluice_rules::{ElasticRules, SentinelRules, SigmaRules, SplunkRules, WazuhRules};
 use sluice_vector::{Plan, VrlReducer, compile_reducer};
 
 use crate::basis::RulesBasis;
@@ -83,6 +83,27 @@ pub struct Input<'a> {
     pub sentinel: Option<Sentinel<'a>>,
     /// Elastic Security detection rules, if any.
     pub elastic: Option<Elastic<'a>>,
+    /// Splunk saved searches, if any.
+    pub splunk: Option<Splunk<'a>>,
+}
+
+/// Splunk saved searches (ADR 0026, ADR 0037). Their requirements constrain the guardrails;
+/// with an engine (the searches run in a real Splunk) the proof also evaluates them.
+#[derive(Clone, Copy)]
+pub struct Splunk<'a> {
+    /// The searches.
+    pub rules: &'a SplunkRules,
+    /// Runs the searches on full and on forwarded events.
+    pub engine: Option<&'a dyn RuleEngine>,
+}
+
+impl std::fmt::Debug for Splunk<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Splunk")
+            .field("rules", &self.rules.requirements().len())
+            .field("engine", &self.engine.is_some())
+            .finish()
+    }
 }
 
 /// Elastic Security detection rules (ADR 0025). Their requirements constrain the guardrails;
@@ -211,6 +232,9 @@ pub fn analyze(
     }
     if let Some(elastic) = input.elastic {
         problems.extend(elastic.rules.problems().iter().cloned());
+    }
+    if let Some(splunk) = input.splunk {
+        problems.extend(splunk.rules.problems().iter().cloned());
     }
     if !settings.modes.contains(&Mode::Rules) {
         // The recipes' savings are not asked for; the recipes stay unused, and so does an
@@ -347,6 +371,7 @@ pub fn analyze_proposals(
         .chain(input.wazuh.map_or(&[][..], WazuhRules::requirements))
         .chain(input.sentinel.map_or(&[][..], |s| s.rules.requirements()))
         .chain(input.elastic.map_or(&[][..], |e| e.rules.requirements()))
+        .chain(input.splunk.map_or(&[][..], |s| s.rules.requirements()))
         .chain(&settings.operator_rules)
         .cloned()
         .collect();
@@ -403,6 +428,7 @@ pub(crate) fn prove(
     let mut engines: Vec<&dyn RuleEngine> = vec![&sigma];
     engines.extend(input.sentinel.and_then(|s| s.engine));
     engines.extend(input.elastic.and_then(|e| e.engine));
+    engines.extend(input.splunk.and_then(|s| s.engine));
     let engine = Engines(engines);
     let build = |recipes: &[EffectiveRecipe]| {
         let plans = templates

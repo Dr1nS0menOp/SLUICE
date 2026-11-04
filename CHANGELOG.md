@@ -6,6 +6,31 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Splunk is back, proven in Splunk** ([ADR 0037](docs/adr/0037-splunk-proven-in-splunk.md),
+  superseding ADR 0034). The maintainer decided on 2026-11-03 that Sluice may run Splunk
+  Enterprise under the Splunk General Terms to prove the analysis.
+  - The SPL reader returns as ADR 0026 had it: `--splunk-rules DIR` (saved searches, macros,
+    `props`, `transforms`), `sluice rules fetch splunk --api URL`, and `schema: splunk` and
+    `schema: cim`. A macro without its definition is now reported as a function without its
+    source (`unknown_function` in `plan.json`), and the report says where Splunk's macros come
+    from.
+  - **`sluice analyze --splunk URL`** runs the saved searches in a Splunk of the proof's own, on
+    the full and on the forwarded events. The proof sends the sample to an index there through
+    the HTTP Event Collector and runs each search on every source, whatever index, sourcetype or
+    time range it names. Each result row is an alert. Searches Splunk refuses are set aside, as
+    are generating ones (`tstats`) and any that write or send (`collect`, `outputlookup`,
+    `sendemail`, …), which the proof never runs. `--splunk-hec URL` and `--splunk-insecure` go
+    with it; its credentials are `SPLUNK_PROOF_PASSWORD` or `SPLUNK_PROOF_TOKEN`, never the
+    fetch's. On the demo with its rules as saved searches, Splunk raised the same 778 alerts on
+    what the plan forwards as on everything, with 73.9 % saved; without `--splunk` that proof
+    had no alert to compare.
+  - The fetch is tested against a real Splunk (10.6.1.1). `scripts/splunk-check.sh` runs the
+    engine's tests, the fetch's and `sluice analyze --splunk` end to end, and `scripts/check.sh`
+    runs it when the `splunk/splunk:10.6.1.1` image is present. It starts Splunk only when you
+    set `SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com` yourself.
+
 ### Fixed
 
 - `scripts/elastic-check.sh` takes `SLUICE_ELASTIC_PORT` (default 9201), as `kql-check.sh` takes

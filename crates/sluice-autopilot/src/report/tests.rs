@@ -165,6 +165,29 @@ fn a_function_without_its_source_is_listed_once_with_its_rules_and_how_to_give_i
     );
     assert!(page.contains("sluice rules fetch sentinel"));
     assert!(page.contains("FunctionName: my_parser\nFunctionQuery: |"));
+    assert!(!page.contains("sluice rules fetch splunk"));
+}
+
+#[test]
+fn a_splunk_macro_without_its_definition_says_where_macros_come_from() {
+    let page = render_html(&Report {
+        problems: vec![Problem::new(
+            ProblemKind::UnknownFunction {
+                engine: Engine::Splunk,
+                name: "sysmon".into(),
+            },
+            Some(RuleId::new("splunk:s")),
+            "splunk:s: the macro `sysmon`, which is not among the files",
+        )],
+        ..report()
+    });
+    assert!(
+        page.contains("<li><code>sysmon</code>: called by 1 rule"),
+        "{page}"
+    );
+    assert!(page.contains("sluice rules fetch splunk"), "{page}");
+    assert!(page.contains("macros.conf"), "{page}");
+    assert!(!page.contains("FunctionName"), "{page}");
 }
 
 #[test]

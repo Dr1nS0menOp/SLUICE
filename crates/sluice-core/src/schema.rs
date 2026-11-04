@@ -26,6 +26,8 @@ pub enum Schema {
     Sigma,
     /// Elastic Common Schema (`process.executable`, `source.ip`).
     Ecs,
+    /// Splunk's Common Information Model.
+    Cim,
     /// Microsoft Sentinel's Advanced Security Information Model.
     Asim,
     /// The Open Cybersecurity Schema Framework.
@@ -35,6 +37,10 @@ pub enum Schema {
     /// The columns of a Microsoft Sentinel table that is not an ASIM table (`Syslog`,
     /// `CommonSecurityLog`).
     Sentinel,
+    /// The fields as Splunk extracts them at search time: for a JSON event, its key paths
+    /// joined by dots (`KV_MODE = json`). Aliases and calculated fields (`props.conf`) are not
+    /// part of the record; given `props.conf`, Splunk searches are read through them.
+    Splunk,
 }
 
 impl Schema {
@@ -59,10 +65,12 @@ impl fmt::Display for Schema {
             Self::Undeclared => "undeclared",
             Self::Sigma => "sigma",
             Self::Ecs => "ecs",
+            Self::Cim => "cim",
             Self::Asim => "asim",
             Self::Ocsf => "ocsf",
             Self::Udm => "udm",
             Self::Sentinel => "sentinel",
+            Self::Splunk => "splunk",
         })
     }
 }
@@ -82,14 +90,16 @@ mod tests {
         );
     }
 
-    const ALL: [Schema; 7] = [
+    const ALL: [Schema; 9] = [
         Schema::Undeclared,
         Schema::Sigma,
         Schema::Ecs,
+        Schema::Cim,
         Schema::Asim,
         Schema::Ocsf,
         Schema::Udm,
         Schema::Sentinel,
+        Schema::Splunk,
     ];
 
     #[test]

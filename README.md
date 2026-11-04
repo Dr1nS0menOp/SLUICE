@@ -78,11 +78,18 @@ never a detection. The report lists every rule next to what Sluice made of it.
 - **Elastic Security.** The fetch and the sample against Kibana and Elasticsearch 9.1. Ingest
   pipelines are proven in Elasticsearch.
 - **Wazuh.** The fetch and the `logtest` spot check against a Wazuh 4.14 manager.
+- **Splunk Enterprise.** The fetch against Splunk 10.6, and the saved searches run in Splunk
+  for the proof ([ADR 0037](docs/adr/0037-splunk-proven-in-splunk.md)). Sluice writes no
+  configuration in Splunk's own language yet: `vector.yaml` carries the savings out in front of
+  it.
 - **Vector, Fluent Bit and the OpenTelemetry Collector.** Every configuration is run in the real
   engine in every test run.
 
 **Experimental:**
 
+- **Splunk on events it parses with an add-on** (such as `XmlWinEventLog`). Sluice reads JSON
+  events with the fields Splunk extracts from their keys; it does not know an add-on's
+  extractions.
 - **Rules read from files** instead of fetched from the SIEM. A file cannot say that it holds
   every rule the SIEM runs, or what a workspace's functions do, so Sluice saves less and the
   report lists what it could not check.
@@ -447,6 +454,79 @@ replacing it. Where the pipeline removes implied values, `out/elastic/windows-se
 holds runtime fields that put them back: add them to a Kibana data view, or to a search as
 `runtime_mappings`. Counting events needs `out/vector.yaml`. Remove the proof's Elasticsearch when you
 are done: `docker rm -f sluice-elastic`.
+
+### Splunk Enterprise
+
+You need Splunk's management port (8089), an account that sees the saved searches, and Docker for
+the proof's own Splunk. Sluice reads JSON events with the fields Splunk extracts from their keys
+(`KV_MODE = json`, or a sourcetype such as `_json`).
+
+```sh
+SPLUNK=https://splunk.example:8089
+```
+
+**1. An account that reads the searches.** The fetch reads the saved searches, macros, `props`
+and `transforms` of every app the account may read. Splunk hides another user's private searches
+from an account, though it runs them when they are scheduled: share them with their app, or fetch
+with an account that sees them. Create an authentication token for the account (Settings,
+Tokens).
+
+**2. Fetch the rules.** Add `--insecure` if the management port has Splunk's default self-signed
+certificate and the network path is trusted.
+
+```sh
+export SPLUNK_TOKEN='<the token>'
+sluice rules fetch --out splunk-rules splunk --api "$SPLUNK"
+```
+
+**3. A sample.** Up to 50,000 events of one sourcetype from the last 24 hours, as Splunk stores
+them. The account must be allowed to search that index:
+
+```sh
+mkdir -p samples
+curl -fsS -H "Authorization: Bearer $SPLUNK_TOKEN" "$SPLUNK/services/search/v2/jobs/export" \
+  --data-urlencode 'search=search index=windows sourcetype=_json | head 50000' \
+  -d earliest_time=-24h -d output_mode=raw > samples/windows-security.ndjson
+```
+
+**4. Describe the source.** `schema: splunk` says the records' fields are named as Splunk
+extracts them:
+
+```yaml
+# sources.yaml
+sources:
+  - id: windows-security
+    logsource: { product: windows, service: security }
+    format: { kind: json }
+    schema: splunk
+```
+
+**5. Analyze.** The proof runs the searches in a Splunk of its own: Sluice creates an index
+there, sends the sample to it and removes the index afterwards, so never point `--splunk` at your
+Splunk. Its credentials are separate from the fetch's. Starting Splunk's image means you accept
+the [Splunk General Terms](https://www.splunk.com/en_us/legal/splunk-general-terms.html) and
+Splunk's licence (the trial's: 500 MB a day):
+
+```sh
+docker run -d --name sluice-splunk -p 127.0.0.1:18089:8089 -p 127.0.0.1:18088:8088 \
+  -e SPLUNK_START_ARGS=--accept-license \
+  -e SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com \
+  -e SPLUNK_PASSWORD='<a password for the proof>' splunk/splunk:10.6.1.1
+# Wait until `docker ps` shows it as healthy: a minute or two.
+export SPLUNK_PROOF_PASSWORD='<the same password>'
+sluice analyze --input samples --sources sources.yaml --splunk-rules splunk-rules \
+  --splunk https://127.0.0.1:18089 --splunk-hec https://127.0.0.1:18088 --splunk-insecure \
+  --out out
+```
+
+`sluice analyze` says how many searches ran in the proof's Splunk, and why it set others aside:
+a generating search (`tstats`), one that writes (`collect`, `outputlookup`), or one that needs a
+lookup or data model the proof's Splunk does not have. What those read is kept anyway. Remove the
+proof's Splunk when you are done: `docker rm -f sluice-splunk`.
+
+**6. Deploy.** Sluice writes no configuration in Splunk's own language yet. `out/vector.yaml`
+carries the savings out in front of Splunk's HTTP Event Collector, with Vector's
+`splunk_hec_logs` sink in place of its file sink.
 
 ### Any other SIEM: Sigma rules
 

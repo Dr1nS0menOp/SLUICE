@@ -126,6 +126,7 @@ fn analyze_with(
             wazuh: None,
             sentinel: None,
             elastic: None,
+            splunk: None,
         },
         discovery,
         proposals,

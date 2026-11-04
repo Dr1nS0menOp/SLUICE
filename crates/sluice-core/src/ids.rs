@@ -70,6 +70,8 @@ pub enum Engine {
     Sentinel,
     /// Elastic Security's detection rules.
     Elastic,
+    /// Splunk's saved searches.
+    Splunk,
 }
 
 impl Engine {
@@ -81,6 +83,7 @@ impl Engine {
             Self::Wazuh => "wazuh",
             Self::Sentinel => "sentinel",
             Self::Elastic => "elastic",
+            Self::Splunk => "splunk",
         }
     }
 }
@@ -145,6 +148,7 @@ mod tests {
             (Engine::Wazuh, "wazuh"),
             (Engine::Sentinel, "sentinel"),
             (Engine::Elastic, "elastic"),
+            (Engine::Splunk, "splunk"),
         ] {
             assert_eq!(RuleId::of(engine, "x").as_str(), format!("{prefix}:x"));
         }

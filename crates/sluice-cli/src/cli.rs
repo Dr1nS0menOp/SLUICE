@@ -175,6 +175,12 @@ pub(crate) struct RuleSets {
     /// `_find` JSON) or Elastic's prebuilt rules package (ADR 0025).
     #[arg(long, value_name = "DIR")]
     pub(crate) elastic_rules: Option<PathBuf>,
+    /// Directory of Splunk saved searches and macros: `savedsearches.conf` and `macros.conf`,
+    /// or the REST API's `saved/searches` and `admin/macros` JSON, with `props.conf` and
+    /// `transforms.conf` for the fields Splunk derives (ADR 0026). `sluice analyze --splunk`
+    /// runs them in a real Splunk for the proof (ADR 0037).
+    #[arg(long, value_name = "DIR")]
+    pub(crate) splunk_rules: Option<PathBuf>,
 }
 
 impl RuleSets {
@@ -184,6 +190,7 @@ impl RuleSets {
             self.wazuh_rules.as_deref(),
             self.sentinel_rules.as_deref(),
             self.elastic_rules.as_deref(),
+            self.splunk_rules.as_deref(),
         ]
         .into_iter()
         .flatten()
@@ -240,6 +247,17 @@ pub(crate) enum FetchTarget {
         /// The Kibana space; the default space without it.
         #[arg(long)]
         space: Option<String>,
+    },
+    /// Splunk: the saved searches and macros of every app the user sees, enabled or not (only
+    /// scheduled, enabled ones count). Credentials: `SPLUNK_TOKEN` (an authentication token),
+    /// or `SPLUNK_USER` and `SPLUNK_PASSWORD`. Then `--splunk-rules OUT`.
+    Splunk {
+        /// The management port, such as `https://splunk:8089`.
+        #[arg(long)]
+        api: String,
+        /// Accept Splunk's self-signed certificate. Only on a trusted network path.
+        #[arg(long)]
+        insecure: bool,
     },
 }
 
@@ -355,6 +373,22 @@ pub(crate) struct AnalyzeArgs {
     /// 0025), and `--native elastic` proves its pipelines there.
     #[arg(long, value_name = "URL")]
     pub(crate) elasticsearch: Option<String>,
+    /// The management port of a Splunk for the proof, such as `https://127.0.0.1:8089`
+    /// (`scripts/splunk-check.sh` starts one): the proof then runs the `--splunk-rules` searches
+    /// themselves on full and forwarded events (ADR 0037). Not your production Splunk: the proof
+    /// creates an index there, sends the sample to it and removes it. Credentials of its own:
+    /// `SPLUNK_PROOF_PASSWORD` (for `SPLUNK_PROOF_USER`, `admin` by default) or
+    /// `SPLUNK_PROOF_TOKEN`, a user who may create indexes and collector tokens.
+    #[arg(long, value_name = "URL", requires = "splunk_rules")]
+    pub(crate) splunk: Option<String>,
+    /// The HTTP Event Collector of `--splunk`, such as `https://127.0.0.1:8088`; by default the
+    /// management port's host with the collector's port as Splunk reports it.
+    #[arg(long, value_name = "URL", requires = "splunk")]
+    pub(crate) splunk_hec: Option<String>,
+    /// Accept the self-signed certificates of `--splunk` (Splunk's default). Only on a trusted
+    /// network path.
+    #[arg(long, requires = "splunk")]
+    pub(crate) splunk_insecure: bool,
     /// A command that runs Fluent Bit, for `--native fluent-bit`: the `fluent-bit` binary, or a
     /// wrapper that runs it in a container (`scripts/fluentbit-check.sh` writes one). It takes
     /// Fluent Bit's own arguments.

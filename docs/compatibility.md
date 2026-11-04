@@ -19,3 +19,11 @@ Code generated for a SIEM's own ingestion is proven in that SIEM's engine:
 | Elasticsearch ingest pipeline (ADR 0024) | Elasticsearch 9.1.0 (`scripts/elastic-check.sh`) | the same, single node, 2026-10-17 |
 | Fluent Bit Lua filter (ADR 0027) | Fluent Bit 4.0.3 (`scripts/fluentbit-check.sh`) | the same, `fluent/fluent-bit:4.0.3`, 2026-10-17 |
 | OpenTelemetry Collector `transform` statements (ADR 0028) | otelcol-contrib 0.128.0 (`scripts/otel-check.sh`) | the same, `otel/opentelemetry-collector-contrib:0.128.0`, 2026-10-17 |
+
+A SIEM's own rules run in its engine for the proof:
+
+| Rules | Engine the proof runs in | Verified with |
+|-------|--------------------------|---------------|
+| Sentinel analytics rules (ADR 0015) | Kusto emulator (`kustainer-linux:latest`, `--kusto`) | the README's Sentinel guide end to end, 2026-10-22 |
+| Elastic Security detection rules (ADR 0025) | Elasticsearch 9.1.0 (`--elasticsearch`) | Elastic's prebuilt rules: 1,944 of 2,059 run there |
+| Splunk saved searches (ADR 0037) | Splunk Enterprise 10.6.1.1 (`splunk/splunk:10.6.1.1`, `--splunk`; `scripts/splunk-check.sh`) | the same, trial licence, 2026-11-03; `sluice rules fetch splunk` against its REST API |

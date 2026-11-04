@@ -109,6 +109,7 @@ pub(crate) struct Loaded {
     pub(crate) wazuh: Option<sluice_rules::WazuhRules>,
     pub(crate) sentinel: Option<sluice_rules::SentinelRules>,
     pub(crate) elastic: Option<sluice_rules::ElasticRules>,
+    pub(crate) splunk: Option<sluice_rules::SplunkRules>,
 }
 
 impl Loaded {
@@ -123,6 +124,9 @@ impl Loaded {
         }
         if let Some(elastic) = &self.elastic {
             all.extend(elastic.requirements());
+        }
+        if let Some(splunk) = &self.splunk {
+            all.extend(splunk.requirements());
         }
         all
     }
@@ -144,6 +148,7 @@ pub(crate) fn rule_sets(sets: &RuleSets, sentinel_tables: &[String]) -> Result<L
         wazuh: wazuh(sets.wazuh_rules.as_deref(), sets.wazuh_decoders.as_deref())?,
         sentinel: sentinel(sets.sentinel_rules.as_deref(), sentinel_tables)?,
         elastic: elastic(sets.elastic_rules.as_deref())?,
+        splunk: splunk(sets.splunk_rules.as_deref())?,
     })
 }
 
@@ -274,18 +279,35 @@ pub(crate) fn elastic(dir: Option<&Path>) -> Result<Option<sluice_rules::Elastic
     Ok(Some(rules))
 }
 
+/// The Splunk saved searches and macros in `dir` (`.conf` files or REST JSON answers), if
+/// given; problems are printed as warnings ([`warn`]).
+pub(crate) fn splunk(dir: Option<&Path>) -> Result<Option<sluice_rules::SplunkRules>> {
+    let Some(dir) = dir else {
+        return Ok(None);
+    };
+    let files = files(dir, &["conf", "json"])?;
+    let rules = sluice_rules::SplunkRules::parse(
+        files
+            .iter()
+            .filter(|(path, _)| !is_manifest(dir, path))
+            .map(|(path, text)| (path.as_str(), text.as_str())),
+    );
+    warn("Splunk", rules.problems());
+    Ok(Some(rules))
+}
+
 /// Prints a rule set's problems as warnings: first the functions its rules call without their
 /// source, in one line that says how to give them, then the first five others. The report has
 /// all of them.
 fn warn(set: &str, problems: &[Problem]) {
     let mut functions: BTreeSet<&str> = BTreeSet::new();
     let mut callers: BTreeSet<&RuleId> = BTreeSet::new();
-    let mut sentinel = false;
+    let mut engines: BTreeSet<Engine> = BTreeSet::new();
     for problem in problems {
         if let ProblemKind::UnknownFunction { engine, name } = &problem.kind {
             functions.insert(name);
             callers.extend(&problem.rule);
-            sentinel |= *engine == Engine::Sentinel;
+            engines.insert(*engine);
         }
     }
     if !functions.is_empty() {
@@ -293,9 +315,12 @@ fn warn(set: &str, problems: &[Problem]) {
         if functions.len() > 5 {
             names.push("…");
         }
-        let how = if sentinel {
+        let how = if engines.contains(&Engine::Sentinel) {
             "run `sluice rules fetch sentinel`, which reads every workspace function, or save each \
              one next to the rules as YAML with `FunctionName` and `FunctionQuery`"
+        } else if engines.contains(&Engine::Splunk) {
+            "run `sluice rules fetch splunk`, which reads the macros of every app, or put each \
+             app's `macros.conf` next to `savedsearches.conf`"
         } else {
             "give their source among the rule files"
         };
