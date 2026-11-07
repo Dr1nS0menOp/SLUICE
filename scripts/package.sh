@@ -53,6 +53,21 @@ SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo cyclonedx \
     --describe binaries --target x86_64-unknown-linux-musl --no-build-deps -qq
 # It writes one file per binary next to the crate's manifest.
 mv crates/sluice-cli/sluice_bin.cdx.json "dist/sluice-${version}.cdx.json"
+# Reproducible output has no serialNumber, which attestations need: one that follows from the
+# version and the commit, so the same build gets the same SBOM.
+python3 -I - "dist/sluice-${version}.cdx.json" "${version}" "$(git rev-parse HEAD)" <<'EOF'
+import json, sys, uuid
+path, version, commit = sys.argv[1:]
+with open(path) as f:
+    bom = json.load(f)
+name = f"https://github.com/Dr1nS0menOp/SLUICE/releases/v{version}#{commit}"
+bom = {**{k: bom[k] for k in ("bomFormat", "specVersion")},
+       "serialNumber": uuid.uuid5(uuid.NAMESPACE_URL, name).urn,
+       **{k: v for k, v in bom.items() if k not in ("bomFormat", "specVersion")}}
+with open(path, "w") as f:
+    json.dump(bom, f, indent=2)
+    f.write("\n")
+EOF
 
 rm -f dist/nfpm.yaml
 cd dist

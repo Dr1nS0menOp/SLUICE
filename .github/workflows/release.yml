@@ -45,7 +45,7 @@ jobs:
             dist/sluice_*.deb
             dist/sluice-*.rpm
       - name: Attest the binaries' SBOM
-        uses: actions/attest-sbom@v4
+        uses: actions/attest@v4
         with:
           subject-path: dist/sluice-*-unknown-linux-musl
           sbom-path: dist/sluice-${{ steps.version.outputs.version }}.cdx.json
