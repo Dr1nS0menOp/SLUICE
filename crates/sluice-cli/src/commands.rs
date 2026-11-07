@@ -113,13 +113,7 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
         )?),
         _ => None,
     };
-    let basis = if args.rules_complete {
-        RulesBasis::Claimed
-    } else if fetched_only(&args.sets) {
-        RulesBasis::Fetched
-    } else {
-        RulesBasis::NotKnown
-    };
+    let basis = rules_basis(&args.sets, args.rules_complete);
     let inventory_notes: Vec<String> = args
         .sets
         .siem_dirs()
@@ -267,6 +261,18 @@ fn engine<'a, T: ?Sized>(
             target.name()
         ),
         (false, None) => Ok(None),
+    }
+}
+
+/// On what grounds the rules of `sets` count as complete: `--rules-complete`, or every set
+/// fetched from its SIEM.
+pub(crate) fn rules_basis(sets: &RuleSets, rules_complete: bool) -> RulesBasis {
+    if rules_complete {
+        RulesBasis::Claimed
+    } else if fetched_only(sets) {
+        RulesBasis::Fetched
+    } else {
+        RulesBasis::NotKnown
     }
 }
 

@@ -19,6 +19,7 @@ use sluice_vector::{Plan, VrlReducer, compile_reducer};
 
 use crate::basis::RulesBasis;
 use crate::error::AutopilotError;
+use crate::fingerprint::{RuleFingerprint, fingerprints};
 use crate::implied;
 use crate::mode::Mode;
 use crate::recipes::RecipeBook;
@@ -173,6 +174,9 @@ pub struct Analysis {
     pub rules: RulesBasis,
     /// The kinds of saving it made.
     pub modes: BTreeSet<Mode>,
+    /// Every rule the guardrails and the proof held the selection to, as it was read: what a
+    /// later `sluice verify` compares the current rules with (ADR 0039).
+    pub fingerprints: Vec<RuleFingerprint>,
 }
 
 impl Analysis {
@@ -414,6 +418,7 @@ pub fn analyze_proposals(
         spot_check,
         rules: settings.rules,
         modes: settings.modes.clone(),
+        fingerprints: fingerprints(&requirements),
     })
 }
 

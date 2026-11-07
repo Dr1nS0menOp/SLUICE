@@ -1,0 +1,37 @@
+# The .deb and .rpm packages of a release; scripts/package.sh fills in the ${…} placeholders.
+# They hold the static binary that is attached to the release, so they need no dependencies.
+name: sluice
+version: "${SLUICE_VERSION}"
+arch: "${SLUICE_ARCH}"
+platform: linux
+section: admin
+priority: optional
+maintainer: "Sluice maintainers <126401592+Dr1nS0menOp@users.noreply.github.com>"
+vendor: Sluice
+homepage: https://github.com/Dr1nS0menOp/SLUICE
+license: AGPL-3.0-only
+description: |-
+  Shrinks SIEM ingest without changing a single detection.
+  Sluice reads the rules your SIEM runs and a sample of your data, proves which fields and
+  events no rule needs, and writes the configuration that sends less (Vector, Sentinel data
+  collection rules, Elasticsearch ingest pipelines, Fluent Bit, the OpenTelemetry Collector).
+contents:
+  - src: "${SLUICE_BINARY}"
+    dst: /usr/bin/sluice
+    file_info:
+      mode: 0755
+  - src: LICENSE
+    dst: /usr/share/doc/sluice/LICENSE
+    file_info:
+      mode: 0644
+  - src: README.md
+    dst: /usr/share/doc/sluice/README.md
+    file_info:
+      mode: 0644
+  - src: CHANGELOG.md
+    dst: /usr/share/doc/sluice/CHANGELOG.md
+    file_info:
+      mode: 0644
+rpm:
+  group: Applications/System
+  summary: Shrinks SIEM ingest without changing a single detection

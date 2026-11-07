@@ -11,12 +11,14 @@ mod analyze;
 mod basis;
 mod contribute;
 mod error;
+mod fingerprint;
 mod implied;
 mod mode;
 mod plan;
 mod recipes;
 mod report;
 mod spot;
+mod verify;
 
 pub use crate::analyze::{
     Analysis, Elastic, Helpers, Input, Sentinel, Settings, Splunk, analyze, analyze_proposals,
@@ -24,6 +26,7 @@ pub use crate::analyze::{
 pub use crate::basis::RulesBasis;
 pub use crate::contribute::{Contribution, ai_recipes};
 pub use crate::error::AutopilotError;
+pub use crate::fingerprint::{RuleFingerprint, fingerprints};
 pub use crate::mode::Mode;
 pub use crate::plan::{
     CountInstead, PLAN_FORMAT, Placement, PlanProblem, PlanProof, SavingsPlan, SourcePlan,
@@ -36,3 +39,8 @@ pub use crate::report::{
     SentField, SourceExamples, TemplateRow, render_html,
 };
 pub use crate::spot::SpotCheck;
+pub use crate::verify::{
+    PlanReadError, ProofCheck, RecordedPlan, RecordedProof, RecordedSource, RecordedTemplate,
+    RuleChanges, SAVING_DROP_POINTS, SavingsCheck, TemplateDrift, Verdict, Verification,
+    VerifyInput, verify,
+};

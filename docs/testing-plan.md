@@ -106,6 +106,17 @@ configuration equal to the safe one; an unreadable file; two profiles where one 
 Routes: every route without a token, with a wrong one, with a valid one; OIDC with an expired,
 a wrongly signed and a replayed token.
 
+`sluice verify` (ADR 0039, done 2026-11-08): `verify/tests.rs` covers each verdict. A
+detection that differs on the new sample, or a plan whose own proof failed, does not hold. A rule
+added or read differently, a plan without fingerprints, and a counting plan whose rules are not
+known to be complete are out of date. A rule that is gone is harmless. Another plan format is
+refused with who wrote it, fields a later plan adds are ignored, and savings drift, unknown data
+and absent kinds of event are measured. `crates/sluice-cli/tests/verify.rs` runs the binary on the
+demo for exit 0, 1 and 3 (a rule on events the plan counts loses its alerts), unknown data, and
+another format. `fingerprint.rs` checks that a fingerprint follows the reading, not the order.
+The plan's JSON Schema is checked to be current, and the demo's plan is valid against it
+(`tests/demo.rs`).
+
 ### API clients (unit, against fakes)
 
 Azure and Wazuh: error bodies, empty pages, `nextLink` loops, unsafe names (done for Wazuh),

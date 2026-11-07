@@ -2344,6 +2344,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha2"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "digest",
+]
+
+[[package]]
 name = "sha3"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2385,7 +2396,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "sluice-ai"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2396,13 +2407,15 @@ dependencies = [
 
 [[package]]
 name = "sluice-autopilot"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
+ "jsonschema",
  "proptest",
  "schemars",
  "serde",
  "serde_json",
  "serde_yaml_ng",
+ "sha2",
  "sluice-core",
  "sluice-discover",
  "sluice-rules",
@@ -2413,7 +2426,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-cli"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2439,7 +2452,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-core"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "schemars",
  "serde",
@@ -2449,7 +2462,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-discover"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "serde_json",
  "sluice-core",
@@ -2458,7 +2471,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-elastic"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "serde_json",
  "sluice-core",
@@ -2471,7 +2484,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-fluentbit"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "serde_json",
  "sluice-core",
@@ -2483,7 +2496,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-http"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "thiserror",
  "ureq",
@@ -2491,7 +2504,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-kql"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "serde_json",
  "sluice-core",
@@ -2504,7 +2517,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-mcp"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "serde_json",
  "thiserror",
@@ -2512,7 +2525,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-otel"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "rustix",
  "serde_json",
@@ -2525,7 +2538,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-rules"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "proptest",
  "quick-xml",
@@ -2541,7 +2554,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-sentinel"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "serde_json",
  "sluice-core",
@@ -2551,7 +2564,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-splunk"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "serde_json",
  "sluice-core",
@@ -2562,7 +2575,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-synth"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "serde_json",
@@ -2571,7 +2584,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-vector"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "regex",
  "serde_json",
@@ -2586,7 +2599,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-wazuh"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "serde_json",
  "sluice-core",
@@ -2808,7 +2821,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

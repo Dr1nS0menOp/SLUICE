@@ -347,7 +347,7 @@ sluice prove --config sluice/vector.yaml --input samples/ --sources sources.yaml
 On GitHub:
 
 ```yaml
-- uses: Dr1nS0menOp/SLUICE@v0.2.0
+- uses: Dr1nS0menOp/SLUICE@v1.0.0
   with:
     config: sluice/vector.yaml
     input: samples
@@ -360,6 +360,53 @@ savings to the job summary, and fails the job when the proof fails. `sluice prov
 configuration whose wiring around Sluice's programs was changed (a filter in front of them, a
 route that forwards less, an output that goes nowhere): it can only vouch for what it models.
 Sources and sinks are yours to change.
+
+## 8. Check a plan later
+
+A plan is proven on one sample, with the rules the SIEM ran that day. Rules get added and data
+changes, so prove it again on a later sample with the rules of now
+([ADR 0039](adr/0039-sluice-verify.md)):
+
+```sh
+sluice rules fetch --out rules-now elastic --kibana "$KIBANA"     # the rules as they are today
+sluice verify --analysis out --input samples-today --sources sources.yaml \
+  --elastic-rules rules-now --elasticsearch http://127.0.0.1:9201
+```
+
+`--analysis` is the directory `sluice analyze` wrote. `verify` proves its `vector.yaml` (or
+`--config FILE`) on the new sample, compares the rules with those `plan.json` records, and
+compares the savings:
+
+```
+out/plan.json (Sluice 1.0.0) on samples-today
+  proof   41 alerts on full data, 41 on forwarded data
+  rules   1 new, 0 read differently, 0 gone since the plan
+  new     elastic:0a1b2c3d-…
+  ingest  12182451 → 3634189 bytes (70.2% saved; 70.2% on the plan's sample)
+  unknown 0.0% of the bytes are of no kind of event the plan knows, and sent whole (0.0% on the plan's sample)
+  ✗ the plan is out of date
+    - 1 rule is new since the plan was proven: it does not keep what they read, so run `sluice analyze` with the rules of now
+```
+
+| Exit | Verdict | What to do |
+|---|---|---|
+| 0 | The plan holds: the same alerts, and every rule is one it was proven with. | Nothing. |
+| 1 | It does not hold: a detection would change on the new sample. | Don't deploy it; take it out if it runs. |
+| 3 | It is out of date: rules were added or read differently since, the plan records no rules (written before 1.0), or a plan that counts has rules not known to be complete. | Run `sluice analyze` again. |
+
+The rules run as in `sluice analyze`: Sigma always, Sentinel's with `--kusto`, Elastic's with
+`--elasticsearch`. Splunk's searches and Wazuh's rules are compared, not run. A sample without
+any alert fails unless you pass `--allow-no-alerts`. Less saving is never a reason against a
+plan: `unknown` is the share of data of a kind the plan does not know, which is sent whole, and
+`less` lists the kinds whose saving fell by 10 points or more. A new analysis would save on them
+again.
+
+`verify` proves the plan as `vector.yaml` carries it out. A native configuration (`--native`) was
+proven on the analysis's sample to remove nothing Vector keeps; it is not run again here, so
+run `sluice analyze --native …` again when `verify` says the plan is out of date.
+
+`--json` prints the same as JSON, with `verdict` set to `holds`, `out_of_date` or
+`does_not_hold`, for a job that runs every day ([what stays stable](stability.md)).
 
 ## When nothing is saved
 

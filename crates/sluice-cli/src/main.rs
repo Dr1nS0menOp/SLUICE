@@ -17,6 +17,7 @@ mod output;
 mod prove;
 mod recipes;
 mod stdout;
+mod verify;
 
 use std::process::ExitCode;
 
@@ -27,6 +28,17 @@ use crate::cli::{Cli, Command};
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
+        Command::Verify(args) => {
+            return match verify::verify(&args) {
+                Ok(sluice_autopilot::Verdict::Holds) => ExitCode::SUCCESS,
+                Ok(sluice_autopilot::Verdict::OutOfDate) => ExitCode::from(verify::OUT_OF_DATE),
+                Ok(sluice_autopilot::Verdict::DoesNotHold) => ExitCode::FAILURE,
+                Err(error) => {
+                    eprintln!("error: {error:#}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
         Command::Demo(args) => commands::demo(&args),
         Command::Analyze(args) => commands::analyze(&args),
         Command::Recipes(args) => recipes::recipes(&args),
