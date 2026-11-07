@@ -44,6 +44,7 @@ pub enum ProofError {
 
 /// Volume through the data plane, for one template or in total.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Volume {
     /// Events in.
     pub events: u64,

@@ -205,6 +205,17 @@ the same alerts on what it forwards as on everything, and the sample must raise 
 such as a filter in front of them; sources and sinks are the operator's. The GitHub Action
 (`action.yml`) runs it in CI.
 
+## Later: `sluice verify`
+
+`sluice verify` proves a plan again, later (ADR 0039). `plan.json` records every rule it was
+proven with as a fingerprint: the SHA-256 of what Sluice read the rule as (its requirements),
+not of its text. `verify` runs the plan's `vector.yaml` on a later sample with the rules the SIEM
+runs now, as `prove` does, and compares those rules' fingerprints with the plan's: a rule that is
+new or read differently is one the plan does not protect, so the plan is out of date (exit 3)
+even when the new sample raises the same alerts. Alerts that differ mean it does not hold (exit
+1). It also compares the savings, the share of data of a kind the plan does not know, and the
+kinds whose saving fell; those cost savings, never a detection.
+
 ## Where the model is weak today
 
 A review on 2026-10-11 (PLAN.md, "Review 2026-10-11"; synthetic `sluice analyze` runs) found gaps
@@ -240,11 +251,13 @@ that M9 and M10 addressed. What remains:
   (`<Table>Full`, the runtime fields) recognises a record by its kind and may give a value to
   a record that never had the field. An analyst who queries the table itself for an implied
   value finds nothing; `<Table>Full` and the runtime fields read as before (ADR 0032).
-- **Nothing watches what runs.** Sluice proves a configuration before you deploy it, and
-  `sluice prove` again when it changes; it does not see your traffic afterwards. A format that
+- **Nothing watches what runs between checks.** Sluice proves a configuration before you
+  deploy it, `sluice prove` again when it changes, and `sluice verify` the plan on a later
+  sample with the rules of now (ADR 0039); it does not see your traffic in between. A format that
   changes fits no template and passes through unchanged, which costs savings, not detections.
-  A rule added in the SIEM, however, is protected only from the next fetch and analysis on
-  (ADR 0030), and so is a rule over a Sentinel table created after the fetch (ADR 0031).
+  A rule added in the SIEM is protected only from the next analysis on (ADR 0030), and so is a
+  rule over a Sentinel table created after the fetch (ADR 0031): `verify` reports it as new,
+  so a daily job finds it within a day.
 
 ## The parts
 

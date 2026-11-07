@@ -13,6 +13,7 @@ schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml_ng.workspace = true
+sha2.workspace = true
 sluice-core = { workspace = true, features = ["schema"] }
 sluice-discover.workspace = true
 sluice-rules.workspace = true
@@ -20,6 +21,7 @@ sluice-vector.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+jsonschema.workspace = true
 proptest.workspace = true
 sluice-synth.workspace = true
 

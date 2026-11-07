@@ -25,6 +25,10 @@ pub(crate) enum Command {
     /// Prove a generated Vector configuration on a sample, as it is: fails (exit 1) when the
     /// rules' alerts on what it forwards differ from their alerts on the full sample. For CI.
     Prove(ProveArgs),
+    /// Check that an analysis's plan still holds, on a newer sample and the rules the SIEM runs
+    /// now (ADR 0039). Exit 0: it holds. 1: a detection would change (or an error). 3: it is out
+    /// of date, since rules were added or changed after it was proven; run `sluice analyze` again.
+    Verify(Box<VerifyArgs>),
     /// Write the Microsoft Sentinel tables and data collection rules a source needs: a custom
     /// table for JSON records, or the table for summaries.
     Connect(ConnectArgs),
@@ -471,6 +475,48 @@ pub(crate) struct ProveArgs {
     pub(crate) json: bool,
     /// Pass even when the sample raises no alert. Such a proof shows nothing about detections,
     /// so by default it fails: give a sample with the attacks your rules detect.
+    #[arg(long)]
+    pub(crate) allow_no_alerts: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct VerifyArgs {
+    /// The directory `sluice analyze` wrote: its `plan.json` is what is verified, and its
+    /// `vector.yaml` what is proven, unless `--config` names another.
+    #[arg(long, default_value = "out")]
+    pub(crate) analysis: PathBuf,
+    /// The Vector configuration that runs, if it is not the analysis's `vector.yaml` (such as
+    /// one changed in review). It must be Sluice's programs for these sources.
+    #[arg(long, value_name = "FILE")]
+    pub(crate) config: Option<PathBuf>,
+    /// Directory with one `<source-id>.ndjson` file per source: a newer sample than the one
+    /// the plan was proven on, such as the next day's.
+    #[arg(long)]
+    pub(crate) input: PathBuf,
+    /// Sources file (YAML), as for `sluice analyze`.
+    #[arg(long)]
+    pub(crate) sources: PathBuf,
+    /// The rules the SIEM runs now, as for `sluice analyze`: fetch them again first.
+    #[command(flatten)]
+    pub(crate) sets: RuleSets,
+    /// URL of a Kusto emulator: the Sentinel rules then run on the new sample too.
+    #[arg(long, requires_all = ["sentinel_rules", "sentinel_table"])]
+    pub(crate) kusto: Option<String>,
+    /// The Sentinel table a source's records are stored in, as `SOURCE=TABLE`. Repeatable.
+    #[arg(long, value_name = "SOURCE=TABLE", requires = "kusto")]
+    pub(crate) sentinel_table: Vec<String>,
+    /// An Elasticsearch: the Elastic rules' EQL and ES|QL then run on the new sample too.
+    #[arg(long, value_name = "URL", requires = "elastic_rules")]
+    pub(crate) elasticsearch: Option<String>,
+    /// The rules given are every rule and query the SIEM runs, as for `sluice analyze`. A plan
+    /// that counts events needs that, or rules fetched with `sluice rules fetch`.
+    #[arg(long)]
+    pub(crate) rules_complete: bool,
+    /// Print the result as JSON (for a scheduled job).
+    #[arg(long)]
+    pub(crate) json: bool,
+    /// Pass even when the new sample raises no alert. Such a proof shows nothing about
+    /// detections, so by default it fails.
     #[arg(long)]
     pub(crate) allow_no_alerts: bool,
 }

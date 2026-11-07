@@ -122,6 +122,60 @@ fn the_plan_lists_every_source_and_kind_of_event_with_the_proof() {
 }
 
 #[test]
+fn the_plan_says_which_sluice_wrote_it_and_every_rule_it_was_proven_with() {
+    let plan = plan();
+    assert_eq!(plan.sluice, env!("CARGO_PKG_VERSION"));
+    let rules: Vec<&str> = plan.rules.iter().map(|r| r.rule.as_str()).collect();
+    let mut expected: Vec<String> = demo()
+        .rules
+        .requirements()
+        .iter()
+        .map(|r| r.rule.to_string())
+        .collect();
+    expected.sort();
+    expected.dedup();
+    assert_eq!(rules, expected);
+    assert!(
+        plan.rules
+            .iter()
+            .all(|r| r.requirements.starts_with("sha256:"))
+    );
+}
+
+#[test]
+fn the_published_plan_schema_matches_the_plan() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/plan.schema.json");
+    if std::env::var_os("SLUICE_WRITE_SCHEMA").is_some() {
+        std::fs::write(path, SavingsPlan::json_schema()).expect("the schema is written");
+    }
+    let published = std::fs::read_to_string(path).expect("docs/plan.schema.json exists");
+    assert_eq!(
+        SavingsPlan::json_schema(),
+        published,
+        "docs/plan.schema.json is stale: run `SLUICE_WRITE_SCHEMA=1 cargo test -p \
+         sluice-autopilot --test demo the_published_plan_schema`"
+    );
+}
+
+#[test]
+fn the_plan_is_valid_against_its_schema() {
+    let schema: serde_json::Value =
+        serde_json::from_str(&SavingsPlan::json_schema()).expect("the schema is JSON");
+    let plan: serde_json::Value =
+        serde_json::from_str(&plan().to_json().expect("the plan serializes")).expect("JSON");
+    let validator = jsonschema::validator_for(&schema).expect("the schema is a valid schema");
+    let errors: Vec<String> = validator
+        .iter_errors(&plan)
+        .map(|e| format!("{} at {}", e, e.instance_path()))
+        .take(5)
+        .collect();
+    assert!(errors.is_empty(), "{errors:#?}");
+    let mut other = plan.clone();
+    other["format"] = "sluice.plan/2".into();
+    assert!(!validator.is_valid(&other), "another format is refused");
+}
+
+#[test]
 fn counting_runs_only_in_a_pipeline_and_removing_fields_also_in_the_siem() {
     let plan = plan();
     let counted = planned(&plan, "sysmon:10:");

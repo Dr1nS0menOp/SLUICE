@@ -6,8 +6,9 @@ for Vector, Microsoft Sentinel, Elasticsearch, Fluent Bit and the OpenTelemetry 
 proves every saving on your own data and rules. Sluice itself changes nothing: you decide what
 runs.**
 
-> **Alpha (0.1).** The analysis and its proof are tested on real data and in the real engines;
-> the commands, `plan.json` and the report may still change. See [Status: alpha](#status-alpha).
+> **1.0.** The analysis and its proof are tested on real data and in the real engines. The
+> commands, their exit codes and `plan.json` are stable across 1.x ([what stays stable](docs/stability.md));
+> see [Status](#status) for what is proven and what is experimental.
 
 **See what it finds before you install anything:**
 [`docs/example-report.html`](docs/example-report.html) is the report Sluice writes for real
@@ -61,14 +62,14 @@ These rules are enforced in code, and AI output can never override them:
    cannot write a second copy, so keep one where you send the data from.
 3. Anything a rule could match is sent in full.
 4. Rare events are never saved on.
-5. Every saving is proven before it is proposed, and `sluice prove` proves a configuration again
-   when it changes.
+5. Every saving is proven before it is proposed. `sluice prove` proves a configuration again
+   when it changes, and `sluice verify` proves a plan again on later data and the rules of now.
 6. AI proposes; the guardrails decide.
 
 When Sluice cannot read part of a rule, it assumes the rule reads everything. That costs savings,
 never a detection. The report lists every rule next to what Sluice made of it.
 
-## Status: alpha
+## Status
 
 **Proven against the real product:**
 
@@ -85,29 +86,32 @@ never a detection. The report lists every rule next to what Sluice made of it.
 - **Vector, Fluent Bit and the OpenTelemetry Collector.** Every configuration is run in the real
   engine in every test run.
 
+**Rules read from files**, instead of fetched from the SIEM, are supported: Sigma rules always
+come from files, and so do detection rules kept in Git. A file cannot say that it holds every
+rule the SIEM runs, so Sluice counts events instead of sending them only with
+`--rules-complete`. It cannot say what a workspace's functions do either, so a rule that calls
+one Sluice has no source for keeps every field, and the report lists it. `sluice verify`,
+with the rules fetched from the SIEM, tells you when the files and what runs drift apart.
+
 **Experimental:**
 
 - **Splunk on events it parses with an add-on** (such as `XmlWinEventLog`). Sluice reads JSON
   events with the fields Splunk extracts from their keys; it does not know an add-on's
   extractions.
-- **Rules read from files** instead of fetched from the SIEM. A file cannot say that it holds
-  every rule the SIEM runs, or what a workspace's functions do, so Sluice saves less and the
-  report lists what it could not check.
 
 Please report where you get stuck in an
-[issue](https://github.com/Dr1nS0menOp/SLUICE/issues): that is what the alpha is for.
+[issue](https://github.com/Dr1nS0menOp/SLUICE/issues).
 
 ## 1. Install
 
 Sluice runs on Linux (x86_64 and aarch64), including WSL2 on Windows. It is one static binary
-with no dependencies. This is an alpha: see
-[what is proven and what is experimental](#status-alpha).
+with no dependencies. See [what is proven and what is experimental](#status).
 
 **Download a release.** Each [release](https://github.com/Dr1nS0menOp/SLUICE/releases) has a
 binary per architecture and its SHA-256 sum:
 
 ```sh
-version=0.2.0
+version=1.0.0
 file=sluice-$version-$(uname -m)-unknown-linux-musl
 curl -fLO "https://github.com/Dr1nS0menOp/SLUICE/releases/download/v$version/$file"
 curl -fLO "https://github.com/Dr1nS0menOp/SLUICE/releases/download/v$version/$file.sha256"
@@ -117,6 +121,36 @@ sluice --version
 ```
 
 `~/.local/bin` is on the `PATH` of most distributions; if `sluice --version` is not found, add it.
+
+**Or install a package.** Each release also has a `.deb` and an `.rpm` per architecture, with
+the same binary in `/usr/bin/sluice`:
+
+```sh
+version=1.0.0
+curl -fLO "https://github.com/Dr1nS0menOp/SLUICE/releases/download/v$version/sluice_${version}_amd64.deb"
+sudo apt install ./sluice_${version}_amd64.deb              # Debian, Ubuntu (arm64: _arm64.deb)
+# sudo dnf install ./sluice-${version}-1.x86_64.rpm       # Fedora, RHEL (aarch64: .aarch64.rpm)
+```
+
+**Or run the container image**, for linux/amd64 and linux/arm64, as a user without privileges:
+
+```sh
+docker run --rm -u "$(id -u)" -v "$PWD:/work" ghcr.io/dr1ns0menop/sluice:1.0.0 demo
+```
+
+The image holds Sluice only, not the engines the proof can run your rules in.
+
+**Check where it came from.** Every binary, package and image is attested: GitHub signed a
+statement of the workflow and commit that built it ([ADR 0040](docs/adr/0040-release-artifacts.md)).
+With the GitHub CLI:
+
+```sh
+gh attestation verify "$file" --repo Dr1nS0menOp/SLUICE
+gh attestation verify oci://ghcr.io/dr1ns0menop/sluice:1.0.0 --repo Dr1nS0menOp/SLUICE
+```
+
+The release's `sluice-<version>.cdx.json` lists what the binary is built from (a CycloneDX
+SBOM).
 The guides below also use the scripts in the repository and Docker, for the engines the proof runs
 your rules in:
 
@@ -561,6 +595,22 @@ out with the tooling you already use (Git, CI, Ansible, Kubernetes). In CI, `slu
 the configuration in a pull request as it is. It fails when the configuration would change a
 detection, or when the sample raises no alert at all (`action.yml` runs it on GitHub; ADR 0022).
 
+**After it runs.** A plan is proven on one day's sample with that day's rules. `sluice verify`
+proves it again on a later sample with the rules the SIEM runs now, and says whether it still
+holds ([ADR 0039](docs/adr/0039-sluice-verify.md)):
+
+```sh
+sluice rules fetch --out rules-now sentinel --workspace "$WORKSPACE"
+sluice verify --analysis out --input samples-today --sources sources.yaml --sentinel-rules rules-now \
+  --kusto http://127.0.0.1:8090 --sentinel-table SecurityEvent=SecurityEvent
+```
+
+Exit 0: it holds. 1: a detection would change; take the plan out. 3: rules were added or changed
+since the plan was proven, so it does not protect them; run `sluice analyze` again. It also
+says what the new sample does to the savings: data of a kind the plan does not know is sent whole,
+and kinds of event whose saving fell are listed. Run it daily (`--json` for a job) for the
+re-verification contract rule 5 asks for.
+
 For data you send to Sentinel yourself, `sluice connect sentinel` writes two kinds of tables
 with their data collection rules: a custom table derived from a sample (`--sample`), and a table
 for summaries with a function that counts them in (`--summary-table`).
@@ -587,6 +637,7 @@ Sluice is a Rust workspace; the toolchain is pinned in `rust-toolchain.toml`.
 cargo build --release
 bash scripts/check.sh        # every quality gate; with Docker also the real engines
 bash scripts/install-zig.sh && bash scripts/build-release.sh   # static binaries for both architectures
+bash scripts/install-packaging.sh && bash scripts/package.sh  # .deb, .rpm, the image's context, the SBOM
 ```
 
 On Windows, run the same commands in WSL2. macOS is not supported: use a Linux VM or container
@@ -606,6 +657,7 @@ On Windows, run the same commands in WSL2. macOS is not supported: use a Linux V
   baseline, a second day to prove on, the way back, and what to report
 - [Field theory](docs/notes/field-theory.md): why a byte may go, what keeps every event's value,
   and the measurements behind both
+- [What stays stable](docs/stability.md): what 1.x keeps, and the JSON Schema of `plan.json`
 - [Architecture decisions](docs/adr/)
 - [Compatibility](docs/compatibility.md)
 - [Credits](docs/credits.md): the people and research Sluice builds on

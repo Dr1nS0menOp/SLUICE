@@ -25,4 +25,5 @@ report there is.
 
 ## Supported versions
 
-Sluice is an alpha (0.1); fixes go into the latest release only.
+Fixes go into the latest 1.x release. What 1.x keeps stable is in
+[docs/stability.md](docs/stability.md).

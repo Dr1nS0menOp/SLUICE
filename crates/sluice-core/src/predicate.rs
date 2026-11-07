@@ -15,6 +15,7 @@ use crate::field::FieldPath;
 
 /// How a field value is compared with the predicate's values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum MatchOp {
     /// The field equals one of the values.
@@ -33,6 +34,7 @@ pub enum MatchOp {
 
 /// A single test on one field.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct FieldTest {
     /// Field to test.
     pub field: FieldPath,
@@ -49,6 +51,7 @@ pub struct FieldTest {
 /// "Value" means every string, and every number as its decimal text, at any depth, including
 /// array members. Booleans and nulls never match. That is Sigma keyword semantics.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct KeywordTest {
     /// Substrings to look for. The test passes if any value contains any of them.
     pub values: Vec<String>,
@@ -58,6 +61,7 @@ pub struct KeywordTest {
 
 /// A boolean expression over field tests.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Predicate {
     /// Matches every event. Used wherever a rule part cannot be bounded.

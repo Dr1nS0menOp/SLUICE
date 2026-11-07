@@ -1,36 +1,104 @@
 name: Release
 
-# Pushing a tag such as v0.1.0 builds the static binaries and attaches them, with their SHA-256
-# sums, to a draft GitHub release. A maintainer reviews the draft and publishes it.
+# Pushing a tag such as v1.0.0 builds the static binaries, the .deb and .rpm packages, the SBOM
+# and the container image, attests where each was built (ADR 0040), and attaches the files with
+# their SHA-256 sums to a draft GitHub release. A maintainer reviews the draft and publishes it.
+# A tag with a pre-release part, such as v1.1.0-rc.1, makes a pre-release.
 on:
   push:
     tags: ["v*"]
 
 permissions:
   contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+env:
+  IMAGE: ghcr.io/dr1ns0menop/sluice
 
 jobs:
-  binaries:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
       - run: rustup show active-toolchain || rustup toolchain install
       - run: bash scripts/install-zig.sh
+      - run: bash scripts/install-packaging.sh
       - run: PATH="$HOME/.local/bin:$PATH" bash scripts/build-release.sh
       - name: Tag matches the crate version
         run: test -f "dist/sluice-${GITHUB_REF_NAME#v}-x86_64-unknown-linux-musl"
       - name: The static binary runs the demo
         run: ./dist/sluice-*-x86_64-unknown-linux-musl demo --scale 2 --out /tmp/demo
+      - run: PATH="$HOME/.local/bin:$PATH" bash scripts/package.sh
+      - name: The packages install and run
+        run: bash scripts/package-check.sh
+
+      - name: Attest the build of the binaries and packages
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/sluice-*-unknown-linux-musl
+            dist/sluice_*.deb
+            dist/sluice-*.rpm
+      - name: Attest the binaries' SBOM
+        uses: actions/attest-sbom@v4
+        with:
+          subject-path: dist/sluice-*-unknown-linux-musl
+          sbom-path: dist/sluice-${{ steps.version.outputs.version }}.cdx.json
+
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Image tags
+        id: tags
+        env:
+          version: ${{ steps.version.outputs.version }}
+        run: |
+          tags="$IMAGE:$version"
+          # Only a final release moves `latest`.
+          [[ $version == *-* ]] || tags="$tags,$IMAGE:latest"
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+      - name: Build and push the image
+        id: image
+        uses: docker/build-push-action@v7
+        with:
+          context: dist/image
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+            org.opencontainers.image.title=Sluice
+            org.opencontainers.image.description=Shrinks SIEM ingest without changing a single detection
+      - name: Attest the build of the image
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+
       - name: Notes from the CHANGELOG
         run: bash scripts/release-notes.sh "${GITHUB_REF_NAME#v}" > notes.md
       - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}
-        # Before 1.0 every release is an alpha, marked as a pre-release on GitHub.
         run: |
           case "$GITHUB_REF_NAME" in
-            v0.*) stage=(--prerelease --title "Sluice $GITHUB_REF_NAME (alpha)") ;;
+            v0.* | v*-*) stage=(--prerelease --title "Sluice $GITHUB_REF_NAME (pre-release)") ;;
             *) stage=(--title "Sluice $GITHUB_REF_NAME") ;;
           esac
           gh release create "$GITHUB_REF_NAME" --draft --verify-tag "${stage[@]}" \
-            --notes-file notes.md dist/sluice-*
+            --notes-file notes.md \
+            dist/sluice-*-unknown-linux-musl dist/sluice-*-unknown-linux-musl.sha256 \
+            dist/sluice_*.deb dist/sluice_*.deb.sha256 \
+            dist/sluice-*.rpm dist/sluice-*.rpm.sha256 \
+            dist/sluice-*.cdx.json dist/sluice-*.cdx.json.sha256

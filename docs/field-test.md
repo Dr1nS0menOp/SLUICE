@@ -65,16 +65,17 @@ it.
 sluice analyze --input day1/ --sources sources.yaml --sentinel-rules inventory/sentinel \
   --kusto http://127.0.0.1:8090 --sentinel-table SecurityEvent=SecurityEvent \
   --native sentinel --sentinel-dcr dcr/SecurityEvent.dcr.json --out out/
-sluice prove --config out/vector.yaml --input day2/ --sources sources.yaml \
+sluice verify --analysis out/ --input day2/ --sources sources.yaml \
   --sentinel-rules inventory/sentinel --kusto http://127.0.0.1:8090 \
   --sentinel-table SecurityEvent=SecurityEvent
 ```
 
-`sluice prove` runs what was learned on day 1 on day 2's records, which it has never seen. It
-must list no `missing` or `extra` alert (it fails otherwise), and the saving it prints is what
-day 1's plan saves on day 2.
+`sluice verify` runs what was learned on day 1 on day 2's records, which it has never seen
+([ADR 0039](adr/0039-sluice-verify.md)). It must say `the plan holds` (exit 0) and list no
+`missing` or `extra` alert. The saving it prints is what day 1's plan saves on day 2, next to what
+it saved on day 1, with the share of day 2's data of a kind day 1 did not have.
 
-A proof without alerts shows little: if the sample raised none, `sluice prove` says so and
+A proof without alerts shows little: if the sample raised none, `sluice verify` says so and
 fails. Take the sample from an hour in which your rules fire, or run a few harmless attack
 simulations in that hour (for example [Atomic Red Team](https://github.com/redcanaryco/atomic-red-team)
 tests on a test machine). `--allow-no-alerts` accepts the proof anyway.
@@ -151,9 +152,9 @@ what was left out of the table in the meantime can still be read there.
 - **A sample of an hour may miss rare events.** Kinds of event with fewer than 100 events, or
   under 0.1 % of the source, are never changed; a kind that is rare in the sample and common later
   stays unchanged until the next analysis.
-- **Rules change.** A rule added after the analysis is not protected until you fetch the rules
-  and analyze again. Run both regularly, for example weekly in CI
-  ([usage, step 7](usage.md#7-review-every-change-in-git)).
+- **Rules change.** A rule added after the analysis is not protected until you analyze again.
+  Fetch the rules and run `sluice verify` every day: it reports such a rule and exits 3
+  ([usage, step 8](usage.md#8-check-a-plan-later)).
 
 ## Reporting back
 
@@ -163,7 +164,7 @@ numbers only, never records:
 - the SIEM, its version, and the sources (product and service, not host names);
 - the report's saving per source and the measured saving per table after a week;
 - alerts per rule before and after, for any rule that changed;
-- `plan.json`'s `problems`, and what `sluice prove` said on day 2;
+- `plan.json`'s `problems`, and what `sluice verify` said on day 2 (`--json` holds no records);
 - anything that surprised you in the report.
 
 A report written with `--no-examples` leaves the sample's values out and can be shared.

@@ -21,17 +21,24 @@ use sluice_core::template::{Template, TemplateShape};
 
 use crate::analyze::Analysis;
 use crate::basis::RulesBasis;
+use crate::fingerprint::RuleFingerprint;
 use crate::mode::Mode;
 use crate::report::{Report, text};
 
-/// The format of [`SavingsPlan`], changed whenever its meaning changes.
+/// The format of [`SavingsPlan`]. A field may be added within a format, and readers ignore
+/// fields they do not know; a field whose meaning changes, or one that goes, makes a new format
+/// (docs/stability.md).
 pub const PLAN_FORMAT: &str = "sluice.plan/1";
 
 /// What may be sent less, and why that changes no detection.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, schemars::JsonSchema)]
+#[schemars(title = "Sluice savings plan (sluice.plan/1)")]
 pub struct SavingsPlan {
-    /// [`PLAN_FORMAT`].
+    /// The format of this file: always `sluice.plan/1`. A reader refuses another.
+    #[schemars(extend("const" = "sluice.plan/1"))]
     pub format: &'static str,
+    /// The version of Sluice that wrote the plan.
+    pub sluice: &'static str,
     /// The proof the plan rests on.
     pub proof: PlanProof,
     /// Volume of the sample, in and as the plan forwards it.
@@ -44,10 +51,13 @@ pub struct SavingsPlan {
     pub problems: Vec<PlanProblem>,
     /// Every source, with every kind of event found in it.
     pub sources: Vec<SourcePlan>,
+    /// Every rule the plan was proven with, as it was read: `sluice verify` compares the rules
+    /// the SIEM runs now with these, since the plan protects no other (ADR 0039).
+    pub rules: Vec<RuleFingerprint>,
 }
 
 /// One problem, as the report lists it.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, schemars::JsonSchema)]
 pub struct PlanProblem {
     /// `unreadable`, `unknown_function`, `read_broadly`, `unchecked`, `shared_id`,
     /// `missing_rule`, `left_out` or `recipe` ([`ProblemKind::name`]).
@@ -84,7 +94,7 @@ impl From<&Problem> for PlanProblem {
 }
 
 /// The proof on the sample.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 pub struct PlanProof {
     /// Whether the forwarded data raises exactly the alerts of the full data.
     pub holds: bool,
@@ -102,7 +112,7 @@ pub struct PlanProof {
 }
 
 /// One source.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, schemars::JsonSchema)]
 pub struct SourcePlan {
     /// Source id.
     pub id: String,
@@ -115,7 +125,7 @@ pub struct SourcePlan {
 }
 
 /// One kind of event (template) and what may be done to it.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, schemars::JsonSchema)]
 pub struct TemplatePlan {
     /// Template id.
     pub id: String,
@@ -126,7 +136,7 @@ pub struct TemplatePlan {
     /// Its volume in the sample.
     pub volume: Volume,
     /// Fields that may be removed from every event sent.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub remove_fields: Vec<FieldPath>,
     /// If set, null and empty fields may be removed, except these.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -135,7 +145,7 @@ pub struct TemplatePlan {
     /// An absent field means that value, so every removed value can be put back. They run where
     /// `runs_in` says, except that an agent (Fluent Bit, the collector) leaves a value tested
     /// against a whole number in place: it cannot tell `3` from `3.0`.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub remove_implied: Vec<ImpliedValue>,
     /// Events matching this keep every field: a rule could match them (contract rule 3).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -146,7 +156,7 @@ pub struct TemplatePlan {
     /// Where the saving can run; empty when the template is sent unchanged.
     pub runs_in: Vec<Placement>,
     /// Why proposals were refused or narrowed, in plain words.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reasons: Vec<String>,
     /// Where the proposal came from, if there was one.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -154,7 +164,7 @@ pub struct TemplatePlan {
 }
 
 /// Counting instead of sending.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 pub struct CountInstead {
     /// Events any applicable rule could match: these are sent.
     pub forward_when: Predicate,
@@ -163,7 +173,7 @@ pub struct CountInstead {
 }
 
 /// Where a saving can be carried out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Placement {
     /// A pipeline tool in front of the SIEM, such as Vector: every saving.
@@ -187,6 +197,7 @@ impl SavingsPlan {
             &analysis.proposals,
             report,
             sources,
+            analysis.fingerprints.clone(),
         )
     }
 
@@ -196,6 +207,7 @@ impl SavingsPlan {
         proposals: &BTreeMap<TemplateId, Recipe>,
         report: &Report,
         sources: &[Source],
+        rules: Vec<RuleFingerprint>,
     ) -> Self {
         let mut by_source: BTreeMap<&str, Vec<TemplatePlan>> = BTreeMap::new();
         for (template, recipe) in templates.iter().zip(&selection.recipes) {
@@ -224,6 +236,7 @@ impl SavingsPlan {
             .collect();
         Self {
             format: PLAN_FORMAT,
+            sluice: env!("CARGO_PKG_VERSION"),
             proof: PlanProof {
                 holds: report.proven,
                 alerts_full: report.alerts_full,
@@ -240,6 +253,7 @@ impl SavingsPlan {
                 .collect(),
             problems: problems(&report.problems),
             sources,
+            rules,
         }
     }
 
@@ -250,6 +264,15 @@ impl SavingsPlan {
     /// Returns the serializer's error; the plan's types always serialize, so it does not occur.
     pub fn to_json(&self) -> serde_json::Result<String> {
         serde_json::to_string_pretty(self).map(|json| json + "\n")
+    }
+
+    /// The JSON Schema of `plan.json`, generated from the types that write it so the two cannot
+    /// drift apart. The repository keeps a copy in `docs/plan.schema.json`.
+    #[must_use]
+    pub fn json_schema() -> String {
+        let schema = schemars::schema_for!(SavingsPlan);
+        // A generated schema is plain JSON values; serializing it cannot fail.
+        serde_json::to_string_pretty(&schema).unwrap_or_default() + "\n"
     }
 }
 

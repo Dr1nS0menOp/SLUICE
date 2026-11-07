@@ -42,6 +42,13 @@ and contribute to.
 - **`unsafe` is forbidden** (`#![forbid(unsafe_code)]` via workspace lints).
 - **Small functions and modules.** Split a module that passes about 400 lines.
 - **Naming** follows the Rust API Guidelines (C-CASE, C-CONV, C-GETTER).
+- **Stable parts only grow** ([docs/stability.md](docs/stability.md), ADR 0038). Commands,
+  flags, exit codes, the files Sluice reads, `plan.json` (`sluice.plan/1`) and the `--json`
+  output of `prove` and `verify` may gain things in 1.x, never lose or change them. A flag that
+  is to go is deprecated with a warning first. A field added to the plan with
+  `skip_serializing_if` also gets `#[serde(default)]`, so the schema marks it optional. After
+  changing the plan's types, write the schema again:
+  `SLUICE_WRITE_SCHEMA=1 cargo test -p sluice-autopilot --test demo the_published_plan_schema`.
 
 ## Quality gates (must pass before anything counts as done)
 
@@ -56,6 +63,10 @@ saved searches in a real Splunk (ADR 0037). It starts Splunk only when the perso
 set `SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com`: a script never accepts a licence
 on anyone's behalf. CI (`.github/workflows/ci.yml`) runs the same gates, except the Kusto
 emulator and Splunk, whose images are too large to pull on every run.
+
+- Release artifacts (ADR 0040): `scripts/build-release.sh`, then `scripts/package.sh` (after
+  `scripts/install-packaging.sh`) and `scripts/package-check.sh`, which installs the `.deb` and
+  `.rpm` in containers and runs the image. CI's `package` job runs all three.
 
 - Every engine Sluice generates code for gets a differential test against the real engine
   (Vector, Kusto); generated code that cannot be checked that way ships as advisory only.

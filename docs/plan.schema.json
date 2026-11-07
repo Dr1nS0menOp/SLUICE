@@ -1,0 +1,813 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sluice savings plan (sluice.plan/1)",
+  "description": "What may be sent less, and why that changes no detection.",
+  "type": "object",
+  "properties": {
+    "format": {
+      "description": "The format of this file: always `sluice.plan/1`. A reader refuses another.",
+      "type": "string",
+      "const": "sluice.plan/1"
+    },
+    "problems": {
+      "description": "What Sluice could not read or check in the rules and recipes, sorted. Each one was read\nas broadly as it could reach (fail closed): it costs savings, never a detection, and\nfixing it (giving a function's source, a rule that is referred to) can save more.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PlanProblem"
+      }
+    },
+    "proof": {
+      "description": "The proof the plan rests on.",
+      "$ref": "#/$defs/PlanProof"
+    },
+    "rules": {
+      "description": "Every rule the plan was proven with, as it was read: `sluice verify` compares the rules\nthe SIEM runs now with these, since the plan protects no other (ADR 0039).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RuleFingerprint"
+      }
+    },
+    "saved_by_mode": {
+      "description": "Bytes each kind of saving the analysis made saved (`--mode`).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0
+      }
+    },
+    "sluice": {
+      "description": "The version of Sluice that wrote the plan.",
+      "type": "string"
+    },
+    "sources": {
+      "description": "Every source, with every kind of event found in it.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SourcePlan"
+      }
+    },
+    "total": {
+      "description": "Volume of the sample, in and as the plan forwards it.",
+      "$ref": "#/$defs/Volume"
+    }
+  },
+  "required": [
+    "format",
+    "sluice",
+    "proof",
+    "total",
+    "saved_by_mode",
+    "problems",
+    "sources",
+    "rules"
+  ],
+  "$defs": {
+    "CountInstead": {
+      "description": "Counting instead of sending.",
+      "type": "object",
+      "properties": {
+        "forward_when": {
+          "description": "Events any applicable rule could match: these are sent.",
+          "$ref": "#/$defs/Predicate"
+        },
+        "keys": {
+          "description": "The fields the counts are kept per.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FieldPath"
+          }
+        }
+      },
+      "required": [
+        "forward_when",
+        "keys"
+      ]
+    },
+    "FieldPath": {
+      "description": "A dotted path to a field in an event, such as `TargetUserName` or `process.parent.name`.\n\nSigma and Wazuh rules refer to fields by these names, so the same type is used for the fields a\nrule needs and the fields a reduction touches. Comparisons are exact and case-sensitive.\nEvent schemas are case-sensitive, and treating `user` and `User` as equal would hide a\nguardrail miss.",
+      "type": "string"
+    },
+    "FieldTest": {
+      "description": "A single test on one field.",
+      "type": "object",
+      "properties": {
+        "case_sensitive": {
+          "description": "Whether comparison is case-sensitive. Sigma defaults to case-insensitive.",
+          "type": "boolean"
+        },
+        "field": {
+          "description": "Field to test.",
+          "$ref": "#/$defs/FieldPath"
+        },
+        "op": {
+          "description": "Comparison to apply.",
+          "$ref": "#/$defs/MatchOp"
+        },
+        "values": {
+          "description": "Values to compare against. The test passes if any value matches.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "field",
+        "op",
+        "values",
+        "case_sensitive"
+      ]
+    },
+    "ImpliedValue": {
+      "description": "A field's value that is implied: by the kind of event alone, or by another field's value.\nRemoving the field only while it holds `value` (and `when` holds) loses nothing: the absent\nfield means `value`.",
+      "type": "object",
+      "properties": {
+        "field": {
+          "description": "The field.",
+          "$ref": "#/$defs/FieldPath"
+        },
+        "value": {
+          "description": "The value it holds when implied.",
+          "$ref": "#/$defs/Literal"
+        },
+        "when": {
+          "description": "The field and value that imply it; `None` when the kind of event alone does.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/FieldPath"
+            },
+            {
+              "$ref": "#/$defs/Literal"
+            }
+          ]
+        }
+      },
+      "required": [
+        "field",
+        "value"
+      ]
+    },
+    "KeywordTest": {
+      "description": "A free-text test: some value anywhere in the event contains one of `values`.\n\n\"Value\" means every string, and every number as its decimal text, at any depth, including\narray members. Booleans and nulls never match. That is Sigma keyword semantics.",
+      "type": "object",
+      "properties": {
+        "case_sensitive": {
+          "description": "Whether comparison is case-sensitive. Sigma keywords are case-insensitive.",
+          "type": "boolean"
+        },
+        "values": {
+          "description": "Substrings to look for. The test passes if any value contains any of them.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "values",
+        "case_sensitive"
+      ]
+    },
+    "LineHeader": {
+      "description": "Header kind of the lines in a text template.",
+      "oneOf": [
+        {
+          "description": "No recognised header; tokens cover the whole line.",
+          "type": "string",
+          "const": "none"
+        },
+        {
+          "description": "A syslog header was reduced to its program name, the first token.",
+          "type": "string",
+          "const": "syslog"
+        },
+        {
+          "description": "Lines of both kinds merged. No classifier can describe the template, so it is never\nmatched in the data plane and its events pass through.",
+          "type": "string",
+          "const": "mixed"
+        }
+      ]
+    },
+    "Literal": {
+      "description": "A scalar value as an event carries it. Integers and strings compare exactly, so a value\nguard never mistakes `0` for `\"0\"`.",
+      "anyOf": [
+        {
+          "description": "`true` or `false`.",
+          "type": "boolean"
+        },
+        {
+          "description": "A whole number that fits in 64 bits.",
+          "type": "integer",
+          "format": "int64"
+        },
+        {
+          "description": "A string.",
+          "type": "string"
+        }
+      ]
+    },
+    "LogSource": {
+      "description": "Sigma-style log source descriptor (`product`, `service`, `category`).\n\nRules use it to say which data they apply to, and templates use it to say what they are. A\nmissing attribute means \"any\" on a rule, and \"unknown\" on data unless the data's descriptor is\nmarked complete.",
+      "type": "object",
+      "properties": {
+        "category": {
+          "description": "For example `process_creation`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "product": {
+          "description": "For example `windows` or `linux`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "service": {
+          "description": "For example `security` or `sysmon`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "MatchOp": {
+      "description": "How a field value is compared with the predicate's values.",
+      "oneOf": [
+        {
+          "description": "The field equals one of the values.",
+          "type": "string",
+          "const": "equals"
+        },
+        {
+          "description": "The field contains one of the values.",
+          "type": "string",
+          "const": "contains"
+        },
+        {
+          "description": "The field starts with one of the values.",
+          "type": "string",
+          "const": "starts_with"
+        },
+        {
+          "description": "The field ends with one of the values.",
+          "type": "string",
+          "const": "ends_with"
+        },
+        {
+          "description": "The field matches one of the values as a regular expression.",
+          "type": "string",
+          "const": "regex"
+        },
+        {
+          "description": "The field is present (values are ignored).",
+          "type": "string",
+          "const": "exists"
+        }
+      ]
+    },
+    "Placement": {
+      "description": "Where a saving can be carried out.",
+      "oneOf": [
+        {
+          "description": "A pipeline tool in front of the SIEM, such as Vector: every saving.",
+          "type": "string",
+          "const": "pipeline"
+        },
+        {
+          "description": "The SIEM's own ingestion, such as a Sentinel DCR transformation or an Elasticsearch\ningest pipeline: removing fields only, since counting needs state across events that\ningestion-time transformations lack.",
+          "type": "string",
+          "const": "siem_ingest"
+        },
+        {
+          "description": "The collection agent, such as Fluent Bit or the OpenTelemetry Collector: removing fields\nonly, as in the SIEM's ingestion.",
+          "type": "string",
+          "const": "agent"
+        }
+      ]
+    },
+    "PlanProblem": {
+      "description": "One problem, as the report lists it.",
+      "type": "object",
+      "properties": {
+        "engine": {
+          "description": "For `unknown_function`: the rule language that calls it (`sentinel`, `elastic`, …).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "function": {
+          "description": "For `unknown_function`: the function or parser whose source is missing.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "`unreadable`, `unknown_function`, `read_broadly`, `unchecked`, `shared_id`,\n`missing_rule`, `left_out` or `recipe` ([`ProblemKind::name`]).",
+          "type": "string"
+        },
+        "message": {
+          "description": "What happened and what Sluice did, as a sentence.",
+          "type": "string"
+        },
+        "rule": {
+          "description": "The rule it concerns, if there is one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "message"
+      ]
+    },
+    "PlanProof": {
+      "description": "The proof on the sample.",
+      "type": "object",
+      "properties": {
+        "alerts_forwarded": {
+          "description": "Alerts on what the plan forwards.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "alerts_full": {
+          "description": "Alerts on the full sample.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "holds": {
+          "description": "Whether the forwarded data raises exactly the alerts of the full data.",
+          "type": "boolean"
+        },
+        "note": {
+          "description": "Said when the sample raised no alert: the proof then shows nothing about detections.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rules": {
+          "description": "Rules per rule set.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          }
+        },
+        "rules_basis": {
+          "description": "On what grounds the rules count as every rule the SIEM runs.",
+          "$ref": "#/$defs/RulesBasis"
+        }
+      },
+      "required": [
+        "holds",
+        "alerts_full",
+        "alerts_forwarded",
+        "rules",
+        "rules_basis"
+      ]
+    },
+    "Predicate": {
+      "description": "A boolean expression over field tests.",
+      "oneOf": [
+        {
+          "description": "Matches every event. Used wherever a rule part cannot be bounded.",
+          "type": "string",
+          "const": "always"
+        },
+        {
+          "description": "Matches if any child matches. An empty `Any` matches nothing.",
+          "type": "object",
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Predicate"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "any"
+          ]
+        },
+        {
+          "description": "Matches if all children match. An empty `All` matches everything.",
+          "type": "object",
+          "properties": {
+            "all": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Predicate"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "all"
+          ]
+        },
+        {
+          "description": "A test on one field.",
+          "type": "object",
+          "properties": {
+            "field": {
+              "$ref": "#/$defs/FieldTest"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "field"
+          ]
+        },
+        {
+          "description": "A free-text test over every value of the event.",
+          "type": "object",
+          "properties": {
+            "keywords": {
+              "$ref": "#/$defs/KeywordTest"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "keywords"
+          ]
+        }
+      ]
+    },
+    "RuleFingerprint": {
+      "description": "One rule, as the plan was proven with it.",
+      "type": "object",
+      "properties": {
+        "requirements": {
+          "description": "`sha256:` and the hex SHA-256 of what Sluice read the rule as: its requirements as\ncompact JSON. Rules that share an id are digested together, in a fixed order.",
+          "type": "string"
+        },
+        "rule": {
+          "description": "The rule's id, such as `sigma:<uuid>` or `sentinel:<name>`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rule",
+        "requirements"
+      ]
+    },
+    "RulesBasis": {
+      "description": "Why the rules of an analysis are, or are not, taken to be complete. Only complete rules let\nthe guardrails summarize events: a rule Sluice was not given could match any event it would\nnot forward.",
+      "oneOf": [
+        {
+          "description": "Nothing says the rules are complete: only savings that keep every event are made.",
+          "type": "string",
+          "const": "not_known"
+        },
+        {
+          "description": "The operator declared them complete (`--rules-complete`); Sluice cannot check that.",
+          "type": "string",
+          "const": "claimed"
+        },
+        {
+          "description": "Every rule set was read from its SIEM (`sluice rules fetch`).",
+          "type": "string",
+          "const": "fetched"
+        },
+        {
+          "description": "The rules of a self-contained sample, such as the synthetic demo.",
+          "type": "string",
+          "const": "self_contained"
+        }
+      ]
+    },
+    "Schema": {
+      "description": "The convention a source's field names follow, or that a rule's field names are written in.",
+      "oneOf": [
+        {
+          "description": "Not declared. Nothing is known about the names, so no rule's field names can be compared\nwith them (safety contract rule 3 then keeps everything such a rule could read).",
+          "type": "string",
+          "const": "undeclared"
+        },
+        {
+          "description": "The names Sigma rules use: Windows event data names (`Image`, `TargetUserName`) and the\nnames the rule author chose for other products.",
+          "type": "string",
+          "const": "sigma"
+        },
+        {
+          "description": "Elastic Common Schema (`process.executable`, `source.ip`).",
+          "type": "string",
+          "const": "ecs"
+        },
+        {
+          "description": "Splunk's Common Information Model.",
+          "type": "string",
+          "const": "cim"
+        },
+        {
+          "description": "Microsoft Sentinel's Advanced Security Information Model.",
+          "type": "string",
+          "const": "asim"
+        },
+        {
+          "description": "The Open Cybersecurity Schema Framework.",
+          "type": "string",
+          "const": "ocsf"
+        },
+        {
+          "description": "Google's Unified Data Model.",
+          "type": "string",
+          "const": "udm"
+        },
+        {
+          "description": "The columns of a Microsoft Sentinel table that is not an ASIM table (`Syslog`,\n`CommonSecurityLog`).",
+          "type": "string",
+          "const": "sentinel"
+        },
+        {
+          "description": "The fields as Splunk extracts them at search time: for a JSON event, its key paths\njoined by dots (`KV_MODE = json`). Aliases and calculated fields (`props.conf`) are not\npart of the record; given `props.conf`, Splunk searches are read through them.",
+          "type": "string",
+          "const": "splunk"
+        }
+      ]
+    },
+    "SourcePlan": {
+      "description": "One source.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Source id.",
+          "type": "string"
+        },
+        "logsource": {
+          "description": "What the source is.",
+          "$ref": "#/$defs/LogSource"
+        },
+        "schema": {
+          "description": "The naming convention of its field names.",
+          "$ref": "#/$defs/Schema"
+        },
+        "templates": {
+          "description": "Its kinds of event, largest volume first.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TemplatePlan"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "logsource",
+        "schema",
+        "templates"
+      ]
+    },
+    "TemplatePlan": {
+      "description": "One kind of event (template) and what may be done to it.",
+      "type": "object",
+      "properties": {
+        "count_instead": {
+          "description": "If set, events outside `forward_when` may be counted instead of sent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CountInstead"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "description": "Template id.",
+          "type": "string"
+        },
+        "keep_whole_when": {
+          "description": "Events matching this keep every field: a rule could match them (contract rule 3).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Predicate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pattern": {
+          "description": "Human-readable shape.",
+          "type": "string"
+        },
+        "provenance": {
+          "description": "Where the proposal came from, if there was one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reasons": {
+          "description": "Why proposals were refused or narrowed, in plain words.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "remove_empty_fields_except": {
+          "description": "If set, null and empty fields may be removed, except these.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/FieldPath"
+          }
+        },
+        "remove_fields": {
+          "description": "Fields that may be removed from every event sent.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FieldPath"
+          }
+        },
+        "remove_implied": {
+          "description": "Fields that may be removed while they hold the value given, after the removals above.\nAn absent field means that value, so every removed value can be put back. They run where\n`runs_in` says, except that an agent (Fluent Bit, the collector) leaves a value tested\nagainst a whole number in place: it cannot tell `3` from `3.0`.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImpliedValue"
+          }
+        },
+        "runs_in": {
+          "description": "Where the saving can run; empty when the template is sent unchanged.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Placement"
+          }
+        },
+        "shape": {
+          "description": "How to recognise its events: the exact shape a tool compiles a classifier from.",
+          "$ref": "#/$defs/TemplateShape"
+        },
+        "volume": {
+          "description": "Its volume in the sample.",
+          "$ref": "#/$defs/Volume"
+        }
+      },
+      "required": [
+        "id",
+        "pattern",
+        "shape",
+        "volume",
+        "runs_in"
+      ]
+    },
+    "TemplateShape": {
+      "description": "The exact shape of a template: what an event must look like to belong to it.\n\nDiscovery produces it and the data plane compiles it into a classifier. Both sides must agree\non the definition, which is why it lives in core.",
+      "oneOf": [
+        {
+          "description": "A JSON event with these discriminator values and exactly one of `variants` as its leaf\npaths (nested objects flattened with `.`, arrays and scalars as leaves, empty objects\nabsent). An event with another key set belongs to another template, or to none.",
+          "type": "object",
+          "properties": {
+            "discriminators": {
+              "description": "Discriminator fields and their rendered values (strings as-is, other scalars as JSON).",
+              "type": "array",
+              "items": {
+                "type": "array",
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/FieldPath"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "keyset"
+            },
+            "paths": {
+              "description": "Every leaf path of any variant: the fields an event of the template may carry.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/FieldPath"
+              },
+              "uniqueItems": true
+            },
+            "variants": {
+              "description": "The exact key sets the template accepts, at least one (ADR 0019). Several when one\nkind of event comes in several shapes, such as with and without an optional field.",
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/FieldPath"
+                },
+                "uniqueItems": true
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "discriminators",
+            "paths",
+            "variants"
+          ]
+        },
+        {
+          "description": "A text line in `field`, matching masked Drain tokens.",
+          "type": "object",
+          "properties": {
+            "field": {
+              "description": "Field holding the line.",
+              "$ref": "#/$defs/FieldPath"
+            },
+            "header": {
+              "description": "Whether the line carried a syslog header (then `tokens[0]` is the program name).",
+              "$ref": "#/$defs/LineHeader"
+            },
+            "kind": {
+              "type": "string",
+              "const": "text"
+            },
+            "tokens": {
+              "description": "Masked tokens; see [`token`] for placeholders.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "field",
+            "header",
+            "tokens"
+          ]
+        }
+      ]
+    },
+    "Volume": {
+      "description": "Volume through the data plane, for one template or in total.",
+      "type": "object",
+      "properties": {
+        "bytes_in": {
+          "description": "Bytes in (compact JSON).",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "bytes_out": {
+          "description": "Bytes sent (compact JSON): the forwarded bodies and the summary records. A summary is\nsent too, so counting events saves what they take less what their counts take.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "events": {
+          "description": "Events in.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "forwarded": {
+          "description": "Events forwarded to the SIEM (in full or reduced).",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "summaries": {
+          "description": "Summary records those events make: one per window of [`SUMMARY_WINDOW_SECONDS`] and per\ngroup of the events' summary keys.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 0,
+          "minimum": 0
+        },
+        "summarized": {
+          "description": "Events counted into summaries instead.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "events",
+        "forwarded",
+        "summarized",
+        "bytes_in",
+        "bytes_out"
+      ]
+    }
+  }
+}

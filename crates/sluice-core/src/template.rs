@@ -42,6 +42,7 @@ pub struct Template {
 /// Discovery produces it and the data plane compiles it into a classifier. Both sides must agree
 /// on the definition, which is why it lives in core.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TemplateShape {
     /// A JSON event with these discriminator values and exactly one of `variants` as its leaf
@@ -69,6 +70,7 @@ pub enum TemplateShape {
 
 /// Header kind of the lines in a text template.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum LineHeader {
     /// No recognised header; tokens cover the whole line.

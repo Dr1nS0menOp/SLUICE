@@ -19,6 +19,9 @@ configuration use in brackets where it differs.
 | **Archive table** | The table of a cheap plan (Sentinel's Auxiliary, the data lake) that the data collection rule Sluice writes fills with every record whole (contract rule 2). Records no rule could match may stay there only (ADR 0036): searchable, at about 3.5 % of the analytics table's price. |
 | **Field theory** | Why a byte may go: the rules see what they read (sufficiency), nothing is lost (an implied value is a functional dependency, removed only where it holds), and every event stays searchable (the archive) ([notes](notes/field-theory.md)). |
 | **Savings plan** (`plan.json`) | Per source and kind of event, what may be removed or counted, which events keep every field, where the saving can run (`runs_in`), the proof, and the problems reading the rules. Every configuration is built from the same proven selection. |
+| **Rule fingerprint** (`rules` in `plan.json`) | A rule's id with the SHA-256 of what Sluice read it as (its requirements). A plan records one per rule it was proven with, so `sluice verify` can tell which rules of now it does not protect (ADR 0039). |
+| **Verify** (`sluice verify`) | Proving a plan again on a later sample with the rules the SIEM runs now. Its verdict is *holds* (exit 0), *does not hold*: a detection would change (1), or *out of date*: rules were added or changed since the plan was proven (3). |
+| **Stable** | Kept across 1.x: the commands and flags, the exit codes, the files Sluice reads, `plan.json`'s format (`sluice.plan/1`) and the `--json` output. What Sluice saves and writes is not ([stability](stability.md)). |
 | **Native configuration** | A configuration in a tool's own language: a data collection rule `transformKql`, an Elasticsearch ingest pipeline, a Fluent Bit Lua filter or OpenTelemetry Collector `transform` statements. Field removals only, each proven in that tool. |
 
 ## Deciding

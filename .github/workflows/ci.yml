@@ -102,16 +102,27 @@ jobs:
       - run: bash scripts/sigma-differential.sh --sigmahq
 
   package:
-    name: Static binaries
+    name: Static binaries, packages and the image
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: bash scripts/install-zig.sh
+      - run: bash scripts/install-packaging.sh
       - run: PATH="$HOME/.local/bin:$PATH" bash scripts/build-release.sh
       - name: The static binary runs the demo
         run: ./dist/sluice-*-x86_64-unknown-linux-musl demo --scale 2 --out /tmp/demo
+      - run: PATH="$HOME/.local/bin:$PATH" bash scripts/package.sh
+      - name: The packages install and run
+        run: bash scripts/package-check.sh
+      - uses: docker/setup-buildx-action@v4
+      - name: The image builds for both architectures
+        uses: docker/build-push-action@v7
+        with:
+          context: dist/image
+          platforms: linux/amd64,linux/arm64
+          push: false
       - uses: actions/upload-artifact@v4
         with:
           name: sluice-linux-musl

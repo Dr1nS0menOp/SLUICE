@@ -2,12 +2,12 @@
 
 [CLAUDE.md](CLAUDE.md) has the conventions and [docs/adr/](docs/adr/) has the decisions.
 
-**Where the project stands (2026-11-01): v0.2.0, an alpha; next a field test** ([docs/field-test.md](docs/field-test.md)). v0.1.0 was the first release (2026-10-23). Sluice advises
+**Where the project stands (2026-11-08): v1.0.0, the first stable release; next a field test** ([docs/field-test.md](docs/field-test.md)). v0.1.0 was the first release (2026-10-23), v0.2.0 the alpha for the field test (2026-11-01). 1.0 added what stays stable ([docs/stability.md](docs/stability.md), ADR 0038), `sluice verify` (ADR 0039) and packages, an image and attestations (ADR 0040). Sluice advises
 only (ADR 0030). The README's guides were checked against Microsoft Sentinel (end to end, on a
-live workspace), Elastic Security and Wazuh; rules read from files are experimental. Splunk was
+live workspace), Elastic Security and Wazuh; rules read from files are supported. Splunk was
 removed on 2026-10-27 (ADR 0034) and is back since 2026-11-03, with its saved searches run in a
 real Splunk for the proof (ADR 0037).
-Most of this file is the history of how it got here. After the alpha, in this order:
+Most of this file is the history of how it got here. After the alpha (done before 1.0), in this order:
 
 1. **What each field is worth, beyond the rules** (on a branch of its own first): per field of
    Windows events and Linux logs, what a SOC analysis never needs whatever the rules say, such

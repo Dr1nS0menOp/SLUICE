@@ -6,7 +6,49 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-08
+
+The first stable release. The commands and their flags, the exit codes, the files Sluice reads,
+`plan.json`'s format and the JSON of `prove --json` and `verify --json` stay as they are
+across 1.x ([what stays stable](docs/stability.md), [ADR 0038](docs/adr/0038-what-1-0-promises.md)).
+What Sluice saves and the configurations it writes keep improving. Linux only (x86_64 and
+aarch64), including WSL2.
+
 ### Added
+
+- **`sluice verify`** proves a plan again, on a later sample with the rules the SIEM runs now
+  ([ADR 0039](docs/adr/0039-sluice-verify.md)). It runs the plan's `vector.yaml` (or `--config`)
+  on the new sample, as `sluice prove` does, with Sentinel's rules in `--kusto` and Elastic's in
+  `--elasticsearch`, and compares the rules with those the plan was proven with. Exit 0: the plan
+  holds. 1: a detection would change. 3: the plan is out of date, since rules were added or read
+  differently after it was proven, the plan records no rules, or a plan that counts events has
+  rules not known to be complete. It also reports the saving on the new sample against the
+  plan's, the share of data of no kind of event the plan knows (sent whole), and the kinds whose
+  saving fell by 10 points or more. `--json` is for a daily job: the re-verification safety
+  contract rule 5 asks for.
+- **`plan.json` records every rule it was proven with**, as a fingerprint (`rules`: the rule's
+  id and the SHA-256 of what Sluice read it as), and the Sluice that wrote it (`sluice`). Its
+  format stays `sluice.plan/1`.
+- **A JSON Schema of `plan.json`**, [`docs/plan.schema.json`](docs/plan.schema.json), generated
+  from the types that write it. A test fails when it is stale, and another checks the demo's plan
+  against it.
+- **Packages, an image and attestations** ([ADR 0040](docs/adr/0040-release-artifacts.md)). Each
+  release now has a `.deb` and an `.rpm` per architecture, and a container image for
+  linux/amd64 and linux/arm64 at `ghcr.io/dr1ns0menop/sluice` (distroless, without privileges). It
+  also has a CycloneDX SBOM of the binary and GitHub artifact attestations of every binary,
+  package and the image (`gh attestation verify`). `scripts/install-packaging.sh`,
+  `scripts/package.sh` and `scripts/package-check.sh` build them and install each in Debian,
+  Ubuntu and Fedora. CI builds them on every push.
+
+### Changed
+
+- Rules read from files are supported, no longer experimental. They save less than fetched rules
+  where a file cannot say what the SIEM runs, and `sluice verify` with fetched rules shows when
+  the files and the SIEM drift apart.
+- A tag with a pre-release part (`v1.1.0-rc.1`) makes a GitHub pre-release; `latest` of the
+  image moves only with a final release.
+
+### Splunk
 
 - **Splunk is back, proven in Splunk** ([ADR 0037](docs/adr/0037-splunk-proven-in-splunk.md),
   superseding ADR 0034). The maintainer decided on 2026-11-03 that Sluice may run Splunk
