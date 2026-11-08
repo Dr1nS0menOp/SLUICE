@@ -104,10 +104,14 @@ pub(crate) enum ConnectTarget {
 /// A kind of saving (`sluice_autopilot::Mode`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum ModeArg {
-    /// What the recipes propose, held to what every rule reads.
-    Rules,
-    /// Values the kind of event or another field implies.
+    /// Fields that repeat what the event already says, and empty fields. Loses nothing.
+    Duplicates,
+    /// Values the kind of event or another field implies, put back exactly. Loses nothing.
     Implied,
+    /// Frequent events no rule could match, counted instead of sent; kept in the archive.
+    Counts,
+    /// `duplicates` and `counts` together: the recipes' savings, as 1.0 named them.
+    Rules,
 }
 
 /// An ingestion that `--native` writes and proves code for, each in its own real engine.
@@ -321,7 +325,12 @@ pub(crate) struct DemoArgs {
     #[arg(long, value_name = "CMD")]
     pub(crate) otel_collector: Option<PathBuf>,
     /// The kinds of saving to make, as for `sluice analyze --mode`.
-    #[arg(long, value_enum, value_delimiter = ',', default_values = ["rules", "implied"])]
+    #[arg(
+        long,
+        value_enum,
+        value_delimiter = ',',
+        default_values = ["duplicates", "implied", "counts"]
+    )]
     pub(crate) mode: Vec<ModeArg>,
     #[command(flatten)]
     pub(crate) ai: AiArgs,
@@ -423,13 +432,21 @@ pub(crate) struct AnalyzeArgs {
     /// fetch` count as complete without it (ADR 0021).
     #[arg(long)]
     pub(crate) rules_complete: bool,
-    /// The kinds of saving to make, separated by commas; both by default. `rules`: what the
-    /// recipes propose (rendered text, empty fields, counting events no rule could match),
-    /// held to what every rule reads. `implied`: values the kind of event or another field
-    /// implies, learned from the sample, removed only while a field holds one and put back
-    /// from `plan.json` (`remove_implied`); `--native sentinel` also writes a function that
-    /// puts them back. The report shows what each saved.
-    #[arg(long, value_enum, value_delimiter = ',', default_values = ["rules", "implied"])]
+    /// The kinds of saving to make, separated by commas; all three by default. Each is held to
+    /// what every rule reads and proven. `duplicates`: fields that repeat what the event
+    /// already says (a rendered `Message`, the original line next to its parsed fields) and
+    /// empty fields. `implied`: values the kind of event or another field implies, learned
+    /// from the sample, removed only while a field holds one and put back from `plan.json`
+    /// (`remove_implied`); `--native sentinel` also writes a function that puts them back.
+    /// `counts`: frequent events no rule could match, counted per minute instead of sent; the
+    /// events stay in the archive. `duplicates,implied` loses nothing: every event arrives.
+    /// `rules` is `duplicates,counts`. The report shows what each saved.
+    #[arg(
+        long,
+        value_enum,
+        value_delimiter = ',',
+        default_values = ["duplicates", "implied", "counts"]
+    )]
     pub(crate) mode: Vec<ModeArg>,
     /// Leave the example events (a few per source, as the SIEM receives them, with their real
     /// values) out of the report, so it can be shared without the sample's data.

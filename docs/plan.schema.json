@@ -28,7 +28,7 @@
       }
     },
     "saved_by_mode": {
-      "description": "Bytes each kind of saving the analysis made saved (`--mode`).",
+      "description": "Bytes each kind of saving the analysis made saved, by the name `--mode` takes:\n`duplicates`, `implied`, `counts`. With both of the recipes' modes also `rules`, their\nsum, as 1.0 wrote it.",
       "type": "object",
       "additionalProperties": {
         "type": "integer",

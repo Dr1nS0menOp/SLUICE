@@ -240,8 +240,10 @@ pub fn analyze(
     if let Some(splunk) = input.splunk {
         problems.extend(splunk.rules.problems().iter().cloned());
     }
-    if !settings.modes.contains(&Mode::Rules) {
-        // The recipes' savings are not asked for; the recipes stay unused, and so does an
+    let duplicates = settings.modes.contains(&Mode::Duplicates);
+    let counts = settings.modes.contains(&Mode::Counts);
+    if !duplicates && !counts {
+        // Neither of the recipes' savings is asked for; the recipes stay unused, and so does an
         // advisor, which only writes recipes.
         resolution.recipes.clear();
     } else if let Some(advisor) = helpers.advisor {
@@ -254,6 +256,23 @@ pub fn analyze(
         );
         resolution.recipes.extend(advice.recipes);
         problems.extend(advice.problems);
+    }
+    if duplicates != counts {
+        // One of the two: each recipe keeps the reductions of the mode asked for.
+        resolution.recipes = std::mem::take(&mut resolution.recipes)
+            .into_iter()
+            .filter_map(|(template, recipe)| {
+                only(
+                    &recipe,
+                    if counts {
+                        Mode::Counts
+                    } else {
+                        Mode::Duplicates
+                    },
+                )
+                .map(|recipe| (template, recipe))
+            })
+            .collect();
     }
     if settings.modes.contains(&Mode::Implied) {
         let learned = implied::learn(&discovery, input.events, settings.guardrails);
@@ -273,6 +292,29 @@ pub fn analyze(
         settings,
         helpers,
         problems,
+    )
+}
+
+/// The reductions of `recipe` that belong to `mode`: its routing for [`Mode::Counts`], its field
+/// removals for [`Mode::Duplicates`]. `None` when none do.
+fn only(recipe: &Recipe, mode: Mode) -> Option<Recipe> {
+    let kept: Vec<Reduction> = recipe
+        .reductions()
+        .iter()
+        .filter(|reduction| reduction.is_routing() == (mode == Mode::Counts))
+        .cloned()
+        .collect();
+    if kept.is_empty() {
+        return None;
+    }
+    Some(
+        Recipe::new(
+            recipe.template().clone(),
+            kept,
+            recipe.provenance().clone(),
+            recipe.rationale().to_owned(),
+        )
+        .expect("a part of a valid recipe is valid: it has at most the routing it had"),
     )
 }
 
@@ -445,4 +487,57 @@ pub(crate) fn prove(
     let selection = select_proven(candidates, input.events, &engine, build)?;
     let data_plane = build(&selection.recipes)?;
     Ok((selection, data_plane))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn recipe(reductions: Vec<Reduction>) -> Recipe {
+        Recipe::new(
+            "t".into(),
+            reductions,
+            Provenance::Learned,
+            "a recipe that removes a field and counts",
+        )
+        .expect("valid")
+    }
+
+    fn both() -> Recipe {
+        recipe(vec![
+            Reduction::DropFields {
+                fields: ["Message".into()].into(),
+            },
+            Reduction::DropEmptyFields,
+            Reduction::ForwardMatching {
+                summary_keys: vec!["Application".into()],
+            },
+        ])
+    }
+
+    #[test]
+    fn duplicates_keep_a_recipes_field_removals_and_never_its_counting() {
+        let kept = only(&both(), Mode::Duplicates).expect("removals are left");
+        assert!(kept.reductions().iter().all(|r| !r.is_routing()));
+        assert_eq!(kept.reductions().len(), 2);
+    }
+
+    #[test]
+    fn counts_keep_a_recipes_counting_only() {
+        let kept = only(&both(), Mode::Counts).expect("the counting is left");
+        assert_eq!(
+            kept.reductions(),
+            [Reduction::ForwardMatching {
+                summary_keys: vec!["Application".into()]
+            }]
+        );
+    }
+
+    #[test]
+    fn a_recipe_with_nothing_of_the_mode_is_dropped() {
+        let counting = recipe(vec![Reduction::Summarize {
+            summary_keys: vec!["host".into()],
+        }]);
+        assert_eq!(only(&counting, Mode::Duplicates), None);
+    }
 }

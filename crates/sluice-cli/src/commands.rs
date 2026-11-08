@@ -324,10 +324,13 @@ pub(crate) fn rules(args: &RulesArgs) -> Result<()> {
 /// The kinds of saving `--mode` asks for.
 fn modes(args: &[ModeArg]) -> BTreeSet<Mode> {
     args.iter()
-        .map(|mode| match mode {
-            ModeArg::Rules => Mode::Rules,
-            ModeArg::Implied => Mode::Implied,
+        .flat_map(|mode| match mode {
+            ModeArg::Duplicates => &[Mode::Duplicates][..],
+            ModeArg::Implied => &[Mode::Implied],
+            ModeArg::Counts => &[Mode::Counts],
+            ModeArg::Rules => &[Mode::Duplicates, Mode::Counts],
         })
+        .copied()
         .collect()
 }
 

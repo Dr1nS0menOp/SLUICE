@@ -68,7 +68,7 @@ synthetic data.
   so it can be put back (ADR 0032). A field that implies another must be a category (2 to 32
   values, 20 events each, no new value late in the sample), and a field named as an identifier
   (a thread, a process, an agent's run) is never implied by another, since its value changes at
-  the next restart. `--mode` picks the recipes' savings, the implied values or both. An object
+  the next restart. `--mode` picks among the recipes' field removals (`duplicates`), the implied values (`implied`) and the recipes' counting (`counts`). An object
   whose every field went is removed too; one that came empty stays (ADR 0033).
 - **C. Rules into requirements.** Every loaded rule is read into the same engine-neutral
   *requirements*: the log source it applies to, the fields it reads (including those in
