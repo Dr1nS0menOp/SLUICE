@@ -13,6 +13,8 @@ its files with their own tools, or run it in CI.
 
 - A minor release may add a command or a flag. It never changes what an existing one does in a
   way that matters to a script.
+- A value keeps its meaning: `--mode rules` means `duplicates,counts`, as it did in 1.0, now
+  that the modes are named apart ([ADR 0041](adr/0041-three-modes.md)).
 - A flag that is to go is first *deprecated*: it keeps working and prints a warning for at least
   one minor release, and goes only in the next major.
 

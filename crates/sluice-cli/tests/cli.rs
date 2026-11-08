@@ -546,7 +546,10 @@ fn modes_and_examples_are_chosen_on_the_command_line() {
         .find(|l| l.starts_with("  modes "))
         .expect("a modes line");
     assert!(
-        modes.contains("rules ") && modes.contains("implied ") && !modes.contains("not run"),
+        modes.contains("duplicates ")
+            && modes.contains("implied ")
+            && modes.contains("counts ")
+            && !modes.contains("not run"),
         "{modes}"
     );
     assert!(read(&demo.join("report.html")).contains("What the SIEM still receives"));
@@ -581,7 +584,7 @@ fn modes_and_examples_are_chosen_on_the_command_line() {
         implied.to_str().unwrap(),
     ]);
     assert!(
-        summary.contains("  modes   rules not run, implied "),
+        summary.contains("  modes   duplicates not run, implied "),
         "{summary}"
     );
     assert!(
@@ -613,7 +616,43 @@ fn modes_and_examples_are_chosen_on_the_command_line() {
         "--mode",
         "rules",
     ]);
-    assert!(summary.contains(", implied not run"), "{summary}");
+    assert!(summary.contains(", implied not run, counts "), "{summary}");
     let report = read(&rules_only.join("report.html"));
     assert!(!report.contains("What “implied” means"));
+}
+
+/// `--mode duplicates,implied` loses nothing: every event is sent, none is counted, and the plan
+/// says so.
+#[test]
+fn the_lossless_modes_send_every_event() {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli-lossless");
+    let _ = std::fs::remove_dir_all(&root);
+    let summary = sluice(&[
+        "demo",
+        "--out",
+        root.to_str().unwrap(),
+        "--scale",
+        "5",
+        "--mode",
+        "duplicates,implied",
+    ]);
+    assert!(summary.contains("0 events summarized"), "{summary}");
+    assert!(summary.contains(", counts not run"), "{summary}");
+    let plan: serde_json::Value =
+        serde_json::from_str(&read(&root.join("plan.json"))).expect("the plan is JSON");
+    assert_eq!(plan["total"]["summarized"], 0);
+    assert_eq!(plan["saved_by_mode"]["counts"], serde_json::Value::Null);
+    assert!(
+        plan["saved_by_mode"]["duplicates"]
+            .as_u64()
+            .is_some_and(|b| b > 0)
+    );
+    let counted = plan["sources"]
+        .as_array()
+        .expect("sources")
+        .iter()
+        .flat_map(|s| s["templates"].as_array().expect("templates"))
+        .filter(|t| t.get("count_instead").is_some())
+        .count();
+    assert_eq!(counted, 0, "no kind of event is counted");
 }

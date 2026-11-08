@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn the_explanation_appears_only_when_the_mode_ran_and_names_the_largest_value() {
         let mut report = crate::report::tests::report();
-        report.modes = BTreeSet::from([Mode::Rules]);
+        report.modes = BTreeSet::from([Mode::Duplicates, Mode::Counts]);
         assert_eq!(explain(&report), "");
 
         report.modes = Mode::ALL.into();

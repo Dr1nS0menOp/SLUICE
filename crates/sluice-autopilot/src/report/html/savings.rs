@@ -533,7 +533,7 @@ mod tests {
             path: "Message".into(),
             events: 4,
             bytes: 600,
-            mode: crate::mode::Mode::Rules,
+            mode: crate::mode::Mode::Duplicates,
             constant: None,
             why: "it repeats".into(),
             runs_in: "Vector".into(),

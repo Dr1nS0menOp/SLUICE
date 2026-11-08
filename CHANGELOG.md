@@ -6,6 +6,21 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Three modes** ([ADR 0041](docs/adr/0041-three-modes.md)). `--mode` now takes `duplicates`
+  (fields that repeat the event's own, and empty fields), `implied` and `counts` (events no
+  rule could match, counted instead of sent). `--mode duplicates,implied` loses nothing: every
+  event reaches the SIEM with every value, or one put back exactly. On OTRF's APT29 sample that
+  saves 60.9 %, `duplicates` alone 33.1 % and all three 78.1 %, with the same 987 alerts.
+  `--mode rules` still works and means `duplicates,counts`. The report and the plan's
+  `saved_by_mode` give the saving of each, and `saved_by_mode` keeps `rules` whenever both ran.
+
+### Changed
+
+- The README is shorter and starts with the choice of modes, with an example event and a chart.
+  The guide per SIEM moved to [docs/siems.md](docs/siems.md).
+
 ## [1.0.0] - 2026-11-08
 
 The first stable release. The commands and their flags, the exit codes, the files Sluice reads,

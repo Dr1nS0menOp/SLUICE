@@ -170,18 +170,31 @@ fn meaning(report: &Report) -> String {
     } else {
         "On this sample, every alert was raised exactly as before."
     };
-    let implied = if report.modes.contains(&Mode::Implied) {
-        " values that follow from the kind of event (implied, explained below),"
-    } else {
-        ""
+    let mut what = vec![
+        "text that repeats fields the event already has",
+        "empty fields",
+    ];
+    if report.modes.contains(&Mode::Implied) {
+        what.push("values that follow from the kind of event (implied, explained below)");
+    }
+    if report.modes.contains(&Mode::Counts) {
+        what.push(
+            "frequent events no rule can match, which are counted instead of sent one by one",
+        );
+    }
+    if !report.modes.contains(&Mode::Duplicates) {
+        what.drain(..2);
+    }
+    let what = match what.split_last() {
+        Some((last, [])) => (*last).to_owned(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+        None => "nothing, since no mode was run".to_owned(),
     };
     format!(
         "<section class=\"meaning\"><h2>What this report means</h2><p>A SIEM charges for every \
          byte it receives, but its detection rules use only part of each event. Sluice compared \
-         the rules this SIEM runs with a sample of its data, and lists what no rule uses: mostly \
-         text that repeats fields the event already has, empty fields,{implied} and frequent \
-         events no rule can match, which are counted instead of sent one by one. <b>This is not \
-         advice to \
+         the rules this SIEM runs with a sample of its data, and lists what no rule uses: \
+         {what}. <b>This is not advice to \
          collect less security data or to throw logs away.</b> The savings assume a full copy of \
          every event is kept in a cheaper archive; the configurations Sluice writes for Vector \
          and Microsoft Sentinel keep one. {proof} Nothing changes until your team reviews the \
@@ -227,17 +240,19 @@ fn modes(report: &Report) -> String {
             } else {
                 format!(
                     "<div class=\"mode\"><code>{name}</code><span class=\"muted\">not run: add it \
-                     with <code>--mode</code> to also remove {what}</span></div>",
+                     with <code>--mode</code> to also leave out {what}</span></div>",
                     name = mode.name(),
                     what = mode.describe(),
                 )
             }
         })
         .collect();
-    let overlap = if report.modes.len() > 1 {
-        "<p class=\"muted\">Implied values count what they save after the recipes' removals. On \
-         their own (<code>--mode implied</code>) they save more, since the recipes then leave \
-         more fields in place.</p>"
+    let overlap = if report.modes.contains(&Mode::Implied)
+        && report.modes.contains(&Mode::Duplicates)
+    {
+        "<p class=\"muted\">Implied values count what they save after the duplicates are gone. On \
+         their own (<code>--mode implied</code>) they save more, since more fields are then \
+         left in place.</p>"
     } else {
         ""
     };

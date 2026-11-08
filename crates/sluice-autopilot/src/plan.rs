@@ -43,8 +43,10 @@ pub struct SavingsPlan {
     pub proof: PlanProof,
     /// Volume of the sample, in and as the plan forwards it.
     pub total: Volume,
-    /// Bytes each kind of saving the analysis made saved (`--mode`).
-    pub saved_by_mode: BTreeMap<Mode, u64>,
+    /// Bytes each kind of saving the analysis made saved, by the name `--mode` takes:
+    /// `duplicates`, `implied`, `counts`. With both of the recipes' modes also `rules`, their
+    /// sum, as 1.0 wrote it.
+    pub saved_by_mode: BTreeMap<&'static str, u64>,
     /// What Sluice could not read or check in the rules and recipes, sorted. Each one was read
     /// as broadly as it could reach (fail closed): it costs savings, never a detection, and
     /// fixing it (giving a function's source, a rule that is referred to) can save more.
@@ -246,11 +248,7 @@ impl SavingsPlan {
                 rules_basis: report.rules_basis,
             },
             total: report.total,
-            saved_by_mode: report
-                .modes
-                .iter()
-                .map(|&mode| (mode, report.saved_by(mode)))
-                .collect(),
+            saved_by_mode: saved_by_mode(report),
             problems: problems(&report.problems),
             sources,
             rules,
@@ -274,6 +272,19 @@ impl SavingsPlan {
         // A generated schema is plain JSON values; serializing it cannot fail.
         serde_json::to_string_pretty(&schema).unwrap_or_default() + "\n"
     }
+}
+
+/// What each mode run saved, by its name, and `rules` when both the recipes' modes ran.
+fn saved_by_mode(report: &Report) -> BTreeMap<&'static str, u64> {
+    let mut saved: BTreeMap<&'static str, u64> = report
+        .modes
+        .iter()
+        .map(|&mode| (mode.name(), report.saved_by(mode)))
+        .collect();
+    if report.modes.contains(&Mode::Duplicates) && report.modes.contains(&Mode::Counts) {
+        saved.insert("rules", report.saved_by_rules());
+    }
+    saved
 }
 
 /// `problems` for the plan: sorted, so the same analysis writes the same file.

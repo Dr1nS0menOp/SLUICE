@@ -182,24 +182,43 @@ impl Report {
         }
     }
 
-    /// Bytes `mode` saved. Implied values are fields of their own, so their bytes are counted
-    /// per field on the sample; the recipes' savings are the rest, counting included. Implied
-    /// values are removed after the recipes, so with both modes they are credited with what they
-    /// save on top of the recipes, which is less than they save alone.
+    /// Bytes `mode` saved. Removed fields are counted per field on the sample, as implied or as
+    /// duplicates; counting is what the rest of the saving comes to. Implied values are removed
+    /// after the duplicates, so with both modes they are credited with what they save on top,
+    /// which is less than they save alone. A mode not run saved nothing.
     #[must_use]
     pub fn saved_by(&self, mode: Mode) -> u64 {
-        let implied: u64 = self
-            .templates
-            .iter()
-            .flat_map(|row| &row.removed)
-            .filter(|field| field.mode == Mode::Implied)
-            .map(|field| field.bytes)
-            .sum();
-        let saved = self.total.bytes_in.saturating_sub(self.total.bytes_out);
-        match mode {
-            Mode::Implied => implied.min(saved),
-            Mode::Rules => saved.saturating_sub(implied),
+        if !self.modes.contains(&mode) {
+            return 0;
         }
+        let removed = |of: Mode| -> u64 {
+            self.templates
+                .iter()
+                .flat_map(|row| &row.removed)
+                .filter(|field| field.mode == of)
+                .map(|field| field.bytes)
+                .sum()
+        };
+        let saved = self.total.bytes_in.saturating_sub(self.total.bytes_out);
+        let implied = removed(Mode::Implied).min(saved);
+        let rest = saved - implied;
+        let duplicates = if self.modes.contains(&Mode::Counts) {
+            removed(Mode::Duplicates).min(rest)
+        } else {
+            rest
+        };
+        match mode {
+            Mode::Implied => implied,
+            Mode::Duplicates => duplicates,
+            Mode::Counts => rest - duplicates,
+        }
+    }
+
+    /// What the recipes saved together, duplicates and counts: `rules` in `--mode` and in the
+    /// plan's `saved_by_mode` since 1.0.
+    #[must_use]
+    pub fn saved_by_rules(&self) -> u64 {
+        self.saved_by(Mode::Duplicates) + self.saved_by(Mode::Counts)
     }
 
     /// [`Report::saved_by`] as a percentage of the bytes in.
@@ -325,7 +344,7 @@ fn shell_mode(
     Some(if inside.all(|p| text::implied(p, recipe)) {
         Mode::Implied
     } else {
-        Mode::Rules
+        Mode::Duplicates
     })
 }
 
@@ -346,7 +365,7 @@ fn removed_field(
         mode: match shell {
             Some(mode) => mode,
             None if implied => Mode::Implied,
-            None => Mode::Rules,
+            None => Mode::Duplicates,
         },
         constant: recipe
             .drop_implied

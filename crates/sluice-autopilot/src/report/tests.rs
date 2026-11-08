@@ -477,32 +477,71 @@ pub(super) fn row_removing(fields: &[(&str, u64, Mode)]) -> TemplateRow {
 
 #[test]
 fn each_mode_is_credited_with_what_it_saved_and_together_they_make_the_whole() {
-    // 600 of 1,000 bytes saved: 150 by implied values, the rest by the recipes.
+    // 600 of 1,000 bytes saved: 150 by implied values, 400 by a duplicate, the rest by counts.
     let report = Report {
         templates: vec![row_removing(&[
-            ("Message", 400, Mode::Rules),
+            ("Message", 400, Mode::Duplicates),
             ("Keywords", 100, Mode::Implied),
             ("Channel", 50, Mode::Implied),
         ])],
         ..report()
     };
     assert_eq!(report.saved_by(Mode::Implied), 150);
-    assert_eq!(report.saved_by(Mode::Rules), 450);
-    assert!((report.saved_percent_by(Mode::Rules) - 45.0).abs() < 1e-9);
+    assert_eq!(report.saved_by(Mode::Duplicates), 400);
+    assert_eq!(report.saved_by(Mode::Counts), 50);
+    assert!((report.saved_percent_by(Mode::Duplicates) - 40.0).abs() < 1e-9);
+    assert_eq!(report.saved_by_rules(), 450);
     assert_eq!(
-        report.saved_by(Mode::Rules) + report.saved_by(Mode::Implied),
+        Mode::ALL.iter().map(|&m| report.saved_by(m)).sum::<u64>(),
         600
     );
 }
 
 #[test]
+fn without_counting_every_saving_but_the_implied_is_a_duplicate_and_a_mode_not_run_saves_nothing() {
+    let report = Report {
+        templates: vec![row_removing(&[
+            ("Message", 400, Mode::Duplicates),
+            ("Channel", 50, Mode::Implied),
+        ])],
+        modes: Mode::LOSSLESS.into(),
+        ..report()
+    };
+    assert_eq!(report.saved_by(Mode::Implied), 50);
+    assert_eq!(report.saved_by(Mode::Duplicates), 550);
+    assert_eq!(report.saved_by(Mode::Counts), 0);
+}
+
+#[test]
 fn the_report_shows_every_mode_and_how_to_ask_for_one_not_run() {
     let page = render_html(&Report {
-        modes: [Mode::Rules].into(),
+        modes: [Mode::Duplicates, Mode::Counts].into(),
         ..report()
     });
-    assert!(page.contains("<code>rules</code>"));
+    assert!(page.contains("<code>duplicates</code>"));
+    assert!(page.contains("<code>counts</code>"));
     assert!(page.contains("<code>implied</code><span class=\"muted\">not run"));
+}
+
+#[test]
+fn a_report_without_counting_does_not_say_events_are_counted() {
+    let lossless = render_html(&Report {
+        modes: Mode::LOSSLESS.into(),
+        ..report()
+    });
+    let meaning = |page: &str| {
+        page.split("What this report means")
+            .nth(1)
+            .and_then(|rest| rest.split("</p>").next())
+            .map(str::to_owned)
+            .unwrap_or_default()
+    };
+    assert!(
+        !meaning(&lossless).contains("counted"),
+        "{}",
+        meaning(&lossless)
+    );
+    assert!(meaning(&render_html(&report())).contains("counted instead of sent"));
 }
 
 fn windows_template(complete: bool) -> Template {
@@ -627,7 +666,7 @@ fn a_removed_field_says_its_mode_and_the_value_it_always_held() {
     assert_eq!((mode.mode, mode.constant), (Mode::Implied, None));
     assert_eq!(mode.runs_in, "Vector (a pipeline tool)");
     let message = field("Message", true);
-    assert_eq!((message.mode, message.constant), (Mode::Rules, None));
+    assert_eq!((message.mode, message.constant), (Mode::Duplicates, None));
 }
 
 #[test]
@@ -699,7 +738,7 @@ fn the_fields_of_an_object_the_recipe_removes_whole_are_shown_as_that_object() {
 }
 
 #[test]
-fn an_object_emptied_by_implied_values_saves_as_implied_and_one_with_any_other_as_rules() {
+fn an_object_emptied_by_implied_values_saves_as_implied_and_one_with_any_other_as_duplicates() {
     use sluice_core::recipe::{ImpliedValue, Literal};
     let recipe = EffectiveRecipe {
         drop_fields: [FieldPath::from("agent.ephemeral")].into(),
@@ -748,7 +787,11 @@ fn an_object_emptied_by_implied_values_saves_as_implied_and_one_with_any_other_a
         "host.os is a shell inside it, emptied by an implied value"
     );
     assert_eq!(mode("host.os"), Some(Mode::Implied));
-    assert_eq!(mode("agent"), Some(Mode::Rules), "a recipe field went too");
+    assert_eq!(
+        mode("agent"),
+        Some(Mode::Duplicates),
+        "a recipe field went too"
+    );
     assert_eq!(mode("Message"), None, "no field inside: not a shell");
     assert_eq!(mode("agent.id"), None);
 

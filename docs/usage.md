@@ -2,7 +2,7 @@
 
 This page walks through what you can do with Sluice, from a first look to the configurations
 that carry out the savings in the tools you run. Each section is a complete path you can follow.
-The [README](../README.md) has a short guide per SIEM (Microsoft Sentinel, Wazuh, Elastic
+[Sluice with your SIEM](siems.md) has a guide per SIEM (Microsoft Sentinel, Wazuh, Elastic
 Security, Splunk), with the read-only account each needs; this page goes into more depth. For every
 command and file, see the [user guide](guide.md); for how it works inside, see
 [architecture](architecture.md). To try it on a live SIEM over days of real data, with a
@@ -120,8 +120,9 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
    shows per source up to 10 events as they are sent, as a table that scrolls sideways: one
    column per field, each cell the value sent, the value left out with its reason, or a dot, and
    each event's JSON folded below. Those are your sample's real values: `--no-examples` leaves
-   them out before you share the report. `--mode rules` or `--mode implied` makes only one kind
-   of saving; the report gives the saving of each. `sluice analyze` also prints hints when a
+   them out before you share the report. `--mode duplicates`, `implied` or `counts` (or two
+   of them, separated by a comma) makes only those kinds of saving; `--mode duplicates,implied`
+   sends every event. The report gives the saving of each. `sluice analyze` also prints hints when a
    vague source description keeps rules in scope. The same decisions are in `plan.json`, for
    tools: per kind of event what may be removed or counted, the implied values
    (`remove_implied`), which events keep every field, and whether the saving can run in the
@@ -136,7 +137,7 @@ With `--splunk https://127.0.0.1:18089`, the proof runs the `--splunk-rules` sea
 Splunk of its own (ADR 0037): it creates an index there, sends the sample to it through the HTTP
 Event Collector, runs every search on the full and on the forwarded events, and removes the index
 afterwards. Give it a throwaway Splunk, never your production one: the sample counts against that
-Splunk's licence. The README's Splunk guide starts one in Docker; starting Splunk's image means
+Splunk's licence. The [Splunk guide](siems.md#splunk-enterprise) starts one in Docker; starting Splunk's image means
 you accept the Splunk General Terms.
 
 - **Credentials of its own:** `SPLUNK_PROOF_PASSWORD` (for `SPLUNK_PROOF_USER`, `admin` by

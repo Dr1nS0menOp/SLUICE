@@ -116,7 +116,7 @@ freshly built binaries. Run everything in WSL:
 counts as done.** Docs that describe last month's Sluice mislead the people the project is for.
 After each change, check and update:
 
-- `README.md`, `docs/usage.md`, `docs/guide.md`, `docs/architecture.md` and `docs/glossary.md`:
+- `README.md`, `docs/siems.md`, `docs/usage.md`, `docs/guide.md`, `docs/architecture.md` and `docs/glossary.md`:
   every command, option, file, behaviour and term the change adds or alters, and every number
   they quote (the demo's output, the measured savings);
 - `CHANGELOG.md` (`[Unreleased]`), and the ADR or `docs/notes/<topic>.md` the change belongs to;
