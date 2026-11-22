@@ -2396,7 +2396,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "sluice-ai"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2407,7 +2407,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-autopilot"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "jsonschema",
  "proptest",
@@ -2426,7 +2426,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-cli"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2452,7 +2452,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-core"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "schemars",
  "serde",
@@ -2462,7 +2462,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-discover"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde_json",
  "sluice-core",
@@ -2471,7 +2471,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-elastic"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde_json",
  "sluice-core",
@@ -2484,7 +2484,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-fluentbit"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde_json",
  "sluice-core",
@@ -2496,7 +2496,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-http"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "thiserror",
  "ureq",
@@ -2504,7 +2504,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-kql"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde_json",
  "sluice-core",
@@ -2517,7 +2517,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-mcp"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde_json",
  "thiserror",
@@ -2525,7 +2525,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-otel"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "rustix",
  "serde_json",
@@ -2538,7 +2538,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-rules"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "proptest",
  "quick-xml",
@@ -2555,7 +2555,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-sentinel"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde_json",
  "sluice-core",
@@ -2565,7 +2565,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-splunk"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde_json",
  "sluice-core",
@@ -2576,7 +2576,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-synth"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "chrono",
  "serde_json",
@@ -2585,7 +2585,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-vector"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "regex",
  "serde_json",
@@ -2600,7 +2600,7 @@ dependencies = [
 
 [[package]]
 name = "sluice-wazuh"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde_json",
  "sluice-core",

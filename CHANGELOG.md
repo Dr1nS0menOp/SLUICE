@@ -6,6 +6,11 @@ All notable changes to Sluice are recorded here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-22
+
+What to save is now a choice of three modes, and text logs are read the way the SIEM reads
+them. Everything 1.0 made stable stays as it was: `--mode rules` keeps its meaning.
+
 ### Added
 
 - **Parser packs** ([ADR 0043](docs/adr/0043-parser-packs.md)). A text source can name how its
@@ -39,7 +44,16 @@ All notable changes to Sluice are recorded here. The format follows
 ### Changed
 
 - The README is shorter and starts with the choice of modes, with an example event and a chart.
-  The guide per SIEM moved to [docs/siems.md](docs/siems.md).
+  The guide per SIEM moved to [docs/siems.md](docs/siems.md). Its images are drawn by
+  `scripts/readme-images.py`.
+- The demo's nginx source names its parser pack and is a web server (`category: webserver`),
+  and the example rules have one on the parsed user agent: the demo saves 80.6 % with 45 alerts.
+
+### Security
+
+- `url` 2.5.9 (RUSTSEC-2026-0592, a stack overflow in `Url::origin`) and `rustix` 1.1.6
+  (RUSTSEC-2026-0486). `chrono` and `chrono-tz` are now unmaintained (RUSTSEC-2026-0543, -0555)
+  with no vulnerability; `vrl` 0.36 and rsigma need them, and `deny.toml` says so.
 
 ## [1.0.0] - 2026-11-08
 

@@ -2,7 +2,7 @@
 
 [CLAUDE.md](CLAUDE.md) has the conventions and [docs/adr/](docs/adr/) has the decisions.
 
-**Where the project stands (2026-11-08): v1.0.0, the first stable release; next a field test** ([docs/field-test.md](docs/field-test.md)). v0.1.0 was the first release (2026-10-23), v0.2.0 the alpha for the field test (2026-11-01). 1.0 added what stays stable ([docs/stability.md](docs/stability.md), ADR 0038), `sluice verify` (ADR 0039) and packages, an image and attestations (ADR 0040). Sluice advises
+**Where the project stands (2026-11-22): v1.1.0; next a field test** ([docs/field-test.md](docs/field-test.md)). v0.1.0 was the first release (2026-10-23), v0.2.0 the alpha for the field test (2026-11-01). 1.0 (2026-11-08) added what stays stable ([docs/stability.md](docs/stability.md), ADR 0038), `sluice verify` (ADR 0039) and packages, an image and attestations (ADR 0040); 1.1 the three modes (ADR 0041), implied values across machines (ADR 0042), parser packs (ADR 0043) and `sluice init` (ADR 0044). Sluice advises
 only (ADR 0030). The README's guides were checked against Microsoft Sentinel (end to end, on a
 live workspace), Elastic Security and Wazuh; rules read from files are supported. Splunk was
 removed on 2026-10-27 (ADR 0034) and is back since 2026-11-03, with its saved searches run in a
