@@ -89,3 +89,18 @@ pub(crate) fn recipe_book(extra: Option<&Path>) -> Result<RecipeBook> {
             .map(|(path, text)| (path.as_str(), text.as_str())),
     )?)
 }
+
+/// `sluice parsers`: every built-in parser pack, with what it is for and the fields it gives.
+pub(crate) fn parsers() -> Result<()> {
+    for pack in sluice_rules::ParserBook::embedded()?.packs() {
+        out!("{:<24} {}", pack.parser.id, pack.description);
+        let fields: Vec<&str> = pack
+            .parser
+            .fields()
+            .into_iter()
+            .map(sluice_core::field::FieldPath::as_str)
+            .collect();
+        out!("{:<24} gives {}", "", fields.join(", "));
+    }
+    Ok(())
+}

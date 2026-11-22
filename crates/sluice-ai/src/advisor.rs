@@ -147,6 +147,7 @@ mod tests {
                 .map(FieldPath::from)
                 .collect(),
             text_fields: BTreeSet::new(),
+            parser: None,
             stats: TemplateStats::default(),
         }
     }

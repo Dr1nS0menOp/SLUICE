@@ -44,6 +44,7 @@ pub(super) fn template() -> Template {
         },
         fields: FIELDS.into_iter().map(FieldPath::from).collect(),
         text_fields: BTreeSet::from(["Message".into()]),
+        parser: None,
         stats: TemplateStats {
             events: 50_000,
             bytes: 50_000_000,

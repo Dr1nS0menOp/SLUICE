@@ -9,7 +9,7 @@
 use sluice_core::field::FieldPath;
 use sluice_core::guard::Route;
 use sluice_core::ids::SourceId;
-use sluice_core::template::Template;
+use sluice_core::template::{Template, TemplateShape};
 
 use crate::program::{Plan, TEMPLATE_METADATA};
 use crate::syntax;
@@ -59,6 +59,9 @@ fn key_value(template: &Template, key: &FieldPath) -> String {
     if template.fields.contains(key) {
         return syntax::path(key);
     }
+    if let Some(parsed) = parsed_key(template, key) {
+        return parsed;
+    }
     let nested = FieldPath::new(format!("{EVENT_DATA}.{key}"));
     if template.fields.contains(&nested) {
         return syntax::path(&nested);
@@ -74,6 +77,29 @@ fn key_value(template: &Template, key: &FieldPath) -> String {
         );
     }
     syntax::path(key)
+}
+
+/// A summary key a text template's parser pack gives (ADR 0043): read from the line with the
+/// pack's patterns that give it, the first that matches; `None` when the pack does not give it.
+fn parsed_key(template: &Template, key: &FieldPath) -> Option<String> {
+    let parser = template.parser.as_ref()?;
+    let TemplateShape::Text { field, .. } = &template.shape else {
+        return None;
+    };
+    let line = format!("(string({}) ?? \"\")", syntax::path(field));
+    let tries: Vec<String> = parser
+        .patterns
+        .iter()
+        .filter_map(|pattern| {
+            let (group, _) = pattern.fields.iter().find(|(_, given)| given == key)?;
+            let regex = syntax::regex(&pattern.regex)?;
+            Some(format!(
+                "parse_regex({line}, {regex}).{} ?? ",
+                syntax::string(group)
+            ))
+        })
+        .collect();
+    (!tries.is_empty()).then(|| format!("{}null", tries.concat()))
 }
 
 #[cfg(test)]
@@ -103,6 +129,7 @@ mod tests {
             },
             fields: paths,
             text_fields: BTreeSet::new(),
+            parser: None,
             stats: TemplateStats::default(),
         }
     }

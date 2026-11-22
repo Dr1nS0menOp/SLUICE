@@ -170,7 +170,7 @@ impl Discoverer {
 
     fn text_field(&self, source: &SourceId) -> Option<&FieldPath> {
         match self.sources.get(source).map(|s| &s.format) {
-            Some(SourceFormat::Text { field }) => Some(field),
+            Some(SourceFormat::Text { field, .. }) => Some(field),
             _ => None,
         }
     }
@@ -329,7 +329,10 @@ impl Discoverer {
         let mut template = group.into_template(id, pattern, shape, &self.config);
         template.logsource = source_info.map(|s| s.logsource.clone()).unwrap_or_default();
         template.schema = source_info.map(|s| s.schema).unwrap_or_default();
-        if let Some(SourceFormat::Text { field }) = source_info.map(|s| &s.format) {
+        if matches!(template.shape, TemplateShape::Text { .. }) {
+            template.parser = source_info.and_then(|s| s.format.parser().cloned());
+        }
+        if let Some(SourceFormat::Text { field, .. }) = source_info.map(|s| &s.format) {
             template.text_fields.insert(field.clone());
         }
         template.stats.source_events = self.source_events.get(&source).copied().unwrap_or(0);

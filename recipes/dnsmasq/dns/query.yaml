@@ -1,0 +1,12 @@
+id: dnsmasq/dns/query
+description: dnsmasq query log lines, read with the dnsmasq/query parser pack
+match:
+  logsource: { product: dnsmasq }
+  pattern: 'query['
+reductions:
+  - op: forward_matching
+    summary_keys: [src_ip, query, record_type]
+rationale: >-
+  A resolver logs every lookup, most of them for the same names. Lookups a rule could match are
+  forwarded whole; the rest are counted per minute, per client, name and type, so every name
+  looked up is still in the SIEM. Give the source `parser: dnsmasq/query`.

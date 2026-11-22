@@ -16,12 +16,18 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     /// Run the autopilot on generated sample data with example rules.
     Demo(DemoArgs),
+    /// Propose a sources file from a sample: per `<source>.ndjson`, its format, the parser pack
+    /// its lines fit, its log source and the convention of its field names. A proposal to check.
+    Init(InitArgs),
     /// Run the autopilot on your own sample and rules.
     Analyze(Box<AnalyzeArgs>),
     /// List the built-in community recipes, print their JSON Schema, or export them to edit.
     Recipes(RecipesArgs),
     /// Inspect detection rules as Sluice understands them.
     Rules(RulesArgs),
+    /// List the built-in parser packs: how a SIEM reads a text line into the fields its rules
+    /// test (ADR 0043). A text source names one with `format: {kind: text, field, parser: ID}`.
+    Parsers,
     /// Prove a generated Vector configuration on a sample, as it is: fails (exit 1) when the
     /// rules' alerts on what it forwards differ from their alerts on the full sample. For CI.
     Prove(ProveArgs),
@@ -35,6 +41,16 @@ pub(crate) enum Command {
     /// Serve an analysis's advice, and Sluice's proof of what an AI assistant drafts, over the
     /// Model Context Protocol on stdin and stdout (ADR 0035). Changes nothing.
     Mcp(McpArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct InitArgs {
+    /// Directory with one `<source-id>.ndjson` file per source.
+    #[arg(long)]
+    pub(crate) input: PathBuf,
+    /// The sources file to write; an existing file is never overwritten.
+    #[arg(long, default_value = "sources.yaml")]
+    pub(crate) out: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -342,9 +358,11 @@ pub(crate) struct DemoArgs {
     reason = "each is a command-line switch of its own"
 )]
 pub(crate) struct AnalyzeArgs {
-    /// Directory with one `<source-id>.ndjson` file per source.
-    #[arg(long)]
-    pub(crate) input: PathBuf,
+    /// Directory with one `<source-id>.ndjson` file per source. Give it once per sample, such as
+    /// one per machine or per day: implied values are then learned only where they hold on
+    /// each (ADR 0042). A source may be missing from some of them.
+    #[arg(long, required = true)]
+    pub(crate) input: Vec<PathBuf>,
     /// Sources file (YAML) describing each source's log source and format.
     #[arg(long)]
     pub(crate) sources: PathBuf,

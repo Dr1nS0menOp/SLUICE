@@ -25,6 +25,7 @@ fn keyset(id: &str, product: &str, service: &str, event_id: &str) -> Template {
         },
         fields: BTreeSet::new(),
         text_fields: BTreeSet::new(),
+        parser: None,
         stats: TemplateStats::default(),
     }
 }

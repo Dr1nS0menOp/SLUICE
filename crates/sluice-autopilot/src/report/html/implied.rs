@@ -56,6 +56,12 @@ pub(super) fn explain(report: &Report) -> String {
          event, never by another field: a thread or a process one machine kept through the \
          sample changes at its next restart. A field a detection rule reads is never left out of an event that rule \
          could match.</p>\
+         <p><b>On every machine and every sample.</b> Sluice checks each value on every \
+         machine and every sample (<code>--input</code> given more than once) with at least 20 \
+         events of that kind: a value that holds on one and not on another is not learned. A \
+         value that is the same on every kind of event of a source is learned only when the \
+         sample shows more than one machine: on one machine, its name and domain look like \
+         that too.</p>\
          <p><b>When the data changes.</b> If an event later holds another value, that event \
          simply carries the field: the saving gets smaller, and nothing is lost or \
          wrong.</p>{example}{everywhere}</section>",
@@ -101,7 +107,7 @@ fn everywhere(report: &Report) -> String {
             }
         }
     }
-    let mut out = String::new();
+    let mut out = held_back(report);
     for (source, fields) in by_source {
         let alike: Vec<(&str, &str, u64)> = fields
             .into_iter()
@@ -130,14 +136,18 @@ fn everywhere(report: &Report) -> String {
         if alike.len() > SHOWN {
             shown.push(format!("{} more", alike.len() - SHOWN));
         }
+        let evidence = &report.implied_evidence;
+        let across = match evidence.hosts.get(source).copied() {
+            Some(machines) if machines > 1 => format!(", on all {machines} machines of the sample"),
+            _ if evidence.samples > 1 => format!(", in all {} samples", evidence.samples),
+            _ => String::new(),
+        };
         let _ = write!(
             out,
-            "<p class=\"muted\"><b>Check these on {source}.</b> {n} {fields} the same value on \
-             every kind of event that has {them}: {list}. {together} {saved}. A value \
-             that is the same everywhere may belong to the machine the sample came from, such \
-             as its name or its domain, rather than to the kind of event. If so, events from \
-             other machines simply carry the field: the saving there is smaller, and no data is \
-             lost. A sample from several machines tells the two apart.</p>",
+            "<p class=\"muted\"><b>Alike on {source}.</b> {n} {fields} the same value on every \
+             kind of event that has {them}{across}: {list}. \
+             {together} {saved}. Events from a machine with another value simply carry the \
+             field.</p>",
             source = escape(source),
             n = alike.len(),
             fields = if alike.len() == 1 {
@@ -153,6 +163,40 @@ fn everywhere(report: &Report) -> String {
             },
             list = shown.join(", "),
             saved = bytes(saved),
+        );
+    }
+    out
+}
+
+/// Per source, the values held back because the sample shows one machine (ADR 0042).
+fn held_back(report: &Report) -> String {
+    let mut by_source: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for withheld in &report.implied_evidence.withheld {
+        by_source.entry(&withheld.source).or_default().push(format!(
+            "<code>{}</code> = <code>{}</code>",
+            escape(withheld.field.as_str()),
+            escape(&withheld.value.to_string())
+        ));
+    }
+    let mut out = String::new();
+    for (source, mut values) in by_source {
+        let n = values.len();
+        if n > SHOWN {
+            values.truncate(SHOWN);
+            values.push(format!("{} more", n - SHOWN));
+        }
+        let _ = write!(
+            out,
+            "<p class=\"muted\"><b>Held back on {source}.</b> {n} {fields} the same value on \
+             every kind of event: {list}. The sample shows one machine, where its name and \
+             domain look like that too, so Sluice sends {them} as {they_are}. A sample of more \
+             machines (one with several, or <code>--input</code> once per machine) tells a \
+             value the kind of event fixes from one the machine does.</p>",
+            source = escape(source),
+            fields = if n == 1 { "field has" } else { "fields have" },
+            list = values.join(", "),
+            them = if n == 1 { "it" } else { "them" },
+            they_are = if n == 1 { "it is" } else { "they are" },
         );
     }
     out
@@ -241,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn values_alike_on_every_kind_of_event_are_said_to_maybe_belong_to_the_machine() {
+    fn values_alike_on_every_kind_of_event_say_on_how_many_machines_they_held() {
         let kind = |id: &str, removed: Vec<RemovedField>| {
             let mut row = crate::report::tests::row_removing(&[]);
             row.id = id.into();
@@ -268,12 +312,16 @@ mod tests {
             // One kind of event only: nothing to compare it with.
             kind("c", vec![constant("ObjectServer", "Security", 30)]),
         ];
+        report
+            .implied_evidence
+            .hosts
+            .insert("SecurityEvent".into(), 3);
         let text = everywhere(&report);
         assert!(
             text.contains(
-                "<b>Check these on SecurityEvent.</b> 1 field has the same value on every kind of \
-                 event that has it: <code>Computer</code> = <code>DESKTOP-1</code>. It saves 1 \
-                 KB."
+                "<b>Alike on SecurityEvent.</b> 1 field has the same value on every kind of \
+                 event that has it, on all 3 machines of the sample: <code>Computer</code> = \
+                 <code>DESKTOP-1</code>. It saves 1 KB."
             ),
             "{text}"
         );
@@ -281,6 +329,30 @@ mod tests {
         assert!(!text.contains("ObjectServer"));
         assert_eq!(everywhere(&crate::report::tests::report()), "");
     }
+    #[test]
+    fn values_held_back_on_one_machine_say_why_and_how_to_learn_them() {
+        let mut report = crate::report::tests::report();
+        report.implied_evidence.withheld = vec![crate::implied::Withheld {
+            source: "SecurityEvent".into(),
+            field: "Computer".into(),
+            value: sluice_core::recipe::Literal::Text("DESKTOP-1".into()),
+            kinds: 4,
+        }];
+        let text = everywhere(&report);
+        assert!(
+            text.contains("<b>Held back on SecurityEvent.</b> 1 field has"),
+            "{text}"
+        );
+        assert!(
+            text.contains("<code>Computer</code> = <code>&quot;DESKTOP-1&quot;</code>"),
+            "{text}"
+        );
+        assert!(
+            text.contains("<code>--input</code> once per machine"),
+            "{text}"
+        );
+    }
+
     #[test]
     fn more_than_four_alike_values_are_counted_not_listed() {
         let kind = |id: &str, n: usize| {

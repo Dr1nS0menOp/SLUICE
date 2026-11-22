@@ -9,6 +9,7 @@ mod cli;
 mod commands;
 mod connect;
 mod engines;
+mod init;
 mod input;
 mod inventory;
 mod mcp;
@@ -40,7 +41,9 @@ fn main() -> ExitCode {
             };
         }
         Command::Demo(args) => commands::demo(&args),
+        Command::Init(args) => init::init(&args),
         Command::Analyze(args) => commands::analyze(&args),
+        Command::Parsers => recipes::parsers(),
         Command::Recipes(args) => recipes::recipes(&args),
         Command::Rules(args) => commands::rules(&args),
         Command::Prove(args) => prove::prove(&args),

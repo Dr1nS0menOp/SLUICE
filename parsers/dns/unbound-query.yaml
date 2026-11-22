@@ -1,0 +1,16 @@
+id: unbound/query
+description: "Unbound query log lines (log-queries: yes)"
+logsource: { product: unbound, category: dns }
+convention: sigma
+patterns:
+  - regex: 'unbound\[[\d:]+\]: \[[\d:]+\] info: (?P<src_ip>[0-9A-Fa-f.:]+) (?P<query>\S+?)\.? (?P<type>[A-Z0-9]+) (?P<class>[A-Z]+)'
+    fields:
+      src_ip: src_ip
+      query: query
+      type: record_type
+examples:
+  - line: 'Oct 10 08:00:00 dns01 unbound[1018:0]: [1018:0] info: 10.10.1.21 www.example.com. A IN'
+    fields:
+      src_ip: 10.10.1.21
+      query: www.example.com
+      record_type: A

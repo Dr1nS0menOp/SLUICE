@@ -117,6 +117,19 @@ another format. `fingerprint.rs` checks that a fingerprint follows the reading, 
 The plan's JSON Schema is checked to be current, and the demo's plan is valid against it
 (`tests/demo.rs`).
 
+Parser packs, `sluice init`, the schema check and implied values across machines (ADR
+0042 to 0044, done 2026-11-22): `parsers/tests.rs` checks that every built-in pack parses its
+examples, and refuses a pack whose examples, groups or quotes are wrong, or whose id repeats.
+`program/tests.rs` runs a parsed-field route in the `vrl` crate: a line a rule could match is
+sent, one it could not is counted with its parsed summary key, and a line without the field or
+that does not parse is sent whole. Every built-in pack compiles into VRL, and `vector-check.sh`
+runs the demo's parse blocks in Vector 0.59. `tests/parsers.rs` analyzes the demo with and without
+its packs. `init/tests.rs` proposes nginx, Windows, unknown and mixed auth sources, and reads its
+own output back. `schema_hints.rs` raises the hint only for rules surely meant for a source.
+`implied/tests.rs` holds back a value alike on every kind of event of one machine, learns it on
+two, refuses a value that holds on one day but not the next, and picks the machine field over a
+collector's.
+
 ### API clients (unit, against fakes)
 
 Azure and Wazuh: error bodies, empty pages, `nextLink` loops, unsafe names (done for Wazuh),

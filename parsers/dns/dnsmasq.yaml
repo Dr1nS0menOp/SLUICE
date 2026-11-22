@@ -1,0 +1,25 @@
+id: dnsmasq/query
+description: "dnsmasq query and reply log lines (log-queries)"
+logsource: { product: dnsmasq, category: dns }
+convention: sigma
+patterns:
+  - regex: 'dnsmasq\[\d+\]: query\[(?P<type>[A-Z0-9]+)\] (?P<query>\S+) from (?P<src_ip>[0-9A-Fa-f.:]+)'
+    fields:
+      type: record_type
+      query: query
+      src_ip: src_ip
+  - regex: 'dnsmasq\[\d+\]: (?:reply|cached) (?P<query>\S+) is (?P<answer>\S+)'
+    fields:
+      query: query
+      answer: answer
+examples:
+  - line: 'Oct 10 08:00:00 router dnsmasq[523]: query[AAAA] updates.example.com from 10.10.1.21'
+    fields:
+      record_type: AAAA
+      query: updates.example.com
+      src_ip: 10.10.1.21
+  - line: 'Oct 10 08:00:00 router dnsmasq[523]: reply updates.example.com is 2001:db8::7'
+    fields:
+      query: updates.example.com
+      answer: 2001:db8::7
+      src_ip: ~

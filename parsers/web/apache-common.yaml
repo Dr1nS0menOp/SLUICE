@@ -1,0 +1,25 @@
+id: apache/common
+description: "Apache httpd (or any web server) access log in the Common Log Format, without referer and user agent"
+logsource: { product: apache, category: webserver }
+convention: sigma
+patterns:
+  - regex: '(?P<c_ip>[0-9A-Fa-f.:]+|\S+) \S+ (?P<user>\S+) \[(?P<time>[^\]]+)\] "(?P<method>[A-Z]+) (?P<uri>(?P<stem>[^?\s]*)(?:\?(?P<query>\S*))?) (?P<version>[^"]+)" (?P<status>\d{3}) (?P<bytes>\d+|-)$'
+    fields:
+      c_ip: c-ip
+      user: cs-username
+      method: cs-method
+      uri: cs-uri
+      stem: cs-uri-stem
+      query: cs-uri-query
+      version: cs-version
+      status: sc-status
+      bytes: sc-bytes
+examples:
+  - line: '127.0.0.1 - - [10/Oct/2026:13:55:36 -0700] "POST /login?next=/admin HTTP/1.1" 302 -'
+    fields:
+      c-ip: 127.0.0.1
+      cs-method: POST
+      cs-uri-stem: /login
+      cs-uri-query: next=/admin
+      sc-status: "302"
+      sc-bytes: "-"

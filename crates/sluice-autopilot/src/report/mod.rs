@@ -3,6 +3,7 @@
 mod examples;
 mod html;
 mod rules;
+mod schema_hints;
 pub(crate) mod text;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -49,6 +50,11 @@ pub struct Report {
     /// Sources where many rules apply only because the log source leaves an attribute unknown;
     /// declaring it (or `complete: true`) lets the guardrails ignore those rules.
     pub scope_hints: Vec<String>,
+    /// Sources whose declared `schema` the fields their rules read do not fit: the one mistake
+    /// the proof cannot notice.
+    pub schema_hints: Vec<String>,
+    /// What the implied values were learned on, and those held back (ADR 0042).
+    pub implied_evidence: crate::implied::Evidence,
     /// The spot check with the SIEM's own rules, if one ran.
     pub spot_check: Option<SpotCheck>,
     /// On what grounds the rules counted as complete.
@@ -172,6 +178,8 @@ impl Report {
             templates,
             coverage_gaps: coverage_gaps(&requirements, &analysis.discovery.templates),
             scope_hints: scope_hints(&requirements, &analysis.discovery.templates),
+            schema_hints: schema_hints::schema_hints(&requirements, &analysis.discovery.templates),
+            implied_evidence: analysis.implied.clone(),
             problems: analysis.problems.clone(),
             spot_check: analysis.spot_check.clone(),
             rules_basis: analysis.rules,

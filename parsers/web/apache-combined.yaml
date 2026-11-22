@@ -1,0 +1,27 @@
+id: apache/combined
+description: "Apache httpd access log in the `combined` LogFormat, with referer and user agent"
+logsource: { product: apache, category: webserver }
+convention: sigma
+patterns:
+  - regex: '(?P<c_ip>[0-9A-Fa-f.:]+|\S+) \S+ (?P<user>\S+) \[(?P<time>[^\]]+)\] "(?P<method>[A-Z]+) (?P<uri>(?P<stem>[^?\s]*)(?:\?(?P<query>\S*))?) (?P<version>[^"]+)" (?P<status>\d{3}) (?P<bytes>\d+|-) "(?P<referer>[^"]*)" "(?P<agent>[^"]*)"'
+    fields:
+      c_ip: c-ip
+      user: cs-username
+      method: cs-method
+      uri: cs-uri
+      stem: cs-uri-stem
+      query: cs-uri-query
+      version: cs-version
+      status: sc-status
+      bytes: sc-bytes
+      referer: cs-referer
+      agent: cs-user-agent
+examples:
+  - line: '192.0.2.10 - frank [10/Oct/2026:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"'
+    fields:
+      c-ip: 192.0.2.10
+      cs-username: frank
+      cs-uri-stem: /apache_pb.gif
+      sc-status: "200"
+      sc-bytes: "2326"
+      cs-referer: http://www.example.com/start.html

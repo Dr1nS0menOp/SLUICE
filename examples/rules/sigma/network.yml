@@ -26,3 +26,20 @@ detection:
         - '%2e%2e/'
     condition: keywords
 level: medium
+---
+title: Web Scanner User Agent
+id: 5c0f3b1e-8f0a-4d7e-9a61-2d4b8c1e7f23
+status: experimental
+description: A request came from a known scanner. The user agent is a field the SIEM parses out of
+    the access line, so Sluice reads it with the source's parser pack (nginx/combined).
+author: Sluice
+logsource:
+    category: webserver
+detection:
+    selection:
+        cs-user-agent|contains:
+            - 'Nmap Scripting Engine'
+            - 'sqlmap'
+            - 'Nikto'
+    condition: selection
+level: medium

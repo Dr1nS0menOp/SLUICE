@@ -295,6 +295,7 @@ impl Group {
             shape,
             fields: self.fields,
             text_fields,
+            parser: None,
             stats: TemplateStats {
                 events: self.events,
                 bytes: self.bytes,

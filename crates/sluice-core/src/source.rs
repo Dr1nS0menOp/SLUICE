@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::field::FieldPath;
 use crate::ids::SourceId;
 use crate::logsource::LogSource;
+use crate::parser::LineParser;
 use crate::schema::Schema;
 
 /// How a source's event bodies are encoded.
@@ -17,7 +18,54 @@ pub enum SourceFormat {
     Text {
         /// Field holding the raw line.
         field: FieldPath,
+        /// The parser pack the SIEM reads the line with, if the source names one (ADR 0043).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parser: Option<ParserName>,
     },
+}
+
+/// The parser pack a text source names, and the pack once it is resolved. Only a resolved pack
+/// counts: a name alone parses nothing, so rules on parsed fields keep every line (fail closed).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub struct ParserName {
+    /// The pack's id, as the sources file gives it.
+    pub name: String,
+    /// The pack, once resolved against the parser book.
+    pub resolved: Option<LineParser>,
+}
+
+impl From<String> for ParserName {
+    fn from(name: String) -> Self {
+        Self {
+            name,
+            resolved: None,
+        }
+    }
+}
+
+impl From<ParserName> for String {
+    fn from(parser: ParserName) -> Self {
+        parser.name
+    }
+}
+
+impl SourceFormat {
+    /// The resolved parser pack of a text source, if it has one.
+    #[must_use]
+    pub fn parser(&self) -> Option<&LineParser> {
+        match self {
+            Self::Text {
+                parser:
+                    Some(ParserName {
+                        resolved: Some(parser),
+                        ..
+                    }),
+                ..
+            } => Some(parser),
+            _ => None,
+        }
+    }
 }
 
 /// A configured log source.
@@ -64,7 +112,8 @@ mod tests {
         assert_eq!(
             source.format,
             SourceFormat::Text {
-                field: "message".into()
+                field: "message".into(),
+                parser: None,
             }
         );
         assert_eq!(source.schema, Schema::Sigma);

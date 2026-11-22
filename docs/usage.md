@@ -28,9 +28,9 @@ survived:
 
 ```
 80,536 events from 6 sources, 76 templates
-  ingest  121.0 MB → 26.0 MB  (78.5% saved, 41,562 events summarized into 17,161 records)
-  modes   rules 67.5%, implied 11.0%
-  proof   41 alerts on full data, 41 on forwarded data  ✓ no detection changed
+  ingest  121.0 MB → 23.5 MB  (80.6% saved, 48,697 events summarized into 19,856 records)
+  modes   duplicates 17.0%, implied 10.7%, counts 52.9%
+  proof   45 alerts on full data, 45 on forwarded data  ✓ no detection changed
 ```
 
 Open `out/report.html`, the advice: it says first what the report means, then shows the largest
@@ -49,8 +49,15 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
    - `collect-elastic.sh`: an Elasticsearch index pattern;
    - `collect-linux.sh`: a Linux host's `auth.log` and `syslog`, over SSH;
    - `collect-windows.ps1`: a Windows host's event logs, in Sigma's field names.
-2. **Describe the sources** in `sources.yaml`, with the Sigma log source of each. Be as precise
-   as you can, since anything left out counts as unknown and keeps more rules in scope:
+
+   A sample of one machine shows that machine's name on every event, which looks implied. Give
+   `--input` once per machine or day (`--input day1/ --input day2/`): implied values are then
+   learned only where they hold on each, and values alike on every kind of event only from more
+   than one machine (ADR 0042).
+2. **Describe the sources** in `sources.yaml`, with the Sigma log source of each. `sluice init
+   --input samples/` proposes the file, with a comment per source on how it came to it: check it.
+   Be as precise as you can, since anything left out counts as unknown and keeps more rules in
+   scope:
 
    ```yaml
    sources:
@@ -70,6 +77,19 @@ You need an hour or a day of your logs, and the rules your SIEM runs. Nothing is
    `process.executable` ([guide](guide.md#field-names)). For records in another convention, such
    as ECS, declare it (`schema: ecs`) and give the pySigma pipeline your SIEM converts Sigma
    with: `--sigma-pipeline ecs=ecs_windows`.
+
+   A text source can name the **parser pack** its SIEM reads the lines with, so that rules on
+   the parsed fields (`cs-uri-query`, `dst_port`) keep only the lines they could match:
+
+   ```yaml
+     - id: web
+       logsource: { product: nginx, category: webserver }
+       format: { kind: text, field: message, parser: nginx/combined }
+       schema: sigma
+   ```
+
+   `sluice parsers` lists the built-in packs; a pack of your own goes in a YAML file you name by
+   its path ([guide](guide.md#text-lines-and-parser-packs), ADR 0043).
 
 3. **Point Sluice at your rules.** Sigma rules (for example a clone of SigmaHQ), and if you use
    them, your Wazuh rules and decoders:

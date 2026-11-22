@@ -97,6 +97,9 @@ pub(crate) fn summary(report: &Report, templates: usize, sources: usize) {
             check.rolled_back.len()
         );
     }
+    for hint in &report.schema_hints {
+        out!("  check   {hint}");
+    }
     for hint in &report.scope_hints {
         out!("  hint    {hint}");
     }

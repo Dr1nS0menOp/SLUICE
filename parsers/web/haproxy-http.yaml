@@ -1,0 +1,23 @@
+id: haproxy/http
+description: "HAProxy's HTTP log format (option httplog), as syslog lines"
+logsource: { product: haproxy, category: webserver }
+convention: sigma
+patterns:
+  - regex: 'haproxy\[\d+\]: (?P<c_ip>[0-9A-Fa-f.:]+):(?P<c_port>\d+) \[(?P<time>[^\]]+)\] (?P<frontend>\S+) (?P<backend>\S+)/(?P<server>\S+) \S+ (?P<status>\d{3}|-1) (?P<bytes>\d+) \S+ \S+ \S+ \S+ \S+ (?:\{[^}]*\} )*"(?P<method>[A-Z]+) (?P<uri>(?P<stem>[^?\s]*)(?:\?(?P<query>\S*))?)(?: (?P<version>[^"]+))?"'
+    fields:
+      c_ip: c-ip
+      status: sc-status
+      bytes: sc-bytes
+      method: cs-method
+      uri: cs-uri
+      stem: cs-uri-stem
+      query: cs-uri-query
+      version: cs-version
+examples:
+  - line: 'Oct 10 08:00:00 lb01 haproxy[1234]: 10.0.1.2:33317 [10/Oct/2026:08:00:00.123] http-in static/srv1 10/0/30/69/109 200 2750 - - ---- 1/1/1/1/0 0/0 "GET /index.html?a=b HTTP/1.1"'
+    fields:
+      c-ip: 10.0.1.2
+      sc-status: "200"
+      cs-method: GET
+      cs-uri-stem: /index.html
+      cs-uri-query: a=b

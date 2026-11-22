@@ -228,10 +228,11 @@ that M9 and M10 addressed. What remains:
   processing pipeline maps the rules onto it (`--sigma-pipeline ecs=ecs_windows`). Without one,
   the rule is read as reading everything, which keeps the data and costs the savings. A wrong
   `schema` or a pipeline other than the SIEM's is unsafe, and the proof cannot notice.
-- **Text lines are not parsed.** A SIEM parses fields out of a text line before its rules run;
-  Sluice does not know that parser. A Sigma rule that tests named fields therefore keeps every
-  line of its log source whole (ADR 0020). Parser packs and checked AI-proposed parsers would
-  let Sluice save on such sources (planned, PLAN M12).
+- **Text lines are parsed only with a pack.** A SIEM parses fields out of a text line before its
+  rules run. A source that names its parser pack (`parser: nginx/combined`) is read the same
+  way, in the guardrails, the data plane and the proof (ADR 0043); without one, a Sigma rule that
+  tests named fields keeps every line of its log source whole (ADR 0020). A pack that parses
+  differently from the SIEM is the same risk as a wrong `schema`, and the proof cannot notice it.
 - **Templates still follow shapes in part.** Since ADR 0019, Drain clusters split where a few
   words alternate (sshd's "Accepted" and "Failed"), message ids keep their digits, and JSON
   sources name their event-type fields and share a template per kind of event across their
@@ -244,9 +245,10 @@ that M9 and M10 addressed. What remains:
   searches over data models (`tstats`) are read as reading everything and not run in the proof,
   and Splunk's add-ons' field extractions are not known: Splunk is for JSON events whose keys
   are its fields (ADR 0037).
-- **Implied values are learned from one sample.** On a sample of one machine, its name looks
-  implied; the report names, per source, the values that are the same on every kind of event,
-  so a reader can check them. Removing them stays lossless (a value guard sends any other
+- **Implied values are learned from the sample.** A value must hold on every machine and in every
+  sample given (ADR 0042), and one that is the same on every kind of event of a source is held
+  back on a sample of one machine, where its name looks implied too. Values the sample does not
+  show change can still change later. Removing them stays lossless (a value guard sends any other
   value), but the saving is then too high for a fleet. Out of the sample, a put-back step
   (`<Table>Full`, the runtime fields) recognises a record by its kind and may give a value to
   a record that never had the field. An analyst who queries the table itself for an implied

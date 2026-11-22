@@ -27,6 +27,7 @@ pub use crate::basis::RulesBasis;
 pub use crate::contribute::{Contribution, ai_recipes};
 pub use crate::error::AutopilotError;
 pub use crate::fingerprint::{RuleFingerprint, fingerprints};
+pub use crate::implied::{Evidence as ImpliedEvidence, Withheld};
 pub use crate::mode::Mode;
 pub use crate::plan::{
     CountInstead, PLAN_FORMAT, Placement, PlanProblem, PlanProof, SavingsPlan, SourcePlan,

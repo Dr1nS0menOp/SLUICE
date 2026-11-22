@@ -1,0 +1,33 @@
+id: linux/pam-session
+description: "PAM session and authentication lines in a Linux auth log (sshd, su, sudo, cron, login, systemd-user)"
+logsource: { product: linux, service: auth }
+convention: sigma
+patterns:
+  - regex: '(?P<program>[\w.-]+)(?:\[\d+\])?: pam_unix\((?P<service>[^:)]+):session\): session (?P<state>opened|closed) for user (?P<user>[^\s(]+)(?:\(uid=\d+\))?(?: by (?P<by>[^\s(]*)(?:\(uid=\d+\))?)?'
+    fields:
+      service: pam_service
+      state: outcome
+      user: User
+      by: SubjectUser
+  - regex: '(?P<program>[\w.-]+)(?:\[\d+\])?: pam_unix\((?P<service>[^:)]+):auth\): authentication failure;.*? ruser=(?P<ruser>\S*) rhost=(?P<rhost>\S*)(?:\s+user=(?P<user>\S+))?'
+    fields:
+      service: pam_service
+      ruser: SubjectUser
+      rhost: src_ip
+      user: User
+examples:
+  - line: 'Oct 10 08:00:02 bastion01 sshd[50586]: pam_unix(sshd:session): session opened for user alice(uid=1000) by (uid=0)'
+    fields:
+      pam_service: sshd
+      outcome: opened
+      User: alice
+  - line: 'Oct 10 08:00:03 web02 su: pam_unix(su:session): session opened for user root(uid=0) by alice(uid=1000)'
+    fields:
+      pam_service: su
+      User: root
+      SubjectUser: alice
+  - line: 'Oct 10 08:00:04 bastion01 sshd[7120]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.9  user=root'
+    fields:
+      pam_service: sshd
+      src_ip: 203.0.113.9
+      User: root

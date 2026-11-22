@@ -27,6 +27,7 @@ fn template(id: &str, event_id: &str, fields: &[&str]) -> Template {
         },
         fields: variant,
         text_fields: BTreeSet::new(),
+        parser: None,
         stats: TemplateStats::default(),
     }
 }

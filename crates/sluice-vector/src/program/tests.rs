@@ -34,6 +34,7 @@ fn keyset(id: &str, event_id: &str, fields: &[&str]) -> Template {
         },
         fields: paths(fields),
         text_fields: BTreeSet::new(),
+        parser: None,
         stats: TemplateStats::default(),
     }
 }
@@ -402,4 +403,111 @@ fn a_text_template_without_wildcards_is_tried_after_every_key_set() {
     let keys = program.find("z-keys").expect("the key set");
     let line = program.find("a-text").expect("the text template");
     assert!(keys < line, "{program}");
+}
+
+/// A text template for nginx's `combined` lines of `tokens` whitespace-separated tokens, read
+/// with its parser pack (ADR 0043).
+fn nginx(tokens: usize) -> Template {
+    let book = sluice_rules::ParserBook::embedded().expect("the built-in packs are valid");
+    Template {
+        parser: Some(book.get("nginx/combined").expect("the pack").parser.clone()),
+        ..text("web", &vec!["<*>"; tokens])
+    }
+}
+
+/// An access line with `uri`, always 12 tokens long.
+fn access(uri: &str) -> Value {
+    json!({"message": format!(
+        "10.0.0.1 - - [10/Oct/2026:08:00:00 +0000] \"GET {uri} HTTP/1.1\" 200 5 \"-\" \"curl\""
+    )})
+}
+
+fn contains(field: &str, value: &str) -> Predicate {
+    Predicate::Field(FieldTest {
+        field: field.into(),
+        op: MatchOp::Contains,
+        values: vec![value.into()],
+        case_sensitive: false,
+    })
+}
+
+#[test]
+fn c3_a_test_on_a_parsed_field_reads_the_line_and_counts_only_what_cannot_match() {
+    let recipe = EffectiveRecipe {
+        route: Route::ForwardMatching {
+            prefilter: contains("cs-uri-query", "union"),
+            summary_keys: vec!["sc-status".into()],
+        },
+        ..EffectiveRecipe::passthrough("web".into())
+    };
+    let plans = [(nginx(12), recipe)];
+    let (_, attack) = reduce(&plans, access("/q?id=1+UNION+select+1"));
+    assert!(
+        matches!(attack, Outcome::Forwarded(_)),
+        "a query a rule could match is sent"
+    );
+    let (_, path) = reduce(&plans, access("/union/q?page=2"));
+    assert!(
+        matches!(path, Outcome::Summarized(_)),
+        "the word in the path is no match for a test on the query"
+    );
+    let (template, routine) = reduce(&plans, access("/q?page=2"));
+    assert_eq!(template.as_deref(), Some("web"));
+    match routine {
+        Outcome::Summarized(record) => {
+            assert_eq!(record["sluice_keys"]["sc-status"], "200", "{record:?}");
+        }
+        Outcome::Forwarded(_) => panic!("a query no rule could match is counted"),
+    }
+}
+
+#[test]
+fn c3_a_line_without_the_parsed_field_or_that_does_not_parse_is_forwarded_whole() {
+    let recipe = EffectiveRecipe {
+        route: Route::ForwardMatching {
+            prefilter: contains("cs-uri-query", "union"),
+            summary_keys: vec!["host.name".into()],
+        },
+        ..EffectiveRecipe::passthrough("web".into())
+    };
+    let plans = [(nginx(12), recipe)];
+    // No query: the SIEM may parse the line otherwise, so it is kept (fail closed).
+    let (_, no_query) = reduce(&plans, access("/index.html"));
+    assert!(matches!(no_query, Outcome::Forwarded(_)));
+    // Twelve tokens, but no access line: nothing parses, everything is kept.
+    let other = json!({"message": "a b c d e f g h i j k l"});
+    let (template, outcome) = reduce(&plans, other.clone());
+    assert_eq!(template.as_deref(), Some("web"));
+    assert_eq!(Value::Object(forwarded(outcome)), other);
+}
+
+#[test]
+fn every_built_in_parser_pack_compiles_into_a_program_vector_runs() {
+    let book = sluice_rules::ParserBook::embedded().expect("the built-in packs are valid");
+    for pack in book.packs() {
+        let field = pack
+            .parser
+            .fields()
+            .into_iter()
+            .next()
+            .expect("a pack gives a field")
+            .clone();
+        let template = Template {
+            parser: Some(pack.parser.clone()),
+            ..text("t", &["<*>"])
+        };
+        let recipe = EffectiveRecipe {
+            route: Route::ForwardMatching {
+                prefilter: contains(field.as_str(), "x"),
+                summary_keys: vec![field],
+            },
+            ..EffectiveRecipe::passthrough("t".into())
+        };
+        let plans = [Plan {
+            template: &template,
+            recipe: &recipe,
+        }];
+        compile_reducer(plans.iter().copied())
+            .unwrap_or_else(|e| panic!("{}: {e}", pack.parser.id));
+    }
 }

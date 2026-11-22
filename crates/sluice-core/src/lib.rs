@@ -19,6 +19,7 @@ pub mod guard;
 pub mod ids;
 pub mod inventory;
 pub mod logsource;
+pub mod parser;
 pub mod predicate;
 pub mod problem;
 pub mod proof;

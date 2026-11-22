@@ -97,6 +97,7 @@ mod tests {
             },
             fields,
             text_fields: BTreeSet::new(),
+            parser: None,
             stats: TemplateStats::default(),
         };
         let recipe = EffectiveRecipe {

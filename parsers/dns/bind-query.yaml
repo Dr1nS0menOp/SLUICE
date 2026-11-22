@@ -1,0 +1,21 @@
+id: bind/query
+description: "BIND named query log lines (category queries)"
+logsource: { product: bind, category: dns }
+convention: sigma
+patterns:
+  - regex: 'client (?:@0x[0-9a-f]+ )?(?P<src_ip>[0-9A-Fa-f.:]+)#(?P<src_port>\d+)(?: \([^)]*\))?: query: (?P<query>\S+) (?P<class>[A-Z]+) (?P<type>[A-Z0-9]+) (?P<flags>\S+)'
+    fields:
+      src_ip: src_ip
+      src_port: src_port
+      query: query
+      type: record_type
+examples:
+  - line: 'Oct 10 08:00:00 ns1 named[812]: client @0x7f2a3c00a2e8 10.10.1.21#53124 (www.example.com): query: www.example.com IN A +E(0)K (10.10.0.2)'
+    fields:
+      src_ip: 10.10.1.21
+      query: www.example.com
+      record_type: A
+  - line: '10-Oct-2026 08:00:01.123 queries: info: client 10.10.1.22#40001: query: evil.badcdn.example IN TXT -'
+    fields:
+      query: evil.badcdn.example
+      record_type: TXT

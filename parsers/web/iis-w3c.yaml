@@ -1,0 +1,27 @@
+id: iis/w3c
+description: "Microsoft IIS log in the W3C extended format with IIS's default fields (date time s-ip cs-method cs-uri-stem cs-uri-query s-port cs-username c-ip cs(User-Agent) cs(Referer) sc-status sc-substatus sc-win32-status time-taken)"
+logsource: { product: windows, service: iis, category: webserver }
+convention: sigma
+patterns:
+  - regex: '^(?P<date>\d{4}-\d{2}-\d{2}) (?P<time>\d{2}:\d{2}:\d{2}) (?P<s_ip>\S+) (?P<method>\S+) (?P<stem>\S+) (?P<query>\S+) (?P<s_port>\d+) (?P<user>\S+) (?P<c_ip>\S+) (?P<agent>\S+) (?P<referer>\S+) (?P<status>\d{3}) (?P<substatus>\d+) (?P<win32>\d+) (?P<taken>\d+)$'
+    fields:
+      s_ip: s-ip
+      method: cs-method
+      stem: cs-uri-stem
+      query: cs-uri-query
+      s_port: s-port
+      user: cs-username
+      c_ip: c-ip
+      agent: cs-user-agent
+      referer: cs-referer
+      status: sc-status
+      taken: time-taken
+examples:
+  - line: '2026-10-10 08:00:00 10.0.0.4 GET /owa/auth/logon.aspx url=%2fowa 443 - 203.0.113.7 Mozilla/5.0+(Windows+NT+10.0) - 200 0 0 15'
+    fields:
+      cs-method: GET
+      cs-uri-stem: /owa/auth/logon.aspx
+      cs-uri-query: url=%2fowa
+      c-ip: 203.0.113.7
+      cs-user-agent: Mozilla/5.0+(Windows+NT+10.0)
+      sc-status: "200"

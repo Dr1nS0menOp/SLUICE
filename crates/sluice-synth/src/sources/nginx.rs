@@ -4,14 +4,18 @@
 //! low-value template no rule covers.
 
 use crate::fields::{Fields, clf_time, object, rfc3339};
-use crate::sources::{Ctx, Spec, beats_envelope, logsource, text_format};
+use crate::sources::{Ctx, Spec, beats_envelope, logsource};
 use crate::world::{INTERNAL_IPS, SCANNER_IP, USER_AGENTS, WEB_PATHS};
+use sluice_core::source::{ParserName, SourceFormat};
 
 pub(crate) const SPEC: Spec = Spec {
     id: "nginx",
     generate,
-    logsource: || logsource("nginx", Some("access")),
-    format: text_format,
+    logsource: || sluice_core::logsource::LogSource {
+        category: Some("webserver".to_owned()),
+        ..logsource("nginx", Some("access"))
+    },
+    format,
 };
 
 pub(crate) const PATH_TRAVERSAL: &str = "path-traversal";
@@ -116,4 +120,12 @@ fn access(ctx: &mut Ctx, ts: i64, host: &str, request: &Request<'_>) -> Fields {
         .set("input", object([("type", "filestream".into())]))
         .set("fileset", object([("name", "access".into())]))
         .set("message", line)
+}
+
+/// The line, with the parser pack the SIEM reads it with (ADR 0043).
+fn format() -> SourceFormat {
+    SourceFormat::Text {
+        field: "message".into(),
+        parser: Some(ParserName::from("nginx/combined".to_owned())),
+    }
 }

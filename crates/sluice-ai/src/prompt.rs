@@ -85,6 +85,7 @@ mod tests {
             },
             fields: fields.iter().map(|f| FieldPath::from(*f)).collect(),
             text_fields: BTreeSet::new(),
+            parser: None,
             stats: TemplateStats::default(),
         }
     }

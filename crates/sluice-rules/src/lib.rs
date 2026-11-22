@@ -11,6 +11,7 @@
 
 mod elastic;
 mod error;
+mod parsers;
 mod sentinel;
 mod sigma;
 mod splunk;
@@ -18,6 +19,7 @@ mod wazuh;
 
 pub use crate::elastic::{ElasticQuery, ElasticRules};
 pub use crate::error::RulesError;
+pub use crate::parsers::{CompiledParser, Pack, ParserBook};
 pub use crate::sentinel::{
     FetchedNames, KqlNames, SentinelRules, SentinelWorkspace, UncheckedNames,
 };

@@ -6,9 +6,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+build = "build.rs"
 
 [dependencies]
 quick-xml.workspace = true
+regex.workspace = true
 rsigma-eval.workspace = true
 rsigma-parser.workspace = true
 serde.workspace = true

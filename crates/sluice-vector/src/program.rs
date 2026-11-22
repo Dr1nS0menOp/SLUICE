@@ -10,7 +10,7 @@
 //! Reductions only touch events that are forwarded. A summarized event keeps every field, so the
 //! summary can be keyed on any of them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sluice_core::field::FieldPath;
 use sluice_core::guard::Route;
@@ -58,6 +58,7 @@ pub fn source_program(plans: &[Plan<'_>]) -> String {
         lines.push(format!("{KEYS} = join(keys(flatten(.)), \"\\n\")"));
     }
     let text_vars = text_variables(&ordered, &mut lines);
+    let parsed = parse_block(&ordered, &text_vars, &mut lines);
 
     lines.push("_sluice_t = \"\"".to_owned());
     for (n, (plan, classifier)) in ordered.iter().enumerate() {
@@ -80,7 +81,12 @@ pub fn source_program(plans: &[Plan<'_>]) -> String {
 
     for (plan, _) in &ordered {
         if !plan.recipe.is_passthrough() {
-            lines.push(reduction(plan));
+            let fields = if plan.template.parser.is_some() {
+                parsed.iter().collect()
+            } else {
+                BTreeSet::new()
+            };
+            lines.push(reduction(plan, &fields));
         }
     }
     let mut program = lines.join("\n");
@@ -109,6 +115,83 @@ fn text_variables(
     vars
 }
 
+/// Parses the line of a source whose text templates name a parser pack (ADR 0043) into
+/// [`predicate::PARSED`]: the fields of the first pattern that matches, by their full names, or
+/// none. Returns the fields it can give; none without a parser. A pattern VRL cannot quote is
+/// skipped, so its fields stay missing and every test on them is true.
+fn parse_block(
+    ordered: &[(&Plan<'_>, Classifier)],
+    text_vars: &BTreeMap<FieldPath, String>,
+    lines: &mut Vec<String>,
+) -> BTreeSet<FieldPath> {
+    let Some((parser, line)) = ordered.iter().find_map(|(plan, _)| {
+        let TemplateShape::Text { field, .. } = &plan.template.shape else {
+            return None;
+        };
+        Some((plan.template.parser.as_ref()?, text_vars.get(field)?))
+    }) else {
+        return BTreeSet::new();
+    };
+    // Every field the pack can give is read from the parse, also one of a pattern skipped below:
+    // read from the event instead, a test on it would be false where the SIEM's could be true.
+    let given: BTreeSet<FieldPath> = parser.fields().into_iter().cloned().collect();
+    // Each pattern is tried only when the ones before it did not match: built from the last one
+    // back, so the last has no empty `else`, which VRL does not accept.
+    let tries: Vec<(String, String)> = parser
+        .patterns
+        .iter()
+        .enumerate()
+        .filter_map(|(n, pattern)| {
+            let regex = syntax::regex(&pattern.regex)?;
+            let (found, error) = (format!("_sluice_pm{n}"), format!("_sluice_pe{n}"));
+            let fields: Vec<String> = pattern
+                .fields
+                .iter()
+                .map(|(group, field)| {
+                    format!(
+                        "{}: {found}.{}",
+                        syntax::string(field.as_str()),
+                        syntax::string(group)
+                    )
+                })
+                .collect();
+            Some((
+                format!("{found}, {error} = parse_regex({line}, {regex})"),
+                // Through JSON, so VRL types the values as anything, as it does an event's: the
+                // tests on them are the ones written for event fields.
+                format!(
+                    "if {error} == null {{\n  {} = object(parse_json!(encode_json({{ {} }}))) ?? {{}}\n}}",
+                    predicate::PARSED,
+                    fields.join(", ")
+                ),
+            ))
+        })
+        .collect();
+    let chain = tries
+        .into_iter()
+        .rev()
+        .fold(String::new(), |rest, (parse, matched)| {
+            if rest.is_empty() {
+                format!("{parse}\n{matched}")
+            } else {
+                format!("{parse}\n{matched} else {{\n{}\n}}", indent(&rest))
+            }
+        });
+    lines.push(format!("{} = {{}}", predicate::PARSED));
+    if !chain.is_empty() {
+        lines.push(chain);
+    }
+    given
+}
+
+/// `text` with every line indented by two spaces.
+fn indent(text: &str) -> String {
+    text.lines()
+        .map(|line| format!("  {line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn wildcards(shape: &TemplateShape) -> usize {
     match shape {
         TemplateShape::Text { tokens, .. } => tokens.iter().filter(|t| t.contains('<')).count(),
@@ -116,11 +199,12 @@ fn wildcards(shape: &TemplateShape) -> usize {
     }
 }
 
-/// The routing and reduction block of one template.
-fn reduction(plan: &Plan<'_>) -> String {
+/// The routing and reduction block of one template; its tests read `parsed` fields from the
+/// line's parse.
+fn reduction(plan: &Plan<'_>, parsed: &BTreeSet<&FieldPath>) -> String {
     let mut body = Vec::new();
     if let Route::ForwardMatching { prefilter, .. } = &plan.recipe.route {
-        let compiled = predicate::compile(prefilter, "_sluice_p");
+        let compiled = predicate::compile_parsed(prefilter, "_sluice_p", parsed);
         body.extend(compiled.statements);
         body.push(format!(
             "if !({}) {{ %sluice.{ROUTE_METADATA} = {} }}",
@@ -163,7 +247,7 @@ fn reduction(plan: &Plan<'_>) -> String {
         // runs on the event before any field is removed.
         let mut condition = format!("%sluice.{ROUTE_METADATA} == {}", syntax::string(FORWARD));
         if let Some(keep) = &plan.recipe.keep_whole_when {
-            let compiled = predicate::compile(keep, "_sluice_k");
+            let compiled = predicate::compile_parsed(keep, "_sluice_k", parsed);
             body.extend(compiled.statements);
             condition = format!("{condition} && !({})", compiled.expression);
         }

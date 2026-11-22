@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::field::FieldPath;
 use crate::ids::{SourceId, TemplateId};
 use crate::logsource::LogSource;
+use crate::parser::LineParser;
 use crate::schema::Schema;
 
 /// A recurring event shape within a source, such as "Windows 4624 logon, type 3".
@@ -33,6 +34,10 @@ pub struct Template {
     pub fields: BTreeSet<FieldPath>,
     /// Fields holding free text (rendered messages, original lines). Raw-text rules match here.
     pub text_fields: BTreeSet<FieldPath>,
+    /// For a text template, the parser pack its source names (ADR 0043): the fields the SIEM
+    /// reads out of its lines.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parser: Option<LineParser>,
     /// How often the template occurs.
     pub stats: TemplateStats,
 }
