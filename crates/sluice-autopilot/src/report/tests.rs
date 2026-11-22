@@ -26,6 +26,8 @@ pub(super) fn report() -> Report {
         coverage_gaps: Vec::new(),
         problems: Vec::new(),
         scope_hints: Vec::new(),
+        schema_hints: Vec::new(),
+        implied_evidence: crate::implied::Evidence::default(),
         spot_check: None,
         rules_basis: RulesBasis::NotKnown,
         rule_rows: Vec::new(),
@@ -71,6 +73,7 @@ fn hostile() -> Report {
             ),
         ],
         scope_hints: vec![HOSTILE.into()],
+        schema_hints: vec![HOSTILE.into()],
         rule_rows: vec![RuleRow {
             set: HOSTILE.into(),
             rule: HOSTILE.into(),

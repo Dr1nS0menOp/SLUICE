@@ -224,6 +224,7 @@ fn functions() -> String {
         },
         fields: ["a".into()].into(),
         text_fields: BTreeSet::new(),
+        parser: None,
         stats: sluice_core::template::TemplateStats::default(),
     };
     let recipe = sluice_core::guard::EffectiveRecipe {

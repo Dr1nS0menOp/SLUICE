@@ -36,6 +36,9 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
     let samples = args.out.join("samples");
     output::samples(&samples, &sample.sources, &sample.events)?;
     output::sources(&args.out.join("sluice.yaml"), &sample.sources)?;
+    // The demo's text sources name their parser packs (ADR 0043).
+    let mut sources = sample.sources.clone();
+    sluice_rules::ParserBook::embedded()?.resolve(&mut sources)?;
     let sigma = SigmaRules::parse(EXAMPLE_SIGMA)?;
     out!(
         "Sluice demo: synthetic sample (seed {}, scale {}%)",
@@ -45,7 +48,7 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
     let advisor = ai::advisor(&args.ai)?;
     run(
         Input {
-            sources: &sample.sources,
+            sources: &sources,
             events: &sample.events,
             sigma: &sigma,
             wazuh: None,
@@ -79,7 +82,7 @@ pub(crate) fn demo(args: &DemoArgs) -> Result<()> {
 pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
     let native = analyze_native(args)?;
     let sources = input::sources(&args.sources)?;
-    let events = input::events(&args.input, &sources)?;
+    let (events, samples) = input::samples(&args.input, &sources)?;
     let input::Loaded {
         sigma,
         wazuh,
@@ -148,6 +151,7 @@ pub(crate) fn analyze(args: &AnalyzeArgs) -> Result<()> {
         &Settings {
             rules: basis,
             modes: modes(&args.mode),
+            samples,
             ..Settings::default()
         },
         ReportExtras {

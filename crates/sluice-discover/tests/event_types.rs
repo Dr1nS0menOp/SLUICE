@@ -69,6 +69,7 @@ fn sshd() -> (Vec<Event>, Discovery) {
     });
     let text = SourceFormat::Text {
         field: "message".into(),
+        parser: None,
     };
     let sources = [source("auth", "linux", text, &[])];
     let events = events("auth", lines);

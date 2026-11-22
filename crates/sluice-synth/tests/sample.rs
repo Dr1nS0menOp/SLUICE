@@ -53,7 +53,7 @@ fn every_event_belongs_to_a_declared_source() {
 fn text_sources_carry_their_raw_line() {
     let sample = generate(&small());
     for source in &sample.sources {
-        let SourceFormat::Text { field } = &source.format else {
+        let SourceFormat::Text { field, .. } = &source.format else {
             continue;
         };
         let events = sample.events.iter().filter(|e| e.source == source.id);

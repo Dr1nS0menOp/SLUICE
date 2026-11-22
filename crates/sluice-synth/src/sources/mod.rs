@@ -70,12 +70,6 @@ pub(crate) fn logsource(product: &str, service: Option<&str>) -> LogSource {
     }
 }
 
-pub(crate) fn text_format() -> SourceFormat {
-    SourceFormat::Text {
-        field: "message".into(),
-    }
-}
-
 pub(crate) fn json_format() -> SourceFormat {
     SourceFormat::Json
 }

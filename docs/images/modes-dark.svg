@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="464" viewBox="0 0 1280 464" role="img" aria-label="What each choice of modes sends on OTRF's APT29 sample">
+<rect width="1280" height="464" rx="16" fill="#0F181E"/>
+<text x="40" y="52" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="600" fill="#E7EEF1" text-anchor="start" letter-spacing="0">OTRF's APT29 sample, 357.3 MB: what reaches the SIEM</text>
+<text x="40" y="78" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#93A6B0" text-anchor="start" letter-spacing="0">Eight detection rules, the same 987 alerts every time.</text>
+<text x="40" y="136" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#E7EEF1" text-anchor="start" letter-spacing="0">nothing</text>
+<text x="40" y="158" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#93A6B0" text-anchor="start" letter-spacing="0"></text>
+<rect x="330" y="116" width="790.0" height="34" rx="5" fill="#1B2A33"/>
+<rect x="330" y="116" width="790.0" height="34" rx="5" fill="#93A6B0"/>
+<text x="1132.0" y="139" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="600" fill="#E7EEF1" text-anchor="start" letter-spacing="0">357.3 MB</text>
+<text x="330" y="172" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#93A6B0" text-anchor="start" letter-spacing="0">every event, every field</text>
+<text x="40" y="214" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#E7EEF1" text-anchor="start" letter-spacing="0">duplicates</text>
+<text x="40" y="236" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#93A6B0" text-anchor="start" letter-spacing="0">--mode duplicates</text>
+<rect x="330" y="194" width="790.0" height="34" rx="5" fill="#1B2A33"/>
+<rect x="330" y="194" width="528.9" height="34" rx="5" fill="#4CB3C6"/>
+<text x="870.8776938147215" y="217" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="600" fill="#E7EEF1" text-anchor="start" letter-spacing="0">239.2 MB  ·  33.1 % saved</text>
+<text x="330" y="250" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#93A6B0" text-anchor="start" letter-spacing="0">every event, every value</text>
+<text x="40" y="292" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#E7EEF1" text-anchor="start" letter-spacing="0">duplicates,implied</text>
+<text x="40" y="314" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#93A6B0" text-anchor="start" letter-spacing="0">--mode duplicates,implied</text>
+<rect x="330" y="272" width="790.0" height="34" rx="5" fill="#1B2A33"/>
+<rect x="330" y="272" width="308.9" height="34" rx="5" fill="#4CB3C6"/>
+<text x="650.8804925832633" y="295" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="600" fill="#E7EEF1" text-anchor="start" letter-spacing="0">139.7 MB  ·  60.9 % saved</text>
+<text x="330" y="328" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#93A6B0" text-anchor="start" letter-spacing="0">every event; values come back</text>
+<text x="40" y="370" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#E7EEF1" text-anchor="start" letter-spacing="0">all three</text>
+<text x="40" y="392" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#93A6B0" text-anchor="start" letter-spacing="0">the default</text>
+<rect x="330" y="350" width="790.0" height="34" rx="5" fill="#1B2A33"/>
+<rect x="330" y="350" width="172.9" height="34" rx="5" fill="#4CB3C6"/>
+<text x="514.9023229778898" y="373" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="600" fill="#E7EEF1" text-anchor="start" letter-spacing="0">78.2 MB  ·  78.1 % saved</text>
+<text x="330" y="406" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#93A6B0" text-anchor="start" letter-spacing="0">unmatched events arrive as counts</text>
+<line x1="330.0" y1="424" x2="330.0" y2="430" stroke="#2A3A44" stroke-width="2"/>
+<text x="330.0" y="446" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#93A6B0" text-anchor="middle" letter-spacing="0">0 MB</text>
+<line x1="551.1" y1="424" x2="551.1" y2="430" stroke="#2A3A44" stroke-width="2"/>
+<text x="551.1" y="446" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#93A6B0" text-anchor="middle" letter-spacing="0">100 MB</text>
+<line x1="772.2" y1="424" x2="772.2" y2="430" stroke="#2A3A44" stroke-width="2"/>
+<text x="772.2" y="446" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#93A6B0" text-anchor="middle" letter-spacing="0">200 MB</text>
+<line x1="993.3" y1="424" x2="993.3" y2="430" stroke="#2A3A44" stroke-width="2"/>
+<text x="993.3" y="446" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#93A6B0" text-anchor="middle" letter-spacing="0">300 MB</text>
+</svg>

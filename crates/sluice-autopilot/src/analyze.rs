@@ -43,6 +43,10 @@ pub struct Settings {
     pub rules: RulesBasis,
     /// The kinds of saving to make; every one by default.
     pub modes: BTreeSet<Mode>,
+    /// The sample each event was read from (`--input` given more than once), by event id. Empty
+    /// means one sample. Implied values must hold in every sample and on every machine that has
+    /// enough of their events (ADR 0042).
+    pub samples: Vec<u16>,
 }
 
 impl Default for Settings {
@@ -54,6 +58,7 @@ impl Default for Settings {
             operator_rules: Vec::new(),
             rules: RulesBasis::NotKnown,
             modes: Mode::ALL.into(),
+            samples: Vec::new(),
         }
     }
 }
@@ -177,6 +182,9 @@ pub struct Analysis {
     /// Every rule the guardrails and the proof held the selection to, as it was read: what a
     /// later `sluice verify` compares the current rules with (ADR 0039).
     pub fingerprints: Vec<RuleFingerprint>,
+    /// What the implied values were learned on, and the values held back for want of more than
+    /// one machine (ADR 0042).
+    pub implied: implied::Evidence,
 }
 
 impl Analysis {
@@ -274,9 +282,11 @@ pub fn analyze(
             })
             .collect();
     }
+    let mut evidence = implied::Evidence::default();
     if settings.modes.contains(&Mode::Implied) {
-        let learned = implied::learn(&discovery, input.events, settings.guardrails);
-        for (template, values) in learned {
+        let learned = implied::learn(&discovery, input.events, settings);
+        evidence = learned.evidence;
+        for (template, values) in learned.values {
             let recipe = with_implied(
                 resolution.recipes.remove(&template),
                 template.clone(),
@@ -285,14 +295,16 @@ pub fn analyze(
             resolution.recipes.insert(template, recipe);
         }
     }
-    analyze_proposals(
+    let mut analysis = analyze_proposals(
         input,
         discovery,
         resolution.recipes,
         settings,
         helpers,
         problems,
-    )
+    )?;
+    analysis.implied = evidence;
+    Ok(analysis)
 }
 
 /// The reductions of `recipe` that belong to `mode`: its routing for [`Mode::Counts`], its field
@@ -461,6 +473,7 @@ pub fn analyze_proposals(
         rules: settings.rules,
         modes: settings.modes.clone(),
         fingerprints: fingerprints(&requirements),
+        implied: implied::Evidence::default(),
     })
 }
 

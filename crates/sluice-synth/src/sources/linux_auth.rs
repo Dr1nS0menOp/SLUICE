@@ -1,14 +1,15 @@
 //! `/var/log/auth.log` from Linux servers, shipped by Filebeat as raw lines.
 
 use crate::fields::{Fields, object, rfc3339, syslog_time};
-use crate::sources::{Ctx, Spec, beats_envelope, logsource, text_format};
+use crate::sources::{Ctx, Spec, beats_envelope, logsource};
 use crate::world::{ATTACKER_IP, INTERNAL_IPS, LINUX_HOSTS, LINUX_USERS};
+use sluice_core::source::{ParserName, SourceFormat};
 
 pub(crate) const SPEC: Spec = Spec {
     id: "linux-auth",
     generate,
     logsource: || logsource("linux", Some("auth")),
-    format: text_format,
+    format,
 };
 
 pub(crate) const SSH_BRUTE_FORCE: &str = "ssh-brute-force";
@@ -119,4 +120,12 @@ fn syslog(ctx: &mut Ctx, ts: i64, host: &str, program: &str, text: &str) -> Fiel
         .set("input", object([("type", "filestream".into())]))
         .set("event", object([("original", line.clone().into())]))
         .set("message", line)
+}
+
+/// The line, with the parser pack the SIEM reads it with (ADR 0043).
+fn format() -> SourceFormat {
+    SourceFormat::Text {
+        field: "message".into(),
+        parser: Some(ParserName::from("linux/auth".to_owned())),
+    }
 }

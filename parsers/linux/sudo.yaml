@@ -1,0 +1,25 @@
+id: linux/sudo
+description: "sudo command lines in a Linux auth log"
+logsource: { product: linux, service: auth }
+convention: sigma
+patterns:
+  - regex: 'sudo(?:\[\d+\])?: +(?P<user>\S+) : (?:(?P<failure>[^;]+?) ; )?TTY=(?P<tty>\S+) ; PWD=(?P<pwd>.*?) ; USER=(?P<target>\S+) ;(?: [A-Z]+=\S+ ;)* COMMAND=(?P<command>.*)$'
+    fields:
+      user: User
+      target: TargetUser
+      pwd: CurrentDirectory
+      command: CommandLine
+      failure: outcome
+examples:
+  - line: 'Oct 10 08:00:02 web02 sudo[47984]: alice : TTY=pts/0 ; PWD=/home/alice ; USER=root ; COMMAND=/usr/bin/journalctl -u nginx --since today'
+    fields:
+      User: alice
+      TargetUser: root
+      CurrentDirectory: /home/alice
+      CommandLine: /usr/bin/journalctl -u nginx --since today
+      outcome: ~
+  - line: 'Oct 10 08:00:03 web02 sudo: mallory : 3 incorrect password attempts ; TTY=pts/1 ; PWD=/tmp ; USER=root ; COMMAND=/bin/bash'
+    fields:
+      User: mallory
+      outcome: 3 incorrect password attempts
+      CommandLine: /bin/bash

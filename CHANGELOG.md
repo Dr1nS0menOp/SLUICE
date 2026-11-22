@@ -8,6 +8,26 @@ All notable changes to Sluice are recorded here. The format follows
 
 ### Added
 
+- **Parser packs** ([ADR 0043](docs/adr/0043-parser-packs.md)). A text source can name how its
+  SIEM parses its lines: `format: {kind: text, field: message, parser: nginx/combined}`, or a pack
+  file of your own. Sigma rules on the parsed fields (`cs-uri-query`, `dst_port`, `query`) then
+  keep only the lines they could match, in the guardrails, in Vector's VRL and in the proof; a
+  line the pack cannot read is kept whole. 18 packs are built in (nginx, Apache, IIS, HAProxy,
+  Squid, Linux netfilter and UFW, pfSense and OPNsense `filterlog`, Cisco ASA, FortiGate, BIND,
+  dnsmasq, Unbound, and the Linux auth log), each with examples that must parse. `sluice
+  parsers` lists them. New recipes count web, proxy and DNS lines no rule could match. On the
+  demo, with an example rule on the parsed user agent, 80.6 % is saved (from 78.2 %) and the
+  rule's alerts are all kept, 45 = 45.
+- **`sluice init`** ([ADR 0044](docs/adr/0044-sluice-init-and-the-schema-check.md)) proposes a
+  sources file from a sample: per source its format, its parser pack, its log source and the
+  convention of its field names, with a comment on how it came to each.
+- **A check of the declared schema.** When the rules that apply to a source read fields that are
+  almost all missing from its records, the report and the command line say the `schema` looks
+  wrong, and what the field names look like instead.
+- **Implied values across machines and samples** ([ADR 0042](docs/adr/0042-implied-across-machines.md)).
+  `--input` may be given once per sample. A value must hold on every machine and in every sample
+  with enough of its events, and one alike on every kind of event of a source is learned only
+  when the sample shows more than one machine; otherwise the report says it was held back.
 - **Three modes** ([ADR 0041](docs/adr/0041-three-modes.md)). `--mode` now takes `duplicates`
   (fields that repeat the event's own, and empty fields), `implied` and `counts` (events no
   rule could match, counted instead of sent). `--mode duplicates,implied` loses nothing: every

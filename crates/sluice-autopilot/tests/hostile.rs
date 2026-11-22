@@ -225,6 +225,10 @@ const TOKENS: [&str; 16] = [
 ];
 
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one source, its rules and its odd lines, read top to bottom"
+)]
 fn odd_text_lines_compile_and_keep_every_alert() {
     let text_source = Source {
         id: "odd-text".into(),
@@ -236,6 +240,7 @@ fn odd_text_lines_compile_and_keep_every_alert() {
         },
         format: SourceFormat::Text {
             field: "message".into(),
+            parser: None,
         },
         schema: Schema::Sigma,
         event_type: Vec::new(),

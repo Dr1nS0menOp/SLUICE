@@ -1,0 +1,12 @@
+id: bind/dns/query
+description: BIND query log lines, read with the bind/query parser pack
+match:
+  logsource: { product: bind }
+  pattern: 'query: '
+reductions:
+  - op: forward_matching
+    summary_keys: [src_ip, query, record_type]
+rationale: >-
+  A resolver logs every lookup, most of them for the same names. Lookups a rule could match are
+  forwarded whole; the rest are counted per minute, per client, name and type, so every name
+  looked up is still in the SIEM. Give the source `parser: bind/query`.

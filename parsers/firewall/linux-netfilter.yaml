@@ -1,0 +1,27 @@
+id: linux/netfilter
+description: "Linux netfilter log lines (iptables LOG, nftables log, UFW) as the kernel writes them"
+logsource: { product: linux, category: firewall }
+convention: sigma
+patterns:
+  - regex: '(?:\[(?P<prefix>UFW [A-Z]+)\] )?IN=(?P<in>\S*) OUT=(?P<out>\S*)(?: MAC=\S*)? SRC=(?P<src_ip>[0-9A-Fa-f.:]+) DST=(?P<dst_ip>[0-9A-Fa-f.:]+) .*?PROTO=(?P<proto>[A-Za-z0-9]+)(?: SPT=(?P<src_port>\d+) DPT=(?P<dst_port>\d+))?'
+    fields:
+      src_ip: src_ip
+      dst_ip: dst_ip
+      src_port: src_port
+      dst_port: dst_port
+      proto: protocol
+      prefix: action
+examples:
+  - line: 'Oct 10 08:00:00 gw01 kernel: [UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55:66:77:88:99:aa:bb:08:00 SRC=203.0.113.4 DST=10.0.0.5 LEN=60 TOS=0x00 PREC=0x00 TTL=50 ID=54321 DF PROTO=TCP SPT=51234 DPT=22 WINDOW=64240 RES=0x00 SYN URGP=0'
+    fields:
+      src_ip: 203.0.113.4
+      dst_ip: 10.0.0.5
+      src_port: "51234"
+      dst_port: "22"
+      protocol: TCP
+      action: UFW BLOCK
+  - line: 'Oct 10 08:00:01 gw01 kernel: IN=eth1 OUT=eth0 SRC=10.0.0.9 DST=198.51.100.2 LEN=84 TOS=0x00 PREC=0x00 TTL=63 ID=1 PROTO=ICMP TYPE=8 CODE=0 ID=7 SEQ=1'
+    fields:
+      src_ip: 10.0.0.9
+      protocol: ICMP
+      dst_port: ~

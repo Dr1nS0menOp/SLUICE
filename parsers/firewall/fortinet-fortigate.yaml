@@ -1,0 +1,29 @@
+id: fortinet/fortigate
+description: "FortiGate traffic logs in their key=value syslog format (srcip, srcport, dstip, dstport, proto, action, user)"
+logsource: { product: fortigate, category: firewall }
+convention: sigma
+patterns:
+  - regex: '\btype="?traffic"?\b.*?\bsrcip=(?P<src_ip>[0-9A-Fa-f.:]+)(?:.*?\bsrcport=(?P<src_port>\d+))?.*?\bdstip=(?P<dst_ip>[0-9A-Fa-f.:]+)(?:.*?\bdstport=(?P<dst_port>\d+))?(?:.*?\bproto=(?P<proto>\d+))?(?:.*?\baction="?(?P<action>[a-z-]+)"?)?(?:.*?\buser="(?P<user>[^"]*)")?'
+    fields:
+      src_ip: src_ip
+      src_port: src_port
+      dst_ip: dst_ip
+      dst_port: dst_port
+      proto: protocol
+      action: action
+      user: username
+examples:
+  - line: 'date=2026-10-10 time=08:00:00 devname="fw01" logid="0000000013" type="traffic" subtype="forward" level="notice" srcip=10.0.0.12 srcport=53022 srcintf="port2" dstip=198.51.100.80 dstport=443 dstintf="port1" proto=6 action="accept" policyid=3 user="alice" service="HTTPS"'
+    fields:
+      src_ip: 10.0.0.12
+      src_port: "53022"
+      dst_ip: 198.51.100.80
+      dst_port: "443"
+      protocol: "6"
+      action: accept
+      username: alice
+  - line: 'date=2026-10-10 time=08:00:01 type="traffic" subtype="local" srcip=203.0.113.50 dstip=10.0.0.1 proto=1 action="deny"'
+    fields:
+      src_ip: 203.0.113.50
+      src_port: ~
+      action: deny

@@ -325,6 +325,7 @@ mod learn {
             },
             fields: variant,
             text_fields: BTreeSet::new(),
+            parser: None,
             stats: TemplateStats {
                 events,
                 bytes: 0,
@@ -368,7 +369,7 @@ mod learn {
     #[test]
     fn a_frequent_kind_of_event_gets_its_constants_but_never_its_discriminator() {
         let (discovery, events) = discovery(vec![template("t", Schema::Sigma, &FIELDS, 500)], 30);
-        let learned = learn(&discovery, &events, GuardrailConfig::default());
+        let learned = learn(&discovery, &events, &crate::analyze::Settings::default()).values;
         let fields: Vec<&str> = learned[&TemplateId::from("t")]
             .iter()
             .map(|v| v.field.as_str())
@@ -379,14 +380,18 @@ mod learn {
     #[test]
     fn a_rare_kind_of_event_gets_nothing() {
         let (discovery, events) = discovery(vec![template("t", Schema::Sigma, &FIELDS, 5)], 30);
-        assert!(learn(&discovery, &events, GuardrailConfig::default()).is_empty());
+        assert!(
+            learn(&discovery, &events, &crate::analyze::Settings::default())
+                .values
+                .is_empty()
+        );
     }
 
     #[test]
     fn read_from_sentinel_the_columns_the_workspace_adds_are_left_alone() {
         let (discovery, events) =
             discovery(vec![template("t", Schema::Sentinel, &FIELDS, 500)], 30);
-        let learned = learn(&discovery, &events, GuardrailConfig::default());
+        let learned = learn(&discovery, &events, &crate::analyze::Settings::default()).values;
         let fields: Vec<&str> = learned[&TemplateId::from("t")]
             .iter()
             .map(|v| v.field.as_str())
@@ -399,7 +404,106 @@ mod learn {
         // Only the discriminator: nothing to learn.
         let (discovery, events) =
             discovery(vec![template("t", Schema::Sigma, &["EventID"], 500)], 30);
-        assert!(learn(&discovery, &events, GuardrailConfig::default()).is_empty());
+        assert!(
+            learn(&discovery, &events, &crate::analyze::Settings::default())
+                .values
+                .is_empty()
+        );
+    }
+
+    /// Two kinds of event of one source, `n` events each, from the machines `hosts` in turn:
+    /// `{"EventID": <kind>, "Channel": "Security", "Computer": <host>, "Mode": <mode(i)>}`.
+    fn fleet(
+        n: u64,
+        hosts: &[&str],
+        mode: impl Fn(u64) -> &'static str,
+    ) -> (Discovery, Vec<Event>) {
+        let fields = ["EventID", "Channel", "Computer", "Mode"];
+        let templates = vec![
+            template("a", Schema::Sigma, &fields, 500),
+            template("b", Schema::Sigma, &fields, 500),
+        ];
+        let mut assignments = BTreeMap::new();
+        let mut events = Vec::new();
+        for (kind, template) in templates.iter().enumerate() {
+            for i in 0..n {
+                let id = EventId(events.len() as u64);
+                assignments.insert(id, template.id.clone());
+                let host = hosts[usize::try_from(i).unwrap_or(0) % hosts.len()];
+                let Value::Object(fields) = json!({
+                    "EventID": kind, "Channel": "Security", "Computer": host, "Mode": mode(i),
+                }) else {
+                    unreachable!("an object")
+                };
+                events.push(Event {
+                    id,
+                    timestamp: Timestamp(0),
+                    source: SourceId::new("s"),
+                    fields,
+                });
+            }
+        }
+        (
+            Discovery {
+                templates,
+                assignments,
+            },
+            events,
+        )
+    }
+
+    fn fields_of(learned: &Learned, template: &str) -> Vec<String> {
+        learned
+            .values
+            .get(&TemplateId::from(template))
+            .map(|values| values.iter().map(|v| v.field.to_string()).collect())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_value_alike_on_every_kind_of_event_of_one_machine_is_held_back() {
+        let (discovery, events) = fleet(60, &["ws-alice"], |_| "fast");
+        let learned = learn(&discovery, &events, &crate::analyze::Settings::default());
+        assert_eq!(fields_of(&learned, "a"), Vec::<String>::new());
+        let held: Vec<(&str, &str)> = learned
+            .evidence
+            .withheld
+            .iter()
+            .map(|w| (w.source.as_str(), w.field.as_str()))
+            .collect();
+        assert_eq!(held, [("s", "Channel"), ("s", "Computer"), ("s", "Mode")]);
+        assert_eq!(learned.evidence.hosts["s"], 1);
+    }
+
+    #[test]
+    fn a_value_alike_on_every_machine_of_a_fleet_is_learned_and_a_machine_s_name_is_not() {
+        let (discovery, events) = fleet(60, &["ws-alice", "ws-bob"], |_| "fast");
+        let learned = learn(&discovery, &events, &crate::analyze::Settings::default());
+        assert_eq!(fields_of(&learned, "a"), ["Channel", "Mode"]);
+        assert_eq!(learned.evidence.withheld, Vec::<Withheld>::new());
+        assert_eq!(learned.evidence.hosts["s"], 2);
+    }
+
+    #[test]
+    fn a_value_that_holds_on_one_sample_but_not_the_next_is_not_learned() {
+        // Two samples of two machines: `Mode` is `fast` on the first day only. Over both it is
+        // `fast` nine times in ten, which the whole sample alone would have learned.
+        let (discovery, events) = fleet(400, &["ws-alice", "ws-bob"], |i| {
+            if i < 360 { "fast" } else { "slow" }
+        });
+        let samples: Vec<u16> = events
+            .iter()
+            .map(|e| u16::from(e.id.0 % 400 >= 360))
+            .collect();
+        let one_day = learn(&discovery, &events, &crate::analyze::Settings::default());
+        assert!(fields_of(&one_day, "a").contains(&"Mode".to_owned()));
+        let settings = crate::analyze::Settings {
+            samples,
+            ..crate::analyze::Settings::default()
+        };
+        let two_days = learn(&discovery, &events, &settings);
+        assert_eq!(fields_of(&two_days, "a"), ["Channel"]);
+        assert_eq!(two_days.evidence.samples, 2);
     }
 }
 
@@ -617,4 +721,27 @@ fn another_field_that_sets_every_value_beats_a_value_held_by_nine_in_ten() {
             .any(|v| v.field == field("RestrictedAdminMode") && v.when.is_none()),
         "{values:?}"
     );
+}
+
+#[test]
+fn a_source_s_machines_are_named_by_the_field_with_the_most_values_not_a_collector_s() {
+    use sluice_core::event::Timestamp;
+    use sluice_core::ids::{EventId, SourceId};
+    let events: Vec<Event> = (0..4u64)
+        .map(|n| {
+            let Value::Object(fields) =
+                json!({"host": "10.0.0.250", "Hostname": format!("ws{n}"), "EventID": 1})
+            else {
+                unreachable!("an object")
+            };
+            Event {
+                id: EventId(n),
+                timestamp: Timestamp(0),
+                source: SourceId::new("s"),
+                fields,
+            }
+        })
+        .collect();
+    let chosen = host_fields(&events);
+    assert_eq!(chosen.get("s").map(FieldPath::as_str), Some("Hostname"));
 }

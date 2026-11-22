@@ -22,6 +22,18 @@ const SIGMA: [&str; 3] = [
 
 /// Proposes to summarize every template it is asked about, by its first field, and to drop its
 /// free-text fields: far more than is safe.
+/// The built-in recipes but nginx's, so its access lines are frequent and covered by none: what
+/// the advisor is asked about.
+fn without_nginx() -> RecipeBook {
+    RecipeBook::parse(
+        RecipeBook::embedded_files()
+            .iter()
+            .copied()
+            .filter(|(path, _)| !path.starts_with("nginx")),
+    )
+    .expect("recipes")
+}
+
 #[derive(Default)]
 struct Eager {
     asked: RefCell<BTreeSet<TemplateId>>,
@@ -78,7 +90,7 @@ fn eager_advice_is_guarded_and_proven() {
         elastic: None,
         splunk: None,
     };
-    let book = RecipeBook::embedded().expect("recipes");
+    let book = without_nginx();
     let advisor = Eager::default();
     let analysis = analyze(
         input,
@@ -139,7 +151,7 @@ fn a_failing_advisor_is_reported_not_fatal() {
         elastic: None,
         splunk: None,
     };
-    let book = RecipeBook::embedded().expect("recipes");
+    let book = without_nginx();
     let analysis = analyze(
         input,
         &book,

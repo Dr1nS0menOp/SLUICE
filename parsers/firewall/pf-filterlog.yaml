@@ -1,0 +1,38 @@
+id: pf/filterlog
+description: "pfSense and OPNsense filterlog lines (the CSV format) for IPv4 and IPv6 TCP and UDP"
+logsource: { category: firewall }
+convention: sigma
+patterns:
+  # rule,subrule,anchor,tracker,interface,reason,action,direction,4,tos,ecn,ttl,id,offset,flags,protonum,protoname,length,src,dst,srcport,dstport,…
+  - regex: 'filterlog(?:\[\d+\])?: (?P<rule>\d*),[^,]*,[^,]*,[^,]*,(?P<iface>[^,]+),(?P<reason>[^,]*),(?P<action>pass|block|reject),(?P<direction>in|out),4,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,(?P<proto>[a-z]+),[^,]*,(?P<src_ip>[0-9.]+),(?P<dst_ip>[0-9.]+)(?:,(?P<src_port>\d+),(?P<dst_port>\d+))?'
+    fields:
+      action: action
+      src_ip: src_ip
+      dst_ip: dst_ip
+      src_port: src_port
+      dst_port: dst_port
+      proto: protocol
+  # IPv6: …,direction,6,class,flowlabel,hoplimit,protoname,protonum,length,src,dst,srcport,dstport,…
+  - regex: 'filterlog(?:\[\d+\])?: (?P<rule>\d*),[^,]*,[^,]*,[^,]*,(?P<iface>[^,]+),(?P<reason>[^,]*),(?P<action>pass|block|reject),(?P<direction>in|out),6,[^,]*,[^,]*,[^,]*,(?P<proto>[a-z0-9-]+),[^,]*,[^,]*,(?P<src_ip>[0-9a-f:]+),(?P<dst_ip>[0-9a-f:]+)(?:,(?P<src_port>\d+),(?P<dst_port>\d+))?'
+    fields:
+      action: action
+      src_ip: src_ip
+      dst_ip: dst_ip
+      src_port: src_port
+      dst_port: dst_port
+      proto: protocol
+examples:
+  - line: 'Oct 10 08:00:00 fw01 filterlog[71228]: 77,,,1000000103,igb0,match,block,in,4,0x0,,64,0,0,DF,6,tcp,60,203.0.113.4,198.51.100.10,51234,3389,0,S,123,,64240,,mss;sackOK;TS;nop;wscale'
+    fields:
+      action: block
+      src_ip: 203.0.113.4
+      dst_ip: 198.51.100.10
+      src_port: "51234"
+      dst_port: "3389"
+      protocol: tcp
+  - line: 'filterlog: 5,,,1000000003,igb1,match,pass,out,6,0x00,0x00000,64,udp,17,61,2001:db8::5,2001:db8:1::53,53124,53,61'
+    fields:
+      action: pass
+      src_ip: 2001:db8::5
+      dst_port: "53"
+      protocol: udp

@@ -1,0 +1,47 @@
+id: cisco/asa
+description: "Cisco ASA connection and access-list messages (%ASA-6-302013/302015 built, %ASA-4-106023 and %ASA-4-106100 deny and permit)"
+logsource: { product: cisco, service: asa, category: firewall }
+convention: sigma
+patterns:
+  - regex: '%ASA-\d-30201[3-6]: Built (?P<direction>inbound|outbound) (?P<proto>TCP|UDP) connection \d+ for [^:]+:(?P<src_ip>[0-9A-Fa-f.:]+?)/(?P<src_port>\d+) \([^)]*\)(?:\([^)]*\))? to [^:]+:(?P<dst_ip>[0-9A-Fa-f.:]+?)/(?P<dst_port>\d+)'
+    fields:
+      src_ip: src_ip
+      src_port: src_port
+      dst_ip: dst_ip
+      dst_port: dst_port
+      proto: protocol
+  - regex: '%ASA-\d-106023: (?P<action>Deny) (?P<proto>\S+) src [^:]+:(?P<src_ip>[0-9A-Fa-f.:]+?)(?:/(?P<src_port>\d+))? dst [^:]+:(?P<dst_ip>[0-9A-Fa-f.:]+?)(?:/(?P<dst_port>\d+))?(?: |$)'
+    fields:
+      action: action
+      src_ip: src_ip
+      src_port: src_port
+      dst_ip: dst_ip
+      dst_port: dst_port
+      proto: protocol
+  - regex: '%ASA-\d-106100: access-list \S+ (?P<action>permitted|denied) (?P<proto>\S+) [^/]+/(?P<src_ip>[0-9A-Fa-f.:]+?)\((?P<src_port>\d+)\) -> [^/]+/(?P<dst_ip>[0-9A-Fa-f.:]+?)\((?P<dst_port>\d+)\)'
+    fields:
+      action: action
+      src_ip: src_ip
+      src_port: src_port
+      dst_ip: dst_ip
+      dst_port: dst_port
+      proto: protocol
+examples:
+  - line: '%ASA-6-302013: Built inbound TCP connection 1234 for outside:203.0.113.7/51515 (203.0.113.7/51515) to inside:10.0.0.5/443 (198.51.100.5/443)'
+    fields:
+      src_ip: 203.0.113.7
+      src_port: "51515"
+      dst_ip: 10.0.0.5
+      dst_port: "443"
+      protocol: TCP
+  - line: 'Oct 10 08:00:00 asa01 : %ASA-4-106023: Deny tcp src outside:198.51.100.9/40000 dst inside:10.0.0.22/445 by access-group "outside_in" [0x0, 0x0]'
+    fields:
+      action: Deny
+      src_ip: 198.51.100.9
+      dst_ip: 10.0.0.22
+      dst_port: "445"
+  - line: '%ASA-6-106100: access-list inside_in permitted tcp inside/10.0.0.8(50001) -> outside/192.0.2.44(22) hit-cnt 1 first hit [0x1, 0x0]'
+    fields:
+      action: permitted
+      src_ip: 10.0.0.8
+      dst_port: "22"

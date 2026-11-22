@@ -80,7 +80,7 @@ fn requirement(rule: &str) -> &'static RuleRequirements {
 #[test]
 fn example_rules_load_without_problems() {
     assert!(rules().problems().is_empty(), "{:?}", rules().problems());
-    assert_eq!(rules().requirements().len(), 7);
+    assert_eq!(rules().requirements().len(), 8);
 }
 
 #[test]

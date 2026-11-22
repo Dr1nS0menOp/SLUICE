@@ -35,14 +35,19 @@ are.
    it may go and where ([field value study](notes/field-value.md)). An object whose every field
    went is not sent as `{}`; one that came empty is (ADR 0033).
 
+   A value must hold on every machine and in every sample (`--input` given once per machine or
+   day) that has 20 events of its kind. One that is the same on every kind of event of a source,
+   such as a machine's name, is learned only when the sample shows more than one machine; on one
+   machine it is held back and the report says so (ADR 0042).
+
    The kinds of saving are **modes**, and all three run unless `--mode` names fewer:
    `duplicates` (the recipes' field removals: text that repeats the event's fields, empty
    fields), `implied` (the implied values) and `counts` (the recipes' counting of events no rule
    could match). `duplicates,implied` loses nothing: every event reaches the SIEM. `rules` is
    `duplicates,counts`, the name 1.0 gave the recipes' savings. The report and `plan.json`
    (`saved_by_mode`) give the saving of each side by side. Each mode is credited with what it
-   saves after the ones before it: on the demo `duplicates` 17.0 %, `implied` 11.0 % and
-   `counts` 50.5 % together, while `duplicates,implied` alone saves 66.0 %.
+   saves after the ones before it: on the demo `duplicates` 17.0 %, `implied` 10.7 % and
+   `counts` 52.9 % together, while `duplicates,implied` alone saves 64.6 %.
 3. **Guardrails.** For each template, Sluice works out which of your rules could see it (by log
    source, and by the template's fixed values) and what each rule reads. A field a rule reads is
    never removed from an event that rule could match; such events are forwarded whole (ADR
@@ -61,7 +66,9 @@ are.
 
 ## Describing your sources
 
-`sluice analyze` and `sluice prove` read a sources file:
+`sluice analyze` and `sluice prove` read a sources file. `sluice init --input samples` proposes one
+from your sample, with a comment on each source saying how it came to it; check it before you use
+it ([ADR 0044](adr/0044-sluice-init-and-the-schema-check.md)):
 
 ```yaml
 sources:
@@ -71,7 +78,7 @@ sources:
     schema: sigma                      # the field names the records use (see "Field names")
   - id: linux-auth
     logsource: { product: linux, service: auth }
-    format: { kind: text, field: message }   # one log line per event, in `message`
+    format: { kind: text, field: message, parser: linux/auth }   # one line per event, in `message`
 ```
 
 - `logsource` uses Sigma's attributes `product`, `service` and `category`. A rule applies to a
@@ -82,6 +89,25 @@ sources:
   channel, onto which Sigma maps categories such as `process_creation`.
 - `sluice analyze` prints a **hint** for each source where undeclared attributes keep rules in
   scope, with the number of rules involved.
+- It also says when a source's declared `schema` looks wrong: when the rules that apply to it read
+  fields that are almost all missing from its records, with a guess at the convention they do
+  follow. A wrong schema is the mistake the proof cannot notice.
+
+### Text lines and parser packs
+
+A SIEM parses fields out of a text line before its rules run: a web rule tests `cs-uri-query`,
+a firewall rule `dst_port`. Tell Sluice how, with `parser:`, and it reads the line the same way
+([ADR 0043](adr/0043-parser-packs.md)): a Sigma rule on those fields then keeps only the lines it
+could match, and the rest can be counted. Without a parser such a rule keeps every line.
+
+`sluice parsers` lists the built-in packs and their fields: nginx and Apache access logs, IIS,
+HAProxy, Squid, Linux netfilter and UFW, pfSense and OPNsense `filterlog`, Cisco ASA, FortiGate,
+BIND, dnsmasq, Unbound, and the Linux auth log (`linux/auth`: sshd, sudo, PAM, cron). For a format
+of your own, write a pack and name its file (`parser: packs/my-app.yaml`, relative to the sources
+file); the [nginx pack](../parsers/web/nginx-combined.yaml) is a short example. Each pack's
+`examples` are checked when it loads. Naming a pack is your claim that the SIEM parses the lines
+that way, as with a `--sigma-pipeline`: the proof uses the same pack, so it cannot notice a
+different parser in the SIEM. A field the pack could not read from a line keeps that line whole.
 
 ### Kinds of event
 
@@ -150,7 +176,9 @@ line`); a keyword rule is matched against the line as it is.
 | Command | What it does |
 |---------|--------------|
 | `sluice demo` | Generates an hour of synthetic traffic with planted attacks and runs the whole analysis on it. `--native elastic,fluent-bit,otel` (with their engines), `--llm` and `--mode` as for `analyze`. |
-| `sluice analyze --input DIR --sources FILE --rules DIR` | Runs the analysis on your sample (`DIR/<source>.ndjson`) and writes the files below. `--wazuh-rules` (with `--wazuh-decoders` to bound them), `--wazuh-api` (logtest spot check), `--sentinel-rules` with `--kusto` and `--sentinel-table` (proof in the Kusto emulator; add `--native sentinel` for a proven DCR `transformKql` per table, and `--sentinel-dcr RULE.json` to have it written into that rule together with an untransformed flow into an Auxiliary archive table, ADR 0013), `--elasticsearch URL` (runs the Elastic rules in the proof, ADR 0025) with `--native elastic` (an ingest pipeline per source, proven there, ADR 0024), `--fluent-bit CMD --native fluent-bit` (a Fluent Bit Lua filter per source, proven in Fluent Bit, ADR 0027), `--otel-collector CMD --native otel` (OpenTelemetry Collector transform statements per source, proven in the collector, ADR 0028), `--elastic-rules DIR` (Elastic Security detection rules as Kibana exports them, ADR 0025), `--splunk-rules DIR` (Splunk's saved searches and macros, ADR 0026) with `--splunk URL` (runs them in a Splunk of the proof's own; `--splunk-hec`, `--splunk-insecure`, credentials in `SPLUNK_PROOF_PASSWORD` or `SPLUNK_PROOF_TOKEN`, ADR 0037), `--sigma-pipeline`, `--recipes`, `--llm` are optional, and `--mode` picks the kinds of saving (`duplicates`, `implied`, `counts`; all three by default, `rules` for `duplicates,counts`), and `--no-examples` leaves the sample's events out of the report. Summaries need a complete rule set: fetched, or `--rules-complete`. |
+| `sluice init --input DIR [--out FILE]` | Proposes a sources file from the sample: per source its format, the parser pack its lines fit, its log source and the convention of its field names, each with how it came to it. Never overwrites a file (ADR 0044). |
+| `sluice parsers` | Lists the built-in parser packs and the fields each gives (ADR 0043). |
+| `sluice analyze --input DIR --sources FILE --rules DIR` | Runs the analysis on your sample (`DIR/<source>.ndjson`; `--input` once per sample, such as per machine or day, ADR 0042) and writes the files below. `--wazuh-rules` (with `--wazuh-decoders` to bound them), `--wazuh-api` (logtest spot check), `--sentinel-rules` with `--kusto` and `--sentinel-table` (proof in the Kusto emulator; add `--native sentinel` for a proven DCR `transformKql` per table, and `--sentinel-dcr RULE.json` to have it written into that rule together with an untransformed flow into an Auxiliary archive table, ADR 0013), `--elasticsearch URL` (runs the Elastic rules in the proof, ADR 0025) with `--native elastic` (an ingest pipeline per source, proven there, ADR 0024), `--fluent-bit CMD --native fluent-bit` (a Fluent Bit Lua filter per source, proven in Fluent Bit, ADR 0027), `--otel-collector CMD --native otel` (OpenTelemetry Collector transform statements per source, proven in the collector, ADR 0028), `--elastic-rules DIR` (Elastic Security detection rules as Kibana exports them, ADR 0025), `--splunk-rules DIR` (Splunk's saved searches and macros, ADR 0026) with `--splunk URL` (runs them in a Splunk of the proof's own; `--splunk-hec`, `--splunk-insecure`, credentials in `SPLUNK_PROOF_PASSWORD` or `SPLUNK_PROOF_TOKEN`, ADR 0037), `--sigma-pipeline`, `--recipes`, `--llm` are optional, and `--mode` picks the kinds of saving (`duplicates`, `implied`, `counts`; all three by default, `rules` for `duplicates,counts`), and `--no-examples` leaves the sample's events out of the report. Summaries need a complete rule set: fetched, or `--rules-complete`. |
 | `sluice prove --config FILE --input DIR --sources FILE --rules DIR` | Proves a Vector configuration as it is, on a sample: exit 1 when the rules' alerts on what it forwards differ from those on the full sample, or when the sample raises no alert (`--allow-no-alerts` accepts that). `--json` for CI; `--sentinel-rules`, `--kusto` and `--sentinel-table` as for `analyze` (ADR 0022). |
 | `sluice verify --analysis OUT --input DIR --sources FILE --rules DIR` | Proves an analysis's plan again on a later sample with the rules the SIEM runs now, and compares those rules with the ones `plan.json` records (ADR 0039). Exit 0: the plan holds. 1: a detection would change. 3: it is out of date, since rules were added or changed after it was proven (or a plan that counts has rules not known to be complete): run `analyze` again. Takes the rule flags of `analyze`, with `--kusto`/`--sentinel-table` and `--elasticsearch` to run Sentinel's and Elastic's rules; `--config FILE` for another `vector.yaml`; `--rules-complete`, `--allow-no-alerts` and `--json` as for `prove`. Also reports the savings on the new sample, the share of data of no kind the plan knows, and the kinds whose saving fell. |
 | `sluice connect sentinel --out DIR …` | Writes Sentinel tables and data collection rules as files; it changes nothing in Azure. `--sample FILE --table NAME` (with `--time-field F` for `TimeGenerated`) derives a custom table `NAME_CL` and its rule; `--summary-table` writes the table `SluiceSummary_CL`, its rule and the function `SluiceCounts.kql` (ADR 0029). `--workspace ID` and `--location` fill in the rules. |

@@ -1,0 +1,33 @@
+id: squid/native
+description: "Squid's native access.log format (time elapsed client action/code size method URL ident hierarchy/from type)"
+logsource: { product: squid, category: proxy }
+convention: sigma
+patterns:
+  - regex: '(?P<time>\d+\.\d+)\s+(?P<elapsed>\d+) (?P<src_ip>[0-9A-Fa-f.:]+) (?P<action>[A-Z_]+)/(?P<status>\d{3}) (?P<bytes>\d+) (?P<method>[A-Z]+) (?P<uri>(?:(?P<scheme>[a-z]+)://)?(?P<host>[^/:\s]+)(?::\d+)?(?P<stem>/[^?\s]*)?(?:\?(?P<query>\S*))?) (?P<ident>\S+) (?P<hierarchy>[A-Z_]+)/(?P<dst>\S+) (?P<type>\S+)'
+    fields:
+      src_ip: src_ip
+      status: sc-status
+      bytes: sc-bytes
+      method: cs-method
+      uri: c-uri
+      scheme: c-uri-scheme
+      host: [cs-host, r-dns]
+      stem: c-uri-stem
+      query: c-uri-query
+      dst: dst_ip
+examples:
+  - line: '1760083200.123    150 10.10.1.21 TCP_MISS/200 4521 GET http://updates.example.com/pkg/agent.exe?v=2 - HIER_DIRECT/198.51.100.7 application/octet-stream'
+    fields:
+      src_ip: 10.10.1.21
+      sc-status: "200"
+      cs-method: GET
+      c-uri: http://updates.example.com/pkg/agent.exe?v=2
+      cs-host: updates.example.com
+      c-uri-stem: /pkg/agent.exe
+      c-uri-query: v=2
+      dst_ip: 198.51.100.7
+  - line: '1760083201.456     12 10.10.1.22 TCP_TUNNEL/200 3920 CONNECT login.example.org:443 - HIER_DIRECT/203.0.113.5 -'
+    fields:
+      cs-method: CONNECT
+      cs-host: login.example.org
+      c-uri-stem: ~

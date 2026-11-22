@@ -9,12 +9,14 @@ use rsigma_parser::SigmaCollection;
 use serde_json::Value;
 use sluice_core::alert::{Alert, EngineError, RuleEngine};
 use sluice_core::event::Event;
+use sluice_core::field::FieldPath;
 use sluice_core::ids::SourceId;
 use sluice_core::logsource::LogSource;
 use sluice_core::schema::Schema;
-use sluice_core::source::Source;
+use sluice_core::source::{Source, SourceFormat};
 
 use crate::error::RulesError;
+use crate::parsers::CompiledParser;
 use crate::sigma::rule_id;
 
 /// Reserved field names under which [`Scoped`] reports an event's log source to rsigma. The
@@ -38,6 +40,8 @@ pub struct SigmaEngine {
     collection: SigmaCollection,
     mapped: Vec<(Schema, SigmaCollection)>,
     sources: BTreeMap<SourceId, (LogSource, Schema)>,
+    /// Per text source with a parser pack, the pack and the field its line is in (ADR 0043).
+    parsers: BTreeMap<SourceId, (CompiledParser, FieldPath)>,
 }
 
 impl SigmaEngine {
@@ -51,6 +55,17 @@ impl SigmaEngine {
         for (_, rules) in &mapped {
             fresh_engine(rules)?;
         }
+        let mut parsers = BTreeMap::new();
+        for source in sources {
+            if let (Some(parser), SourceFormat::Text { field, .. }) =
+                (source.format.parser(), &source.format)
+            {
+                parsers.insert(
+                    source.id.clone(),
+                    (CompiledParser::new(parser)?, field.clone()),
+                );
+            }
+        }
         Ok(Self {
             collection,
             mapped,
@@ -58,6 +73,7 @@ impl SigmaEngine {
                 .iter()
                 .map(|s| (s.id.clone(), (s.logsource.clone(), s.schema)))
                 .collect(),
+            parsers,
         })
     }
 }
@@ -90,9 +106,18 @@ impl RuleEngine for SigmaEngine {
                 Some((_, engine)) => engine,
                 None => &mut base,
             };
+            // The SIEM's rules see the fields its parser reads out of the line (ADR 0043).
+            let parsed = self.parsers.get(&event.source).and_then(|(parser, field)| {
+                event
+                    .fields
+                    .get(field.as_str())
+                    .and_then(Value::as_str)
+                    .and_then(|line| parser.parse(line))
+            });
             let scoped = Scoped {
                 inner: JsonEvent::owned(Value::Object(event.fields.clone())),
                 logsource,
+                parsed: parsed.as_ref(),
             };
             for result in engine.process_event_at(&scoped, event.timestamp.0) {
                 let id = rule_id(result.header.rule_id.as_deref(), &result.header.rule_title);
@@ -110,6 +135,8 @@ impl RuleEngine for SigmaEngine {
 struct Scoped<'a> {
     inner: JsonEvent<'a>,
     logsource: &'a LogSource,
+    /// The fields a parser pack read out of the event's line; they come before the event's own.
+    parsed: Option<&'a BTreeMap<FieldPath, String>>,
 }
 
 impl SigmaEvent for Scoped<'_> {
@@ -126,7 +153,10 @@ impl SigmaEvent for Scoped<'_> {
                 None if self.logsource.complete => Some(EventValue::Str(Cow::Borrowed(ABSENT))),
                 None => None,
             },
-            None => self.inner.get_field(path),
+            None => match self.parsed.and_then(|parsed| parsed.get(path)) {
+                Some(value) => Some(EventValue::Str(Cow::Borrowed(value))),
+                None => self.inner.get_field(path),
+            },
         }
     }
 
@@ -181,6 +211,7 @@ mod tests {
         let scoped = Scoped {
             inner: JsonEvent::owned(json!({"a": "x"})),
             logsource: &logsource,
+            parsed: None,
         };
         assert_eq!(text(scoped.get_field(PRODUCT)).as_deref(), Some("windows"));
         assert_eq!(text(scoped.get_field(SERVICE)).as_deref(), Some("security"));

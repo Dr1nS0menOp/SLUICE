@@ -21,6 +21,12 @@ ignore = [
     { id = "RUSTSEC-2026-0391", reason = "zstd with_context, unused; vrl 0.36 (Vector 0.59)" },
     { id = "RUSTSEC-2026-0398", reason = "zstd-safe seekable feature, off; vrl 0.36 (Vector 0.59)" },
     { id = "RUSTSEC-2026-0403", reason = "zstd legacy frames, off; decode_all unaffected; vrl 0.36" },
+    # chrono and chrono-tz are unmaintained (no known vulnerability; published 2026-11). vrl 0.36 needs it
+    # through chrono-tz, and rsigma-eval 0.24 directly, so it stays while Sluice targets Vector
+    # 0.59 and that rsigma. Sluice's own uses (parsing `@timestamp`, the fetch time, the demo's
+    # clock) could move to jiff; that alone would not remove it.
+    { id = "RUSTSEC-2026-0543", reason = "unmaintained only; required by vrl 0.36 and rsigma-eval 0.24" },
+    { id = "RUSTSEC-2026-0555", reason = "chrono-tz, unmaintained only; required by vrl 0.36" },
 ]
 
 [licenses]

@@ -13,6 +13,9 @@ pub enum RulesError {
     /// A Sigma processing pipeline cannot be used.
     #[error("cannot use Sigma pipeline: {0}")]
     SigmaPipeline(String),
+    /// A parser pack is not valid, or a source names one that does not exist (ADR 0043).
+    #[error("cannot use parser pack: {0}")]
+    Parser(String),
     /// A Wazuh rules file is not well-formed XML.
     #[error("cannot parse Wazuh rules: {0}")]
     WazuhXml(String),

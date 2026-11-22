@@ -29,45 +29,115 @@ pub(crate) fn sources(path: &Path) -> Result<Vec<Source>> {
     if file.sources.is_empty() {
         bail!("{} declares no sources", path.display());
     }
-    Ok(file.sources)
+    let mut sources = file.sources;
+    resolve_parsers(path, &mut sources).with_context(|| format!("reading {}", path.display()))?;
+    Ok(sources)
+}
+
+/// Puts into each text source the parser pack it names (ADR 0043): a built-in pack by its id,
+/// or a pack of the operator's own by a path to its YAML file, relative to the sources file
+/// (`parser: packs/my-firewall.yaml`).
+fn resolve_parsers(path: &Path, sources: &mut [Source]) -> Result<()> {
+    let base = path.parent().unwrap_or_else(|| Path::new("."));
+    for source in sources.iter_mut() {
+        let SourceFormat::Text {
+            parser: Some(name), ..
+        } = &mut source.format
+        else {
+            continue;
+        };
+        if !Path::new(&name.name)
+            .extension()
+            .is_some_and(|e| e == "yaml" || e == "yml")
+        {
+            continue;
+        }
+        let file = base.join(&name.name);
+        let yaml = fs::read_to_string(&file)
+            .with_context(|| format!("reading the parser pack {}", file.display()))?;
+        let book = sluice_rules::ParserBook::parse([(name.name.as_str(), yaml.as_str())])?;
+        let pack = book
+            .packs()
+            .next()
+            .context("the parser pack file holds no pack")?;
+        name.resolved = Some(pack.parser.clone());
+    }
+    sluice_rules::ParserBook::embedded()?.resolve(sources)?;
+    Ok(())
 }
 
 /// Reads `<dir>/<source>.ndjson` for every source, orders all events by `@timestamp` (events
 /// without one keep their file order at time 0), and numbers them.
 pub(crate) fn events(dir: &Path, sources: &[Source]) -> Result<Vec<Event>> {
-    let mut events = Vec::new();
-    for source in sources {
-        let path = dir.join(format!("{}.ndjson", source.id));
-        let text =
-            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        // Editors on Windows write a byte order mark; it is not part of the first record.
-        for (number, line) in text
-            .trim_start_matches('\u{feff}')
-            .lines()
-            .enumerate()
-            .filter(|(_, l)| !l.trim().is_empty())
-        {
-            let Value::Object(fields) = serde_json::from_str(line)
-                .with_context(|| format!("{}:{}: not JSON", path.display(), number + 1))?
-            else {
-                bail!("{}:{}: not a JSON object", path.display(), number + 1);
-            };
-            let timestamp = fields
-                .get("@timestamp")
-                .and_then(Value::as_str)
-                .and_then(|t| DateTime::parse_from_rfc3339(t).ok())
-                .map_or(0, |t| t.timestamp());
-            events.push(Event {
-                id: EventId(0),
-                timestamp: Timestamp(timestamp),
-                source: source.id.clone(),
-                fields,
-            });
+    let (events, _) = samples(std::slice::from_ref(&dir.to_path_buf()), sources)?;
+    Ok(events)
+}
+
+/// The events of every sample in `dirs`, as [`events`] reads one, with the sample each came
+/// from by event id. A source may be missing from a sample, but not from all of them.
+pub(crate) fn samples(dirs: &[PathBuf], sources: &[Source]) -> Result<(Vec<Event>, Vec<u16>)> {
+    let mut tagged: Vec<(Event, u16)> = Vec::new();
+    for (sample, dir) in dirs.iter().enumerate() {
+        let sample = u16::try_from(sample).context("more than 65,535 samples")?;
+        for source in sources {
+            let path = dir.join(format!("{}.ndjson", source.id));
+            if dirs.len() > 1 && !path.exists() {
+                continue;
+            }
+            tagged.extend(read_source(&path, source)?.into_iter().map(|e| (e, sample)));
         }
     }
-    events.sort_by_key(|e| e.timestamp);
-    for (event, n) in events.iter_mut().zip(0u64..) {
-        event.id = EventId(n);
+    if let Some(missing) = sources
+        .iter()
+        .find(|s| !tagged.iter().any(|(e, _)| e.source == s.id))
+        .filter(|_| dirs.len() > 1)
+    {
+        bail!(
+            "no sample has {}.ndjson: every source needs events in at least one --input",
+            missing.id
+        );
+    }
+    tagged.sort_by_key(|(e, _)| e.timestamp);
+    let mut samples = Vec::with_capacity(tagged.len());
+    let events = tagged
+        .into_iter()
+        .zip(0u64..)
+        .map(|((mut event, sample), n)| {
+            event.id = EventId(n);
+            samples.push(sample);
+            event
+        })
+        .collect();
+    Ok((events, samples))
+}
+
+/// The events of one source's sample file, unnumbered.
+fn read_source(path: &Path, source: &Source) -> Result<Vec<Event>> {
+    let mut events = Vec::new();
+    let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    // Editors on Windows write a byte order mark; it is not part of the first record.
+    for (number, line) in text
+        .trim_start_matches('\u{feff}')
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty())
+    {
+        let Value::Object(fields) = serde_json::from_str(line)
+            .with_context(|| format!("{}:{}: not JSON", path.display(), number + 1))?
+        else {
+            bail!("{}:{}: not a JSON object", path.display(), number + 1);
+        };
+        let timestamp = fields
+            .get("@timestamp")
+            .and_then(Value::as_str)
+            .and_then(|t| DateTime::parse_from_rfc3339(t).ok())
+            .map_or(0, |t| t.timestamp());
+        events.push(Event {
+            id: EventId(0),
+            timestamp: Timestamp(timestamp),
+            source: source.id.clone(),
+            fields,
+        });
     }
     Ok(events)
 }

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-label="Sluice: send your SIEM less, keep every detection">
+<rect width="1280" height="320" rx="16" fill="#F3F6F7"/>
+<text x="64" y="128" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="76" font-weight="700" fill="#15232C" text-anchor="start" letter-spacing="-1.5">Sluice</text>
+<text x="66" y="176" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="26" font-weight="500" fill="#15232C" text-anchor="start" letter-spacing="0">Send your SIEM less. Keep every detection.</text>
+<text x="66" y="214" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="400" fill="#5A6B75" text-anchor="start" letter-spacing="0">Every saving is proven on your own data and rules before you deploy it.</text>
+<text x="66" y="262" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#5A6B75" text-anchor="start" letter-spacing="1.6">VECTOR · SENTINEL · ELASTIC · WAZUH · SPLUNK · SIGMA · FLUENT BIT · OTEL</text>
+<path d="M790 92 C 900 92, 910 129.0, 986 129.0" stroke="#1D7487" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.45"/>
+<path d="M790 112 C 900 112, 910 135.0, 986 135.0" stroke="#1D7487" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.45"/>
+<path d="M790 132 C 900 132, 910 141.0, 986 141.0" stroke="#1D7487" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.45"/>
+<path d="M790 152 C 900 152, 910 147.0, 986 147.0" stroke="#1D7487" stroke-width="4" fill="none" stroke-linecap="round" opacity="1.0"/>
+<path d="M790 172 C 900 172, 910 153.0, 986 153.0" stroke="#1D7487" stroke-width="4" fill="none" stroke-linecap="round" opacity="1.0"/>
+<path d="M790 192 C 900 192, 910 159.0, 986 159.0" stroke="#1D7487" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.45"/>
+<path d="M790 212 C 900 212, 910 165.0, 986 165.0" stroke="#1D7487" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.45"/>
+<path d="M790 232 C 900 232, 910 171.0, 986 171.0" stroke="#1D7487" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.45"/>
+<rect x="990" y="58" width="20" height="74" rx="3" fill="#B5832F"/>
+<rect x="990" y="172" width="20" height="98" rx="3" fill="#B5832F"/>
+<path d="M1014 144 H 1210" stroke="#1D7487" stroke-width="4" stroke-linecap="round"/>
+<path d="M1014 156 H 1210" stroke="#1D7487" stroke-width="4" stroke-linecap="round"/>
+<path d="M1014 236 C 1070 236, 1080 262, 1150 262 H 1210" stroke="#5A6B75" stroke-width="2" stroke-dasharray="6 6" fill="none"/>
+<text x="790" y="74" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#5A6B75" text-anchor="start" letter-spacing="0">357.3 MB in</text>
+<text x="1210" y="128" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#15232C" text-anchor="end" letter-spacing="0">78.2 MB to the SIEM</text>
+<text x="1210" y="290" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#5A6B75" text-anchor="end" letter-spacing="0">every event to the archive</text>
+<text x="1210" y="190" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="700" fill="#B5832F" text-anchor="end" letter-spacing="0">987 = 987 alerts</text>
+</svg>

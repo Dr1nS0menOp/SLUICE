@@ -1,0 +1,43 @@
+id: linux/sshd
+description: "OpenSSH sshd authentication lines in a Linux auth log (accepted and failed logins, invalid users, disconnects)"
+logsource: { product: linux, service: auth }
+convention: sigma
+patterns:
+  - regex: 'sshd\[\d+\]: (?P<outcome>Accepted|Failed) (?P<method>\S+) for (?:invalid user )?(?P<user>\S*) from (?P<src_ip>[0-9A-Fa-f.:]+) port (?P<src_port>\d+)'
+    fields:
+      outcome: outcome
+      method: auth_method
+      user: User
+      src_ip: src_ip
+      src_port: src_port
+  - regex: 'sshd\[\d+\]: Invalid user (?P<user>\S*) from (?P<src_ip>[0-9A-Fa-f.:]+)(?: port (?P<src_port>\d+))?'
+    fields:
+      user: User
+      src_ip: src_ip
+      src_port: src_port
+  - regex: 'sshd\[\d+\]: (?:Disconnected from|Connection closed by|Received disconnect from) (?:(?:invalid |authenticating )?user (?P<user>\S+) )?(?P<src_ip>[0-9A-Fa-f.:]+) port (?P<src_port>\d+)'
+    fields:
+      user: User
+      src_ip: src_ip
+      src_port: src_port
+examples:
+  - line: 'Oct 10 08:00:02 bastion01 sshd[7107]: Accepted publickey for alice from 10.10.1.21 port 48798 ssh2: ED25519 SHA256:844d'
+    fields:
+      outcome: Accepted
+      auth_method: publickey
+      User: alice
+      src_ip: 10.10.1.21
+      src_port: "48798"
+  - line: 'Oct 10 08:00:03 bastion01 sshd[7108]: Failed password for invalid user admin from 203.0.113.9 port 51022 ssh2'
+    fields:
+      outcome: Failed
+      User: admin
+      src_ip: 203.0.113.9
+  - line: 'Oct 10 08:00:04 bastion01 sshd[7109]: Invalid user oracle from 203.0.113.9 port 51030'
+    fields:
+      User: oracle
+      src_port: "51030"
+  - line: 'Oct 10 08:00:05 bastion01 sshd[7110]: Disconnected from authenticating user root 203.0.113.9 port 51040 [preauth]'
+    fields:
+      User: root
+      src_ip: 203.0.113.9

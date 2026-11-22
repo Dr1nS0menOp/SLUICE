@@ -373,6 +373,14 @@ fn rules(report: &Report) -> String {
         );
         out.push_str(&list(&report.scope_hints));
     }
+    if !report.schema_hints.is_empty() {
+        out.push_str(
+            "<p class=\"muted\">Field names: sources whose declared <code>schema</code> the \
+             fields their rules read do not fit. Check it: a wrong one is the mistake the proof \
+             cannot notice.</p>",
+        );
+        out.push_str(&list(&report.schema_hints));
+    }
     if !report.coverage_gaps.is_empty() {
         out.push_str(
             "<p class=\"muted\">Coverage gaps: rules no data in this sample can reach.</p>",

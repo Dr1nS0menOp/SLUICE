@@ -13,7 +13,7 @@ use crate::field::FieldPath;
 use crate::ids::RuleId;
 use crate::predicate::Predicate;
 use crate::recipe::{Level, Recipe, Reduction};
-use crate::rules::RuleRequirements;
+use crate::rules::{RequiredFields, RuleRequirements};
 
 mod emptied;
 mod model;
@@ -77,11 +77,21 @@ pub fn guard(
         })
         .map(|rule| &rule.rule)
         .collect();
+    // A rule that reads only what the text template's parser gives is read through it (ADR 0043).
+    let lifted: Vec<RuleRequirements> = ctx
+        .rules
+        .iter()
+        .filter_map(|rule| through_parser(rule, template))
+        .collect();
+    let lifted_ids: BTreeSet<&RuleId> = lifted.iter().map(|rule| &rule.rule).collect();
     let renamed_rules: Vec<&RuleRequirements> = ctx
         .rules
         .iter()
         .filter(|rule| {
-            renamed(rule, template) && !mapped.contains(&rule.rule) && applies(rule, template)
+            renamed(rule, template)
+                && !mapped.contains(&rule.rule)
+                && !lifted_ids.contains(&rule.rule)
+                && applies(rule, template)
         })
         .collect();
     let widened: Option<RuleRequirements> = renamed_rules.first().map(|r| r.widened());
@@ -102,8 +112,14 @@ pub fn guard(
     let applicable: Vec<&RuleRequirements> = ctx
         .rules
         .iter()
-        .filter(|rule| !renamed(rule, template) && !parsed(rule) && applies(rule, template))
+        .filter(|rule| {
+            !renamed(rule, template)
+                && !parsed(rule)
+                && !lifted_ids.contains(&rule.rule)
+                && applies(rule, template)
+        })
         .chain(on_line.iter().filter(|rule| applies(rule, template)))
+        .chain(lifted.iter().filter(|rule| applies(rule, template)))
         .chain(&widened)
         .collect();
     let (mut shaped, conditions) = shape(template, recipe, &applicable, true, ctx.rules_complete);
@@ -121,37 +137,45 @@ pub fn guard(
     } else if shaped.removes_fields() {
         shaped.keep_whole_when = (!keep.is_never()).then_some(keep);
     }
-    // One adjustment for all of them: SigmaHQ alone can put hundreds on one template. A rule
-    // and its mapped copies count once.
+    shaped
+        .adjustments
+        .extend(renamed_adjustment(template, &renamed_rules));
+    dedup(&mut shaped.adjustments);
+    shaped
+}
+
+/// One adjustment for every rule read as reading everything because its field names cannot be
+/// compared with the template's: `SigmaHQ` alone can put hundreds on one template. A rule and
+/// its mapped copies count once.
+fn renamed_adjustment(
+    template: &Template,
+    renamed_rules: &[&RuleRequirements],
+) -> Option<Adjustment> {
     let rules = renamed_rules
         .iter()
         .map(|rule| &rule.rule)
         .collect::<BTreeSet<_>>()
         .len();
-    if let Some((first, rule_names)) = renamed_rules
+    let (first, rule_names) = renamed_rules
         .first()
-        .and_then(|rule| rule.field_names.map(|names| (rule, names)))
-    {
-        let reason = match template.shape {
-            TemplateShape::Text { .. } => Reason::FieldsParsedFromText {
-                rule: first.rule.clone(),
-                rules,
-            },
-            TemplateShape::Keyset { .. } => Reason::FieldNamesDiffer {
-                rule: first.rule.clone(),
-                rules,
-                rule_names,
-                data_names: template.schema,
-            },
-        };
-        shaped.adjustments.push(Adjustment {
-            contract: ContractRule::RuleMatchesForwarded,
-            level: None,
-            reason,
-        });
-    }
-    dedup(&mut shaped.adjustments);
-    shaped
+        .and_then(|rule| rule.field_names.map(|names| (rule, names)))?;
+    let reason = match template.shape {
+        TemplateShape::Text { .. } => Reason::FieldsParsedFromText {
+            rule: first.rule.clone(),
+            rules,
+        },
+        TemplateShape::Keyset { .. } => Reason::FieldNamesDiffer {
+            rule: first.rule.clone(),
+            rules,
+            rule_names,
+            data_names: template.schema,
+        },
+    };
+    Some(Adjustment {
+        contract: ContractRule::RuleMatchesForwarded,
+        level: None,
+        reason,
+    })
 }
 
 /// The most predicate tests the data plane evaluates per event for one template. Beyond this,
@@ -304,6 +328,49 @@ fn rule_guided_route(
         prefilter,
         summary_keys: summary_keys.to_vec(),
     }
+}
+
+/// `rule` read through the parser pack of a text `template` (ADR 0043), when every field it
+/// reads is one the parser gives or one the template's events carry, in a convention the parser's
+/// names can be compared with. Its pre-filter is then tested on the parsed fields, and the fields
+/// it reads become the line they are parsed from, so that line stays whole on every event it
+/// could match. `None` for any other rule, which is read as before (ADR 0020).
+fn through_parser(rule: &RuleRequirements, template: &Template) -> Option<RuleRequirements> {
+    let TemplateShape::Text { field: line, .. } = &template.shape else {
+        return None;
+    };
+    let parser = template.parser.as_ref()?;
+    if !rule
+        .field_names
+        .is_some_and(|names| parser.convention.can_read(names))
+    {
+        return None;
+    }
+    let RequiredFields::Known(fields) = &rule.fields else {
+        return None;
+    };
+    if !fields
+        .iter()
+        .all(|field| parser.gives(field) || template.fields.contains(field))
+    {
+        return None;
+    }
+    let mut lifted = rule.clone();
+    lifted.fields = RequiredFields::Known(
+        fields
+            .iter()
+            .map(|field| {
+                if parser.gives(field) {
+                    line.clone()
+                } else {
+                    field.clone()
+                }
+            })
+            .collect(),
+    );
+    // Read through the parser, its names are the parser's: no longer a convention to compare.
+    lifted.field_names = None;
+    Some(lifted)
 }
 
 /// Whether `rule` can see events of `template`: its log source may apply, and its pre-filter is

@@ -38,6 +38,7 @@ fn template(id: &str, discriminators: &[(&str, &str)], variants: &[&[&str]]) -> 
         },
         fields: all,
         text_fields: BTreeSet::new(),
+        parser: None,
         stats: TemplateStats::default(),
     }
 }

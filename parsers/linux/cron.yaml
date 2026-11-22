@@ -1,0 +1,14 @@
+id: linux/cron
+description: "cron's command lines in a Linux auth log or syslog"
+logsource: { product: linux }
+convention: sigma
+patterns:
+  - regex: 'CRON\[\d+\]: \((?P<user>[^)]+)\) CMD \((?P<command>.*)\)$'
+    fields:
+      user: User
+      command: CommandLine
+examples:
+  - line: 'Oct 10 08:05:01 web01 CRON[4242]: (root) CMD (command -v debian-sa1 > /dev/null && debian-sa1 1 1)'
+    fields:
+      User: root
+      CommandLine: command -v debian-sa1 > /dev/null && debian-sa1 1 1

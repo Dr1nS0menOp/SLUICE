@@ -304,6 +304,7 @@ mod tests {
             },
             fields: BTreeSet::new(),
             text_fields: BTreeSet::new(),
+            parser: None,
             stats: TemplateStats {
                 events,
                 bytes: 0,

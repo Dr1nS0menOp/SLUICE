@@ -94,10 +94,12 @@ fn fired(
 ) -> Result<Option<BTreeSet<sluice_core::ids::RuleId>>, ProofError> {
     let result = match format {
         SourceFormat::Json => rules.fired(body),
-        SourceFormat::Text { field } => match body.get(field.as_str()).and_then(Value::as_str) {
-            Some(line) => rules.fired_line(line),
-            None => return Ok(None),
-        },
+        SourceFormat::Text { field, .. } => {
+            match body.get(field.as_str()).and_then(Value::as_str) {
+                Some(line) => rules.fired_line(line),
+                None => return Ok(None),
+            }
+        }
     };
     Ok(Some(result?))
 }

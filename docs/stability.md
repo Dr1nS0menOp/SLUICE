@@ -7,8 +7,8 @@ its files with their own tools, or run it in CI.
 
 ## Stable
 
-**The commands and their flags.** These are `sluice demo`, `analyze`, `prove`, `verify`,
-`rules requirements`, `rules fetch`, `recipes`, `connect` and `mcp`, with the flags
+**The commands and their flags.** These are `sluice demo`, `init`, `analyze`, `prove`, `verify`,
+`rules requirements`, `rules fetch`, `recipes`, `parsers`, `connect` and `mcp`, with the flags
 `sluice <command> --help` lists and [usage](usage.md) describes.
 
 - A minor release may add a command or a flag. It never changes what an existing one does in a
@@ -32,6 +32,8 @@ its files with their own tools, or run it in CI.
 - The sources file (`sources: [{ id, logsource, format, schema }]`).
 - Recipe files, as `recipes/recipe.schema.json` describes them.
 - The rule directories each `--*-rules` flag takes.
+- Parser packs (`parsers/`, or a file a source names): their format, not the set of built-in
+  packs, which grows.
 - The `inventory.json` that `sluice rules fetch` writes. A later 1.x reads what an earlier one
   fetched.
 

@@ -18,7 +18,10 @@
 //!
 //! Missing and null fields make a test false, as they do in Sigma.
 
+use std::collections::BTreeSet;
+
 use sluice_core::codegen::{balanced, float_may_match};
+use sluice_core::field::FieldPath;
 use sluice_core::predicate::{FieldTest, KeywordTest, MatchOp, Predicate};
 
 use crate::syntax;
@@ -35,15 +38,31 @@ pub(crate) struct CompiledPredicate {
 /// Compiles a predicate. Variables are prefixed with `prefix`, so several predicates can share
 /// one program.
 pub(crate) fn compile(predicate: &Predicate, prefix: &str) -> CompiledPredicate {
-    let compiler = Compiler { prefix };
+    compile_parsed(predicate, prefix, &BTreeSet::new())
+}
+
+/// [`compile`] for a text line whose `parsed` fields a parser pack gives (ADR 0043): those are
+/// read from [`PARSED`], which the program fills before, and one that is missing there, because
+/// the line did not parse or the group did not take part, makes its test true. The SIEM may
+/// parse such a line otherwise, so it is kept (fail closed).
+pub(crate) fn compile_parsed(
+    predicate: &Predicate,
+    prefix: &str,
+    parsed: &BTreeSet<&FieldPath>,
+) -> CompiledPredicate {
+    let compiler = Compiler { prefix, parsed };
     CompiledPredicate {
         statements: compiler.emit(predicate, 0),
         expression: compiler.result(0),
     }
 }
 
+/// The VRL variable holding a text line's parsed fields, by their full names.
+pub(crate) const PARSED: &str = "_sluice_pv";
+
 struct Compiler<'a> {
     prefix: &'a str,
+    parsed: &'a BTreeSet<&'a FieldPath>,
 }
 
 impl Compiler<'_> {
@@ -141,8 +160,17 @@ impl Compiler<'_> {
 
     /// The statements of one field test, leaving its result in `target`.
     fn test(&self, test: &FieldTest, target: &str) -> Vec<String> {
-        let path = syntax::path(&test.field);
+        let parsed = self.parsed.contains(&test.field);
+        let path = if parsed {
+            format!("{PARSED}.{}", syntax::string(test.field.as_str()))
+        } else {
+            syntax::path(&test.field)
+        };
         if test.op == MatchOp::Exists {
+            // Whether the SIEM's parse gives the field cannot be told from a missing one here.
+            if parsed {
+                return vec![format!("{target} = true")];
+            }
             return vec![format!("{target} = exists({path})")];
         }
         let value = self.scratch("v");
@@ -173,12 +201,17 @@ impl Compiler<'_> {
         let member = self.scratch("m");
         let member_float = float(&member);
         let value_float = float(&value);
+        let unparsed = if parsed {
+            format!("if is_null({value}) {{ {target} = true }} else ")
+        } else {
+            String::new()
+        };
         vec![
             format!("{target} = false"),
             format!("{value} = {path}"),
             // An array matches when a member does, as in Sigma engines.
             format!(
-                "if is_array({value}) {{\n  \
+                "{unparsed}if is_array({value}) {{\n  \
                    for_each(array!({value})) -> |_member, {member}| {{\n    \
                      if is_array({member}) || is_object({member}){member_float} {{ {target} = true }} \
                      else if !is_null({member}) && !is_float({member}) {{ {rendered} = to_string!({member}); if {matches} {{ {target} = true }} }}\n  \

@@ -1,0 +1,13 @@
+id: apache/access/requests
+description: Apache httpd access log lines (common and combined formats), read with an apache parser pack
+match:
+  logsource: { product: apache }
+  pattern: 'HTTP/<NUM>.<NUM>" <NUM> '
+reductions:
+  - op: forward_matching
+    summary_keys: [host.name, cs-method, sc-status]
+rationale: >-
+  Routine requests are the bulk of a web server's log. Requests a rule could match are
+  forwarded whole; the rest are counted per minute, per host, method and status. Give the
+  source `parser: apache/combined` (or `apache/common`), so rules on the request's fields can be
+  read: without it they keep every line.

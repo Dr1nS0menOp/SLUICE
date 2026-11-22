@@ -12,7 +12,9 @@ and contribute to.
 - **Linux only** ([ADR 0003](docs/adr/0003-linux-only.md)), WSL2 included. Code may assume Linux.
   Don't add Windows or macOS code paths or `cfg` fallbacks.
 - Rust (edition 2024), in a Cargo workspace under `crates/`. Community recipes are YAML under
-  `recipes/`.
+  `recipes/`, parser packs under `parsers/` (ADR 0043). Both are embedded in the binary by a
+  build script; a pack's `examples` are its test, and every pack must also compile into VRL
+  (`every_built_in_parser_pack_compiles_into_a_program_vector_runs`).
 - `rust-toolchain.toml` pins the toolchain. Everything else follows from it.
 - One crate per responsibility. Dependencies point inward, toward `sluice-core`:
   - `sluice-core`: domain types and pure logic. No I/O, no async, no heavy dependencies.

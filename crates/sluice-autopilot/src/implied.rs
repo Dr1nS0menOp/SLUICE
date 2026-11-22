@@ -11,12 +11,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::{Map, Value};
 use sluice_core::event::Event;
 use sluice_core::field::FieldPath;
-use sluice_core::guard::GuardrailConfig;
 use sluice_core::ids::TemplateId;
 use sluice_core::recipe::{ImpliedValue, Literal};
 use sluice_core::schema::Schema;
 use sluice_core::template::TemplateShape;
 use sluice_discover::Discovery;
+
+use crate::analyze::Settings;
 
 /// Events each value of an implying field needs before what it implies is learned. Fewer
 /// would mostly add entries that save little.
@@ -31,20 +32,96 @@ const MIN_SHARE_TENTHS: usize = 9;
 /// Implied values per kind of event, largest saving first: each is one test per event.
 const MAX_PER_TEMPLATE: usize = 64;
 
-/// The implied values of every frequent JSON template in `discovery`.
+/// The fields that name the machine an event came from, in the order they are tried: Windows'
+/// and Sentinel's, ECS's, then common syslog and appliance names.
+const HOST_FIELDS: [&str; 11] = [
+    "Computer",
+    "host.name",
+    "host.hostname",
+    "agent.hostname",
+    "hostname",
+    "host",
+    "ComputerName",
+    "DeviceName",
+    "Hostname",
+    "dvc",
+    "observer.hostname",
+];
+
+/// What the implied values were learned on (ADR 0042).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Evidence {
+    /// The samples the events came from (`--input` given that many times).
+    pub samples: usize,
+    /// Per source, the machines its events name; absent when no event names one.
+    pub hosts: BTreeMap<String, usize>,
+    /// Values held back: the same on every kind of event of their source, seen on one machine.
+    pub withheld: Vec<Withheld>,
+}
+
+/// A value that looked implied on every kind of event of a source but was not learned: on a
+/// sample of one machine, nothing tells a value the kind of event fixes from one the machine
+/// does, such as its name.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Withheld {
+    /// The source.
+    pub source: String,
+    /// The field.
+    pub field: FieldPath,
+    /// The value it held on every kind of event.
+    pub value: Literal,
+    /// On how many kinds of event.
+    pub kinds: usize,
+}
+
+/// The implied values learned, and what they were learned on.
+#[derive(Debug, Default)]
+pub(crate) struct Learned {
+    /// Per template, its implied values.
+    pub(crate) values: BTreeMap<TemplateId, Vec<ImpliedValue>>,
+    /// What they were learned on.
+    pub(crate) evidence: Evidence,
+}
+
+/// Where an event came from: the sample it was read from and the machine that logged it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct Origin<'a> {
+    sample: u16,
+    host: Option<&'a str>,
+}
+
+/// One event of a template, with where it came from.
+type Sourced<'a> = (&'a Map<String, Value>, Origin<'a>);
+
+/// The implied values of every frequent JSON template in `discovery`. A value must hold in each
+/// sample and on each machine that has enough of its events; a value that is the same on every
+/// kind of event of a source is learned only from more than one machine (ADR 0042).
 #[must_use]
-pub(crate) fn learn(
-    discovery: &Discovery,
-    events: &[Event],
-    guardrails: GuardrailConfig,
-) -> BTreeMap<TemplateId, Vec<ImpliedValue>> {
-    let mut by_template: BTreeMap<&TemplateId, Vec<&Map<String, Value>>> = BTreeMap::new();
+pub(crate) fn learn(discovery: &Discovery, events: &[Event], settings: &Settings) -> Learned {
+    let guardrails = settings.guardrails;
+    let mut by_template: BTreeMap<&TemplateId, Vec<Sourced<'_>>> = BTreeMap::new();
+    let mut hosts: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    let mut samples: BTreeSet<u16> = BTreeSet::new();
+    let host_fields = host_fields(events);
     for event in events {
+        let origin = Origin {
+            sample: sample_of(event, &settings.samples),
+            host: host_fields
+                .get(event.source.as_str())
+                .and_then(|field| text(&event.fields, field)),
+        };
+        samples.insert(origin.sample);
+        if let Some(host) = origin.host {
+            hosts.entry(event.source.as_str()).or_default().insert(host);
+        }
         if let Some(template) = discovery.assignments.get(&event.id) {
-            by_template.entry(template).or_default().push(&event.fields);
+            by_template
+                .entry(template)
+                .or_default()
+                .push((&event.fields, origin));
         }
     }
-    discovery
+    let mut values: BTreeMap<TemplateId, Vec<ImpliedValue>> = discovery
         .templates
         .iter()
         .filter(|template| !guardrails.is_rare(template))
@@ -57,13 +134,163 @@ pub(crate) fn learn(
             else {
                 return None;
             };
-            let events = by_template.get(&template.id)?;
+            let sourced = by_template.get(&template.id)?;
+            let events: Vec<&Map<String, Value>> = sourced.iter().map(|(e, _)| *e).collect();
             let mut skipped: BTreeSet<&FieldPath> = discriminators.iter().map(|(f, _)| f).collect();
             if template.schema == Schema::Sentinel {
                 skipped.extend(variants.iter().flatten().filter(|f| workspace_column(f)));
             }
-            let values = learn_template(&skipped, variants, events);
+            let values: Vec<ImpliedValue> = learn_template(&skipped, variants, &events)
+                .into_iter()
+                .filter(|value| holds_everywhere(value, sourced))
+                .collect();
             (!values.is_empty()).then(|| (template.id.clone(), values))
+        })
+        .collect();
+    let withheld = withhold(discovery, &mut values, &hosts, samples.len());
+    Learned {
+        values,
+        evidence: Evidence {
+            samples: samples.len().max(1),
+            hosts: hosts
+                .into_iter()
+                .map(|(source, names)| (source.to_owned(), names.len()))
+                .collect(),
+            withheld,
+        },
+    }
+}
+
+/// The sample `event` came from: its index in `samples`, by event id.
+fn sample_of(event: &Event, samples: &[u16]) -> u16 {
+    usize::try_from(event.id.0)
+        .ok()
+        .and_then(|at| samples.get(at))
+        .copied()
+        .unwrap_or(0)
+}
+
+/// Per source, the field of [`HOST_FIELDS`] that names its machines: of those its events have,
+/// the one with the most distinct values, first in the list on a tie. A field that names one
+/// value only may be a log collector's (OTRF's samples carry the collector in `host` and the
+/// machine in `Hostname`).
+fn host_fields(events: &[Event]) -> BTreeMap<&str, FieldPath> {
+    let mut seen: BTreeMap<(&str, usize), BTreeSet<&str>> = BTreeMap::new();
+    for event in events {
+        for (rank, name) in HOST_FIELDS.iter().enumerate() {
+            if let Some(host) = text(&event.fields, &FieldPath::new(*name)) {
+                seen.entry((event.source.as_str(), rank))
+                    .or_default()
+                    .insert(host);
+            }
+        }
+    }
+    let mut best: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+    for ((source, rank), hosts) in &seen {
+        let entry = best.entry(source).or_insert((hosts.len(), *rank));
+        if hosts.len() > entry.0 {
+            *entry = (hosts.len(), *rank);
+        }
+    }
+    best.into_iter()
+        .map(|(source, (_, rank))| (source, FieldPath::new(HOST_FIELDS[rank])))
+        .collect()
+}
+
+/// The non-empty text at `path` in an event.
+fn text<'a>(fields: &'a Map<String, Value>, path: &FieldPath) -> Option<&'a str> {
+    lookup(fields, path)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+}
+
+/// Whether `value` holds, at the share it was learned with, in every origin (sample and machine)
+/// with at least [`MIN_SUPPORT`] of the events it applies to. On one origin that is the sample
+/// itself, which learned it; across several, a value one machine or one day had and another
+/// lacks was that machine's or that day's, not the kind of event's.
+fn holds_everywhere(value: &ImpliedValue, events: &[Sourced<'_>]) -> bool {
+    let mut per_origin: BTreeMap<Origin<'_>, (usize, usize)> = BTreeMap::new();
+    for (fields, origin) in events {
+        if let Some((on, expected)) = &value.when
+            && lookup(fields, on).and_then(Literal::of).as_ref() != Some(expected)
+        {
+            continue;
+        }
+        let Some(held) = lookup(fields, &value.field).and_then(Literal::of) else {
+            continue;
+        };
+        let (total, matching) = per_origin.entry(*origin).or_default();
+        *total += 1;
+        *matching += usize::from(held == value.value);
+    }
+    per_origin
+        .values()
+        .filter(|(total, _)| *total >= MIN_SUPPORT)
+        .all(|(total, matching)| matching * 10 >= total * MIN_SHARE_TENTHS)
+}
+
+/// Takes out of `values` each value the kind of event alone implies alike on every kind of event
+/// of its source, unless that source shows more than one machine (or, naming none, more than one
+/// sample), and returns them. On one machine its name and domain look like that too.
+fn withhold(
+    discovery: &Discovery,
+    values: &mut BTreeMap<TemplateId, Vec<ImpliedValue>>,
+    hosts: &BTreeMap<&str, BTreeSet<&str>>,
+    samples: usize,
+) -> Vec<Withheld> {
+    let source_of: BTreeMap<&TemplateId, &str> = discovery
+        .templates
+        .iter()
+        .map(|t| (&t.id, t.source.as_str()))
+        .collect();
+    // Per source and field: the values the kind of event alone implies, on how many kinds, and
+    // whether another field implies it anywhere.
+    let mut seen: BTreeMap<(&str, FieldPath), (BTreeSet<Literal>, usize, bool)> = BTreeMap::new();
+    for (template, learned) in values.iter() {
+        let Some(source) = source_of.get(template) else {
+            continue;
+        };
+        for value in learned {
+            let entry = seen.entry((source, value.field.clone())).or_default();
+            match value.when {
+                None => {
+                    entry.0.insert(value.value.clone());
+                    entry.1 += 1;
+                }
+                Some(_) => entry.2 = true,
+            }
+        }
+    }
+    let evidence = |source: &str| match hosts.get(source) {
+        Some(names) => names.len() > 1,
+        None => samples > 1,
+    };
+    let held_back: BTreeMap<(&str, FieldPath), (Literal, usize)> = seen
+        .into_iter()
+        .filter(|((source, _), (alike, kinds, conditional))| {
+            alike.len() == 1 && *kinds > 1 && !conditional && !evidence(source)
+        })
+        .filter_map(|(key, (alike, kinds, _))| alike.into_iter().next().map(|v| (key, (v, kinds))))
+        .collect();
+    if held_back.is_empty() {
+        return Vec::new();
+    }
+    for (template, learned) in values.iter_mut() {
+        let Some(source) = source_of.get(template) else {
+            continue;
+        };
+        learned.retain(|value| {
+            value.when.is_some() || !held_back.contains_key(&(*source, value.field.clone()))
+        });
+    }
+    values.retain(|_, learned| !learned.is_empty());
+    held_back
+        .into_iter()
+        .map(|((source, field), (value, kinds))| Withheld {
+            source: source.to_owned(),
+            field,
+            value,
+            kinds,
         })
         .collect()
 }

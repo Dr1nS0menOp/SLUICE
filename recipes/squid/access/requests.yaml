@@ -1,0 +1,12 @@
+id: squid/access/requests
+description: Squid proxy access log lines (native format), read with the squid/native parser pack
+match:
+  logsource: { product: squid }
+  pattern: ' HIER_'
+reductions:
+  - op: forward_matching
+    summary_keys: [src_ip, cs-host, sc-status]
+rationale: >-
+  Most proxied requests go to the same few hosts. Requests a rule could match (a domain, a user
+  agent, a URL) are forwarded whole; the rest are counted per minute, per client, host and
+  status. Give the source `parser: squid/native`, so rules on the request's fields can be read.

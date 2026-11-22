@@ -57,6 +57,84 @@ impl Schema {
     pub fn is_declared(self) -> bool {
         self != Self::Undeclared
     }
+
+    /// The roots of ECS's field sets, by which a record's names are recognised as ECS.
+    const ECS_ROOTS: &[&str] = &[
+        "event.",
+        "process.",
+        "host.",
+        "source.",
+        "destination.",
+        "user.",
+        "winlog.",
+        "agent.",
+        "network.",
+        "file.",
+        "url.",
+        "dns.",
+    ];
+
+    /// The convention a record's field names most likely follow, from the names alone; `None`
+    /// when they do not say. A guess for people to check (`sluice init`, the hint on a schema
+    /// that does not fit), never a declaration: the guardrails only trust a declared `schema`.
+    #[must_use]
+    pub fn guess<'a>(fields: impl IntoIterator<Item = &'a str>) -> Option<Self> {
+        let fields: Vec<&str> = fields.into_iter().collect();
+        let has = |name: &str| fields.contains(&name);
+        let share = |prefixes: &[&str]| -> usize {
+            let hits = fields
+                .iter()
+                .filter(|f| prefixes.iter().any(|p| f.starts_with(p)))
+                .count();
+            hits * 100 / fields.len().max(1)
+        };
+        if has("class_uid") && has("activity_id") {
+            Some(Self::Ocsf)
+        } else if fields.iter().any(|f| f.starts_with("metadata.event_type")) {
+            Some(Self::Udm)
+        } else if has("EventSchema") || (has("EventProduct") && has("EventVendor")) {
+            Some(Self::Asim)
+        } else if has("TimeGenerated") || (has("TenantId") && has("SourceSystem")) {
+            Some(Self::Sentinel)
+        } else if has("EventID")
+            && !has("event.code")
+            && [
+                "Image",
+                "CommandLine",
+                "TargetUserName",
+                "SubjectUserName",
+                "Channel",
+            ]
+            .iter()
+            .any(|f| has(f))
+        {
+            // Windows' own names, even inside a Beats envelope that names its version.
+            Some(Self::Sigma)
+        } else if share(Self::ECS_ROOTS) >= 40
+            || (has("ecs.version") && share(Self::ECS_ROOTS) >= 20)
+        {
+            Some(Self::Ecs)
+        } else if ["src_ip", "dst_ip", "dst_port"].iter().any(|f| has(f)) {
+            // Sigma's taxonomy for firewalls and proxies.
+            Some(Self::Sigma)
+        } else if has("sourcetype") && (has("_time") || has("host")) {
+            Some(Self::Splunk)
+        } else if has("EventID")
+            && [
+                "Image",
+                "CommandLine",
+                "TargetUserName",
+                "SubjectUserName",
+                "Channel",
+            ]
+            .iter()
+            .any(|f| has(f))
+        {
+            Some(Self::Sigma)
+        } else {
+            None
+        }
+    }
 }
 
 impl fmt::Display for Schema {
@@ -113,6 +191,48 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_guess_follows_the_names_each_convention_uses_and_admits_when_they_say_nothing() {
+        let guess = |names: &[&str]| Schema::guess(names.iter().copied());
+        assert_eq!(
+            guess(&["EventID", "Image", "CommandLine"]),
+            Some(Schema::Sigma)
+        );
+        assert_eq!(
+            guess(&[
+                "@timestamp",
+                "event.code",
+                "process.executable",
+                "host.name"
+            ]),
+            Some(Schema::Ecs)
+        );
+        assert_eq!(
+            guess(&["TimeGenerated", "Computer", "EventID", "Account"]),
+            Some(Schema::Sentinel),
+            "a Sentinel table, even with Windows columns"
+        );
+        assert_eq!(
+            guess(&["TimeGenerated", "EventSchema", "SrcIpAddr"]),
+            Some(Schema::Asim)
+        );
+        assert_eq!(
+            guess(&["class_uid", "activity_id", "src_endpoint.ip"]),
+            Some(Schema::Ocsf)
+        );
+        assert_eq!(
+            guess(&["metadata.event_type", "principal.ip"]),
+            Some(Schema::Udm)
+        );
+        assert_eq!(
+            guess(&["ecs.version", "agent.type", "EventID", "Channel", "Image"]),
+            Some(Schema::Sigma),
+            "Windows names in a Beats envelope"
+        );
+        assert_eq!(guess(&["message", "host"]), None);
+        assert_eq!(guess(&[]), None);
     }
 
     #[test]

@@ -1,0 +1,5 @@
+id: linux/auth
+description: "A Linux auth log (/var/log/auth.log, /var/log/secure) as one source, with the lines of sshd, sudo, PAM and cron"
+logsource: { product: linux, service: auth }
+convention: sigma
+include: [linux/sshd, linux/sudo, linux/pam-session, linux/cron]
