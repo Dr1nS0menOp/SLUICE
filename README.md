@@ -67,8 +67,8 @@ browser).
 
 ```sh
 # 1. Install: one static binary (packages and a container image below)
-curl -fLO https://github.com/Dr1nS0menOp/SLUICE/releases/download/v1.0.0/sluice-1.0.0-$(uname -m)-unknown-linux-musl
-mkdir -p ~/.local/bin && install -m 0755 sluice-1.0.0-$(uname -m)-unknown-linux-musl ~/.local/bin/sluice
+curl -fLO https://github.com/Dr1nS0menOp/SLUICE/releases/download/v1.1.0/sluice-1.1.0-$(uname -m)-unknown-linux-musl
+mkdir -p ~/.local/bin && install -m 0755 sluice-1.1.0-$(uname -m)-unknown-linux-musl ~/.local/bin/sluice
 
 # 2. See it work on an hour of synthetic traffic with six planted attacks
 sluice demo --scale 100
@@ -171,21 +171,21 @@ binary:
 
 ```sh
 # The binary, with its SHA-256 sum
-version=1.0.0 file=sluice-1.0.0-$(uname -m)-unknown-linux-musl
+version=1.1.0 file=sluice-1.1.0-$(uname -m)-unknown-linux-musl
 curl -fLO "https://github.com/Dr1nS0menOp/SLUICE/releases/download/v$version/$file"
 curl -fLO "https://github.com/Dr1nS0menOp/SLUICE/releases/download/v$version/$file.sha256"
 sha256sum --check "$file.sha256" && mkdir -p ~/.local/bin && install -m 0755 "$file" ~/.local/bin/sluice
 
 # A package, in /usr/bin/sluice
-sudo apt install ./sluice_1.0.0_amd64.deb        # Debian, Ubuntu (arm64: _arm64.deb)
-sudo dnf install ./sluice-1.0.0-1.x86_64.rpm     # Fedora, RHEL (aarch64: .aarch64.rpm)
+sudo apt install ./sluice_1.1.0_amd64.deb        # Debian, Ubuntu (arm64: _arm64.deb)
+sudo dnf install ./sluice-1.1.0-1.x86_64.rpm     # Fedora, RHEL (aarch64: .aarch64.rpm)
 
 # The container image, linux/amd64 and arm64, without privileges
-docker run --rm -u "$(id -u)" -v "$PWD:/work" ghcr.io/dr1ns0menop/sluice:1.0.0 demo
+docker run --rm -u "$(id -u)" -v "$PWD:/work" ghcr.io/dr1ns0menop/sluice:1.1.0 demo
 ```
 
 Every file and the image carry a GitHub attestation of the workflow and commit that built them,
-and `sluice-1.0.0.cdx.json` lists what the binary is built from
+and `sluice-1.1.0.cdx.json` lists what the binary is built from
 ([ADR 0040](docs/adr/0040-release-artifacts.md)):
 
 ```sh

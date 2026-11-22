@@ -368,7 +368,7 @@ sluice prove --config sluice/vector.yaml --input samples/ --sources sources.yaml
 On GitHub:
 
 ```yaml
-- uses: Dr1nS0menOp/SLUICE@v1.0.0
+- uses: Dr1nS0menOp/SLUICE@v1.1.0
   with:
     config: sluice/vector.yaml
     input: samples
@@ -399,7 +399,7 @@ sluice verify --analysis out --input samples-today --sources sources.yaml \
 compares the savings:
 
 ```
-out/plan.json (Sluice 1.0.0) on samples-today
+out/plan.json (Sluice 1.1.0) on samples-today
   proof   41 alerts on full data, 41 on forwarded data
   rules   1 new, 0 read differently, 0 gone since the plan
   new     elastic:0a1b2c3d-…
