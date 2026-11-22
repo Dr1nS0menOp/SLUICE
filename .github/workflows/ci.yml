@@ -83,7 +83,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.15"
       - run: pip install uv==0.12.24
       - run: bash scripts/mcp-check.sh
 
@@ -96,7 +96,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.15"
       - run: pip install pysigma==2.0.0
       - run: bash scripts/sigma-differential.sh
       - run: bash scripts/sigma-differential.sh --sigmahq
