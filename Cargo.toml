@@ -52,7 +52,7 @@ serde_yaml_ng = "0.10"
 sha2 = "0.10"
 thiserror = "2"
 ureq = "3"
-vrl = { version = "=0.36.0", default-features = false, features = ["compiler", "stdlib-base"] }
+vrl = { version = "=0.39.0", default-features = false, features = ["compiler", "stdlib-base"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
