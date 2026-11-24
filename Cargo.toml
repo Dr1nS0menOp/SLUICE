@@ -40,7 +40,7 @@ jsonschema = { version = "0.38", default-features = false }
 proptest = "1"
 quick-xml = "0.42"
 regex = "1"
-rsigma-eval = "=0.24.0"
+rsigma-eval = "=0.28.0"
 rustix = { version = "1", features = ["process"] }
 # JSON Schema for the recipe spec.
 schemars = "1"
