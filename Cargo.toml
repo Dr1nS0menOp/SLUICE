@@ -44,7 +44,7 @@ rsigma-eval = "=0.24.0"
 rustix = { version = "1", features = ["process"] }
 # JSON Schema for the recipe spec.
 schemars = "1"
-rsigma-parser = "=0.24.0"
+rsigma-parser = "=0.28.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"
