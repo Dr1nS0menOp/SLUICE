@@ -36,7 +36,7 @@ anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["alloc", "std"] }
 clap = { version = "4", features = ["derive"] }
 # Checks plan.json against docs/plan.schema.json in tests; rsigma already depends on it.
-jsonschema = { version = "0.38", default-features = false }
+jsonschema = { version = "0.63", default-features = false }
 proptest = "1"
 quick-xml = "0.42"
 regex = "1"
